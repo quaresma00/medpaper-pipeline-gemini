@@ -144,6 +144,14 @@ def _offenders(text: str, floats, strings, allowed) -> list[tuple[int, str]]:
 # ---------------------------------------------------------------------------
 @check("numbers_have_provenance")
 def numbers_have_provenance(ctx: Ctx) -> Result:
+    source = ctx.spec.get("source", "markdown")
+    if source != "tables":
+        rel = ctx.spec["path"]
+        if not ctx.p(rel).exists():
+            if ctx.spec.get("optional", False):
+                return Result(True, "numbers_have_provenance", f"{rel}: optional file absent")
+            return Result(False, "numbers_have_provenance", f"{rel} missing")
+
     floats, strings, sources = _pool(ctx)
     if not sources:
         return Result(
@@ -153,8 +161,6 @@ def numbers_have_provenance(ctx: Ctx) -> Result:
             ["Analysis code must dump every reported statistic to JSON before any prose is written."],
         )
     allowed = _allowlist(ctx)
-    source = ctx.spec.get("source", "markdown")
-
     if source == "tables":
         offenders = []
         for p in ctx.glob("04_tables/main/*.xlsx") + ctx.glob("04_tables/supplementary/*.xlsx"):
@@ -181,9 +187,6 @@ def numbers_have_provenance(ctx: Ctx) -> Result:
             )
         return Result(True, "numbers_have_provenance", f"all table values trace to {len(sources)} result file(s)")
 
-    rel = ctx.spec["path"]
-    if not ctx.p(rel).exists():
-        return Result(False, "numbers_have_provenance", f"{rel} missing")
     bad = _offenders(ctx.read(rel), floats, strings, allowed)
     if bad:
         shown = "; ".join(f"line {ln}: {tok}" for ln, tok in bad[:10])
@@ -279,3 +282,4 @@ def _is_num(v) -> bool:
         return True
     except (TypeError, ValueError):
         return False
+

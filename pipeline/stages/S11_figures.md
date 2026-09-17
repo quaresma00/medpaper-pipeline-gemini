@@ -47,7 +47,7 @@ save(fig, "project/05_figures/out/Figure1", width="double", archetype="box_jitte
    their axes are not guaranteed to line up.
 4. **Deterministic QC first.** Fix everything code can detect before spending a look:
 ```
-python tools/figures/qc.py --all
+uv run python tools/figures/qc.py --all
 ```
    From the rendered PNG: effective dpi against the target column width, content bounding
    box and the four margins, margin asymmetry, edge clipping, and mid-grey text-like
@@ -60,22 +60,34 @@ python tools/figures/qc.py --all
    figure does not have - add it, or change the archetype if you picked the wrong one.
 5. **Then look.** Open the rendered PNG as an image and inspect it:
    `read_file project/05_figures/out/Figure1.png`. For a suspect panel, crop it first
-   (`python tools/figures/qc.py --crop Figure1 --panel B`) and look at the crop rather
+   (`uv run python tools/figures/qc.py --crop Figure1 --panel B`) and look at the crop rather
    than squinting at the whole plate. Check: fonts and missing glyphs; overlapping or
    clipped labels; legend placement and completeness; axis ranges, tick density, units,
    log labelling; colour consistency, colour-blind safety, greyscale legibility; margins
    and stray whitespace; panel alignment and panel-letter placement; line widths; point
    size, overplotting, transparency; significance markers and bracket heights; leftover
    explanatory text; overall resolution and aliasing.
+   ImageGen may participate as a second visual critic when available, especially for clutter,
+   hierarchy, contrast, clipping, text density and journal-native appearance. Treat its
+   comments as review findings only. It must not redraw, regenerate, inpaint or otherwise
+   edit a statistical figure, because that could change data geometry, labels or meaning.
+   Apply accepted fixes in the plotting script and inspect the new deterministic render.
 6. Fix the **script**, re-render, re-run QC, look again. Repeat until clean. Say in each
    round which findings came from QC and which came from looking.
-7. **Keep panels clean without bloating legends.** Visual panels must remain uncluttered:
-   axis titles and units, tick labels, panel letters (A, B...), and group keys.
-   Do NOT move long methodological explanations, cohort screening narratives, statistical recipes,
-   or empirical results data into `05_figures/legends.md`. Figure legends must remain strictly
-   minimal visual guides (40–80 words). Do NOT append Abbreviations lists to legends (abbreviations
-   belong in Declarations and Statements). Log panel text cleanup in
-   `project/05_figures/moved_to_legend.md` only for true visual legend definitions (e.g. "dashed line = null effect").
+7. **Strip explanatory text from the panels.** Move only information needed to decode the
+   figure to the legend: essential test/error-bar/threshold definitions, what a reference
+   line means, and only a short abbreviation clause. Detailed adjustment sets, cohort provenance, software
+   versions, interpretation and general caveats belong in Methods or supplementary Methods;
+   do not dump them into the legend. Log every panel removal in
+   `project/05_figures/moved_to_legend.md` as `Figure N | removed text | now in legend`,
+   and record its correct prose destination in the same edit. Never fix this by greying the
+   text down. Keep each legend within the configured 180-word ceiling. The legend identifies
+   the display, maps panels and decodes symbols; it must not repeat which group was higher,
+   restate an association, or reproduce effect estimates already reported in Results.
+   Panel text that stays: axis titles and units, tick labels, panel letters, group labels,
+   legend entries, significance markers, key data values (n, HR with CI, AUC, r), and
+   guideline-mandated in-figure content (KM risk tables, CONSORT/PRISMA box text, scale
+   bars). All of it black or near-black, at or above the size floor.
 8. Write `project/05_figures/manifest.json`:
 ```json
 {"built_at": "", "figures": [{"id": "Figure 1", "script": "", "png": "", "tiff": "",
@@ -83,7 +95,7 @@ python tools/figures/qc.py --all
 ```
 9. Mark the visual review as done only after you have genuinely looked at every figure:
 ```
-python tools/wf.py decide figures_visually_confirmed YES --why "<per figure: what you saw and what you changed>"
+uv run python tools/wf.py decide figures_visually_confirmed YES --why "<per figure: what you saw and what you changed>"
 ```
 10. Delete scratch renders from `project/temp/`.
 
@@ -96,16 +108,17 @@ python tools/wf.py decide figures_visually_confirmed YES --why "<per figure: wha
 ## Hard rules
 - Never claim visual verification without having loaded the image. If the image cannot be
   loaded, say exactly that and report only the deterministic findings.
+- ImageGen feedback never satisfies the visual-review decision by itself and never replaces
+  source-code correction plus a fresh render.
 - Never fix a layout problem by shrinking fonts below the floor or by nudging a single
   label's coordinates. Fix the layout structure (gridspec ratios, panel spans, SubFigure
   composition).
 - No 3-D decoration, no gratuitous gridlines, no chartjunk.
-- **Legends must NOT duplicate Results or Methods**: zero empirical outcome numbers, zero percentages, zero odds ratios, zero P-values. Figure legends are strictly optical guides so readers can understand the chart visual elements (40–80 words).
-- **No Abbreviations lists in Legends**: all abbreviations are centralized in Declarations and Statements (`statements.md`).
 - Do not add a figure that is not in the artifact plan.
 
 ## Close
 ```
-python tools/wf.py check
-python tools/wf.py advance --note "K figures rendered; QC clean; visually reviewed (rounds: <...>); moved to legend: <n> items"
+uv run python tools/wf.py check
+uv run python tools/wf.py advance --note "K figures rendered; QC clean; visually reviewed (rounds: <...>); moved to legend: <n> items"
 ```
+

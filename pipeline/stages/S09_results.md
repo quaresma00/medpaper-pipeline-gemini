@@ -37,6 +37,7 @@ result JSONs and then reconciled at S12 once the files exist.
 
 ## Close
 ```
-python tools/wf.py check
-python tools/wf.py advance --note "results drafted; primary: <estimate, CI, p>; all <n> display items cited"
+uv run python tools/wf.py check
+uv run python tools/wf.py advance --note "results drafted; primary: <estimate, CI, p>; all <n> display items cited"
 ```
+

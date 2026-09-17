@@ -58,16 +58,19 @@ primary outcome definitions, primary analysis population and model, and essentia
 of bias, missingness or multiplicity.
 
 Create `07_manuscript/supplementary_methods.md` only when necessary. Good candidates include
-complete database search strings, laboratory or assay protocols, algorithm pseudocode,
-extended sensitivity specifications, and qualitative topic guides.
-
-**Table Segregation & Cleanliness Rule**:
-- **Never embed raw markdown data tables into `supplementary_methods.md`**. Code lists (ICD, CPT, ATC), variable dictionaries, and parameter grids must be formatted as publication-grade three-line tables in `04_tables/supplementary/supplementary_tables.xlsx` (assigned Table S1, Table S2, etc.). Reference them in prose (e.g. *"Full diagnostic ICD-10 code definitions are detailed in Supplementary Table S1"*).
-- **Never use horizontal dividing rules (`---` or `***`)**. Rely solely on markdown headings (`##`, `###`) for section organization, preventing ugly line artifacts in compiled Word documents.
-
-Refer to the supplement once at the relevant point in the
+complete database search strings, long diagnosis/procedure code lists, full laboratory or
+assay protocols, algorithm pseudocode, tuning grids, full imputation models, extended
+sensitivity specifications, long subgroup definitions, questionnaires/interview guides, and
+a full statistical analysis plan. Refer to the supplement once at the relevant point in the
 main Methods. Do not duplicate paragraphs across both files, and never use the supplement to
 hide a primary design or analysis choice.
+
+Supplementary Methods is a prose document, not a container for display tables. If code lists,
+parameter grids, variable definitions or sensitivity specifications are best compared in rows
+and columns, plan them as `Table S*` in `artifact_plan.json`, build them in the single
+three-line supplementary workbook, and cite that table from the prose. Do not embed Markdown,
+HTML, grid or Word tables in supplementary Methods. Do not use Markdown thematic breaks
+(`---`, `***`, `___`); ordinary paragraph and section spacing must carry the structure.
 
 ## Structural evidence from published designs
 

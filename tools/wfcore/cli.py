@@ -19,6 +19,27 @@ from .state import State
 
 BAR = "=" * 78
 DASH = "-" * 78
+STAGE_ALIASES = {
+    # v1.2 combined title/author/journal work differently. Any active legacy tail stage
+    # returns to canonical assembly so the independent and human review gates cannot be
+    # skipped during an in-place engine upgrade.
+    "S17_frontmatter": "S17_assemble",
+    "S18_journal": "S17_assemble",
+    "S19_polish": "S17_assemble",
+    "S20_package": "S17_assemble",
+}
+NON_OVERRIDABLE_GATES = {
+    "data_acquisition_complete",
+    "reference_provenance",
+    "refs_library",
+    "bib_ris_match_library",
+    "citekeys_resolve",
+    "revision_rounds_closed",
+    "s19_review_release_explicit",
+    "scientific_master_frozen",
+    "scientific_master_unchanged",
+    "journal_workspace_ready",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -32,6 +53,23 @@ def _load(need_state: bool = True):
     st = State(proj, pipe.layout.get("state_dir", ".wf"))
     if need_state:
         st.load()
+        previous_version = str(st.data.get("pipeline_version", "unknown"))
+        st.migrate_pipeline(str(pipe.meta.get("version", "0")),
+                            [stage.id for stage in pipe.stages], STAGE_ALIASES)
+        # v1.4 introduces the S19 scientific-master freeze and derived per-journal sources.
+        # A legacy run already in the journal tail cannot prove that its 07_manuscript files
+        # were not polished in place, so return it to S19 without deleting any artifact.
+        if (previous_version != str(pipe.meta.get("version", "0")) and
+                st.current in {stage.id for stage in pipe.stages[pipe.stage("S20_journal").index:]} and
+                not (proj / "07_manuscript/scientific_master_freeze.json").is_file()):
+            later = [stage.id for stage in pipe.stages_after("S19_human_review")]
+            st.reset_forward(later)
+            st.clear_decisions_for(later)
+            st.rewind(
+                "S19_human_review",
+                "pipeline v1.4 requires review/freeze of the scientific master before "
+                "journal-specific integration work",
+            )
     return pipe, st, proj
 
 
@@ -86,13 +124,13 @@ def cmd_init(args) -> int:
     st = State(proj, pipe.layout.get("state_dir", ".wf"))
     if st.exists() and not args.force:
         print(f"run state already exists at {paths.rel(st.file)}")
-        print("use --force to reset (this does not delete your artifacts)")
-        return 1
+        print("keeping existing artifacts and state; use --force only to reset intentionally")
+        return 0
     for name in pipe.layout.get("dirs", {}):
         (proj / name).mkdir(parents=True, exist_ok=True)
         (proj / name / ".gitkeep").touch()
     for sub in (
-        "02_data/raw", "02_data/derived", "03_analysis/code", "03_analysis/results",
+        "02_data/raw", "02_data/acquisition", "02_data/derived", "03_analysis/code", "03_analysis/results",
         "04_tables/main", "04_tables/supplementary", "05_figures/code", "05_figures/out",
         "05_figures/qc", "06_refs/cache", "06_refs/fulltext", "06_refs/deepread",
         "08_submission/cache", "08_submission/bundle",
@@ -105,7 +143,7 @@ def cmd_init(args) -> int:
     st.create(pipe.meta.get("name", "pipeline"), pipe.meta.get("version", "0"), pipe.first().id)
     print(f"initialised {pipe.meta.get('name')} {pipe.meta.get('version')} at {paths.rel(proj)}")
     print(f"current stage: {pipe.first().id}")
-    print("\nnext:  python tools/wf.py status")
+    print("\nnext:  uv run uv run python tools/wf.py status")
     return 0
 
 
@@ -142,7 +180,7 @@ def cmd_status(args) -> int:
     print(f"GATE  ({len(results) - blocking - warned}/{len(results)} passing"
           + (f", {warned} warning(s)" if warned else "") + ")")
     if ok:
-        print("  gate is GREEN -> you may run:  python tools/wf.py advance --note \"...\"")
+        print("  gate is GREEN -> you may run:  uv run uv run python tools/wf.py advance --note \"...\"")
     else:
         _gate_lines([r for r in results if not r.ok])
     print()
@@ -224,6 +262,32 @@ def cmd_advance(args) -> int:
     stage = pipe.stage(st.current)
     results = gates.run_stage(pipe, st, proj, stage)
     ok, blocking, _ = gates.summarize(results)
+    non_overridable_failures = [r for r in results if r.blocking and
+                                r.check in NON_OVERRIDABLE_GATES]
+    if non_overridable_failures:
+        print(f"refusing to advance: {len(non_overridable_failures)} non-overridable "
+              f"gate(s) failed in {stage.id}")
+        print(DASH)
+        _gate_lines(non_overridable_failures)
+        print(DASH)
+        failed_names = {result.check for result in non_overridable_failures}
+        if "data_acquisition_complete" in failed_names:
+            print("--force cannot waive full-data acquisition. Acquire the complete "
+                  "protocol-defined universe and exhaust pagination; if access is truly "
+                  "source-limited, obtain and record the user's explicit authorization.")
+        reference_failures = failed_names & {
+            "reference_provenance", "refs_library", "bib_ris_match_library", "citekeys_resolve"
+        }
+        if reference_failures:
+            print("--force cannot waive bibliographic provenance. Re-fetch the real PubMed "
+                  "record or remove/replace the citation.")
+        if "revision_rounds_closed" in failed_names:
+            print("--force cannot waive an unfinished revision round. Complete every recorded "
+                  "item, return through its gates, and close the round at the review stage.")
+        if "s19_review_release_explicit" in failed_names:
+            print("--force cannot waive S19 review. Present the current versioned ZIP and exact "
+                  "artifact paths, then wait for the user's explicit no-further-review statement.")
+        return 2
     if not ok and not args.force:
         print(f"refusing to advance: {blocking} blocking issue(s) in {stage.id}")
         print(DASH)
@@ -235,7 +299,7 @@ def cmd_advance(args) -> int:
     note = args.note
     if pipe.policy.get("handoff_required", True) and not note and not st.notes_for(stage.id):
         print("refusing to advance: no handoff note recorded for this stage.")
-        print('  python tools/wf.py advance --note "what was produced, what was decided, what is still open"')
+        print('  uv run uv run python tools/wf.py advance --note "what was produced, what was decided, what is still open"')
         print("A handoff note is how the next session (or the next you, post-compaction) picks this up.")
         return 2
     if note:
@@ -249,7 +313,7 @@ def cmd_advance(args) -> int:
     st.complete(stage.id, nxt.id if nxt else None)
     if nxt:
         print(f"{stage.id} closed. now at {nxt.id} - {nxt.title}")
-        print("\nnext:  python tools/wf.py status")
+        print("\nnext:  uv run uv run python tools/wf.py status")
     else:
         print(f"{stage.id} closed. pipeline complete.")
     return 0
@@ -263,17 +327,12 @@ def cmd_loop(args) -> int:
         print(f"{target.id} is ahead of {cur.id}; use advance, not loop")
         return 1
     st.add_note(f"[LOOP] returning to {target.id}: {args.why}", cur.id)
-    st.reset_forward([s.id for s in pipe.stages_after(target.id)])
+    reset_ids = [target.id, *[s.id for s in pipe.stages_after(target.id)]]
+    st.reset_forward(reset_ids[1:])
+    st.clear_decisions_for(reset_ids)
     st.rewind(target.id, args.why)
     print(f"returned to {target.id} - {target.title}")
     print("stages after it are pending again; their artifacts were left untouched")
-    return 0
-
-
-def cmd_route(args) -> int:
-    from .router import route_request, format_route_report
-    decision = route_request(args.request, getattr(args, "stage", None))
-    print(format_route_report(decision, args.request))
     return 0
 
 
@@ -362,6 +421,27 @@ def cmd_doctor(args) -> int:
     rows.append(("pipeline.toml", "ok" if paths.pipeline_file().exists() else "MISSING",
                  paths.rel(paths.pipeline_file())))
 
+    root = paths.repo_root()
+    agent_files = [
+        root / "AGENTS.md",
+        root / ".agents/skills/medpaper-pipeline/SKILL.md",
+    ]
+    missing_agent = [p.relative_to(root).as_posix() for p in agent_files if not p.is_file()]
+    rows.append(("Agent integration", "ok" if not missing_agent else "MISSING",
+                 "repository skill + instructions present" if not missing_agent else
+                 "absent: " + ", ".join(missing_agent)))
+
+    obsolete = (
+        root / ".agents/AGENTS.md",
+        root / ".medpaper-target",
+        root / "tools/install_adapters.py",
+        root / "tools/hooks/skill_guard.py",
+        root / "reference/skill_policy.toml",
+    )
+    present_obsolete = [p.relative_to(root).as_posix() for p in obsolete if p.exists()]
+    rows.append(("legacy adapters", "ok" if not present_obsolete else "BROKEN",
+                 "none" if not present_obsolete else "remove: " + ", ".join(present_obsolete)))
+
     missing_cards = [s.id for s in pipe.stages if not s.card_path().exists()]
     rows.append(("stage cards", "ok" if not missing_cards else "MISSING",
                  f"{len(pipe.stages) - len(missing_cards)}/{len(pipe.stages)} present"
@@ -382,12 +462,13 @@ def cmd_doctor(args) -> int:
     sci = _science_python()
     rows.append(("science venv", "ok" if sci else "absent",
                  str(sci) if sci else "create it: uv venv .venv"))
-    mods = ("matplotlib", "numpy", "openpyxl", "pandas", "scipy")
+    mods = ("matplotlib", "numpy", "openpyxl", "pandas", "scipy", "docx")
     if sci:
         found = _probe_modules(sci, mods)
         for mod in mods:
             why = {"matplotlib": "figures", "numpy": "figures/QC", "openpyxl": "tables",
-                   "pandas": "analysis", "scipy": "QC grey-region labelling (optional)"}[mod]
+                   "pandas": "analysis", "scipy": "QC grey-region labelling (optional)",
+                   "docx": "deterministic Word submission files"}[mod]
             ok = found.get(mod)
             status = "ok" if ok else ("absent" if mod == "scipy" else "MISSING")
             rows.append((f"  {mod}", status, why if ok else
@@ -508,11 +589,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--why", required=True)
     p.set_defaults(fn=cmd_loop)
 
-    p = sub.add_parser("route", help="route modification request to earliest affected stage and prescribe loop")
-    p.add_argument("request", help="user modification request description")
-    p.add_argument("--stage", help="explicit target stage if known")
-    p.set_defaults(fn=cmd_route)
-
     p = sub.add_parser("note", help="append to the handoff log")
     p.add_argument("text")
     p.set_defaults(fn=cmd_note)
@@ -563,3 +639,4 @@ def main(argv: list[str] | None = None) -> int:
     except KeyError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+

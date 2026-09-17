@@ -13,9 +13,9 @@ the effect size and the data's limits are known. This is the last cheap exit.
    one line each. This becomes the honest basis for any "pre-specified" claim in Methods.
 3. Confirm the analysis is finished:
 ```
-python tools/wf.py decide analysis_converged YES --why "<what was the last analysis, why nothing further would change the conclusion>"
+uv run python tools/wf.py decide analysis_converged YES --why "<what was the last analysis, why nothing further would change the conclusion>"
 ```
-   If it is not converged: `python tools/wf.py loop --to S05_analysis --why "..."`.
+   If it is not converged: `uv run python tools/wf.py loop --to S05_analysis --why "..."`.
 4. Re-judge publishability against the real result, not the hoped-for one:
    - Is the primary result interpretable (direction, magnitude, precision)?
    - A null result is publishable if the question mattered and the study was adequately
@@ -23,7 +23,7 @@ python tools/wf.py decide analysis_converged YES --why "<what was the last analy
    - Does the finding survive the sensitivity analyses?
    - Has the gap from S02 changed now that you know the effect size?
 ```
-python tools/wf.py decide go_nogo_2 GO --why "<the finding, its precision, why a journal takes it, which journal tier is realistic>"
+uv run python tools/wf.py decide go_nogo_2 GO --why "<the finding, its precision, why a journal takes it, which journal tier is realistic>"
 ```
 
 ## Outputs
@@ -38,6 +38,7 @@ python tools/wf.py decide go_nogo_2 GO --why "<the finding, its precision, why a
 
 ## Close
 ```
-python tools/wf.py check
-python tools/wf.py advance --note "protocol final; K deviations; go_nogo_2=<...>; realistic tier=<...>"
+uv run python tools/wf.py check
+uv run python tools/wf.py advance --note "protocol final; K deviations; go_nogo_2=<...>; realistic tier=<...>"
 ```
+

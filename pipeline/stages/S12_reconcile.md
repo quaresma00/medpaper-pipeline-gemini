@@ -8,7 +8,7 @@ a table the prose describes differently from how it was built.
 ## Procedure
 1. Run the gate first; it does the mechanical part:
 ```
-python tools/wf.py check
+uv run python tools/wf.py check
 ```
    - `artifact_refs_consistent` with `require_rendered`: every cited item exists on disk,
      every planned item is cited, nothing cited that was not planned.
@@ -37,5 +37,6 @@ python tools/wf.py check
 
 ## Close
 ```
-python tools/wf.py advance --note "reconciled <n> display items; <k> discrepancies fixed: <...>"
+uv run python tools/wf.py advance --note "reconciled <n> display items; <k> discrepancies fixed: <...>"
 ```
+

@@ -9,24 +9,34 @@ Everything the Introduction and Discussion say about the literature comes from h
    and its burden, what is already known, the prior work this study extends, the
    methodological citations already used in Methods, the papers your findings agree with,
    the papers they disagree with, and the guideline/definition sources.
-2. Build it. The script searches, fetches full records, generates citekeys, drops records
-   with no abstract, and caches every raw payload:
+2. Build it. Discovery tools may suggest titles, DOI values or queries, but they do not
+   populate the formal library. The script searches, fetches full records, generates
+   citekeys, drops records with no abstract, and caches every raw payload:
 ```
-python tools/pubmed/build_library.py --topic "<core topic>" --target 50
-python tools/pubmed/build_library.py --add-query "<gap area>" --target 50
-python tools/pubmed/build_library.py --add-ids 12345678,23456789
+uv run python tools/pubmed/build_library.py --topic "<core topic>" --target 50
+uv run python tools/pubmed/build_library.py --add-query "<gap area>" --target 50
+uv run python tools/pubmed/build_library.py --add-ids 12345678,23456789
 ```
    Anything already cited in `feasibility.md`, `method_scan.md` or `methods.md` is pulled in
    automatically so no existing citekey is orphaned.
 3. Verify every entry against the source of record. This is what makes a citekey usable:
 ```
-python tools/pubmed/verify.py
+uv run python tools/pubmed/verify.py
 ```
-   It re-fetches each PMID/DOI, compares title/journal/year/authors, and writes
-   `06_refs/verified.json`. Entries that fail are quarantined, not patched.
+   This command always performs a fresh PubMed EFetch, compares PMID, DOI, title, journal,
+   year, first author and abstract status, and writes `06_refs/verified.json` together with
+   the exact `library.json` hash and hashes/fingerprints of the cached raw PubMed XML.
+   Confirm the stored proof by running:
+```
+uv run python tools/pubmed/verify.py --check
+```
+   `verified: true` by itself has no authority. The S13 gate independently contacts PubMed
+   a second time and recomputes the comparisons. If NCBI cannot be reached, the gate fails
+   closed; it must never be replaced with a handwritten boolean, fabricated DOI, copied
+   metadata, or an alternate script. Entries that fail are quarantined, not patched.
 4. Export both formats from `library.json` - never hand-edit them:
 ```
-python tools/pubmed/build_library.py --export
+uv run python tools/pubmed/build_library.py --export
 ```
 5. Read the abstracts. Update `03_analysis/notes.md` (`Introduction points`,
    `Discussion points`) with what the literature actually says, tagging each point with the
@@ -42,25 +52,20 @@ python tools/pubmed/build_library.py --export
 ## Hard rules
 - **No abstract, no entry.** A record without a retrievable abstract is removed from the
   library. Do not write a summary and call it the abstract.
-- **Strict Zero-Fabrication & Cryptographic Provenance (严禁虚假文献与旁路造假)**:
-  - NEVER invent, guess, or synthesize a citekey, PMID, DOI, title, journal, or year.
-  - NEVER write rogue bypass scripts to touch `verified.json` or force `"verified": true`.
-  - `06_refs/verified.json` is protected by a cryptographic provenance signature (`provenance_digest`)
-    bound to the SHA-256 hashes of raw NCBI XML cache files. Any manual or script-based tampering
-    causes instant cryptographic signature failure and a fatal gate block.
-  - Every cited reference is physically cross-checked against raw NCBI XML caches during gates and final audit.
-  - If a needed reference is missing, follow the ONLY legal protocol:
-    1. Search PubMed: `uv run python tools/pubmed/client.py search --query "..."`
-    2. Add real PMID: `uv run python tools/pubmed/build_library.py --add-ids <PMID>`
-    3. Verify & sign: `uv run python tools/pubmed/verify.py`
-    4. Re-export bib: `uv run python tools/pubmed/build_library.py --export`
+- Never invent, guess or "reconstruct" a citekey, PMID, DOI, title, journal or year.
+- Never write or modify `library.json`, `verified.json`, `refs.bib` or `refs.ris` with an
+  ad-hoc script. Only `tools/pubmed/build_library.py` and `tools/pubmed/verify.py` may produce
+  them. A green Pandoc build is not evidence that a citation exists.
+- A plugin result becomes citable only after the bundled tools independently fetch and
+  verify it into `library.json` and `verified.json`.
 - Do not pad to hit the count. If genuine coverage is 42 papers, lower the target:
-  `python tools/wf.py config set reflib_min 40`.
+  `uv run python tools/wf.py config set reflib_min 40`.
 - Retracted or expression-of-concern records must be flagged in `library.json` and not
   cited as evidence.
 
 ## Close
 ```
-python tools/wf.py check
-python tools/wf.py advance --note "library: <n> verified entries with abstracts; coverage gaps: <...>"
+uv run python tools/wf.py check
+uv run python tools/wf.py advance --note "library: <n> fresh-PubMed-proven entries with abstracts; independent live gate passed; coverage gaps: <...>"
 ```
+

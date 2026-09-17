@@ -83,7 +83,6 @@ def main() -> int:
             print("\n!! dependency install failed. The workflow driver still works "
                   "(it is stdlib only); figures and tables will not.")
 
-    run([sys.executable, "tools/install_adapters.py"], "wire the agent adapters")
     run([sys.executable, "tools/wf.py", "init"], "scaffold project/ and create run state",
         optional=True)
     run([sys.executable, "tools/wf.py", "doctor"], "environment check", optional=True)
@@ -93,7 +92,7 @@ def main() -> int:
 
     print("\n" + "=" * 74)
     print("Start work with:")
-    print("    python tools/wf.py status")
+    print("    uv run python tools/wf.py status")
     print("\nThen put your research idea file in project/00_input/ and follow the stage card.")
     print("=" * 74)
     return 0

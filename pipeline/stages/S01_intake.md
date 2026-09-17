@@ -52,6 +52,7 @@ later stage argues against the same target instead of a remembered paraphrase.
 
 ## Close
 ```
-python tools/wf.py check
-python tools/wf.py advance --note "idea normalized; design=<x>; unresolved: <...>"
+uv run python tools/wf.py check
+uv run python tools/wf.py advance --note "idea normalized; design=<x>; unresolved: <...>"
 ```
+

@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """Independently verify every library entry against the source of record.
 
-Re-fetches each PMID (and cross-checks the DOI against Crossref), then compares
-title / journal / year / first author. Writes 06_refs/verified.json, which the gates
-treat as the definition of "this reference exists". Failures are quarantined, never
-patched to match.
+Freshly re-fetches each PMID (and optionally cross-checks the DOI against Crossref),
+then compares PMID / DOI / title / journal / year / first author.  The output binds
+the exact library to hashed raw PubMed XML.  Gates reparse that XML and never trust
+the authored ``verified`` boolean by itself.  Failures are quarantined, never patched.
 
-    python tools/pubmed/verify.py
-    python tools/pubmed/verify.py --strict     # also require a DOI/Crossref match
-    python tools/pubmed/verify.py --quarantine # move failures out of library.json
+    uv run python tools/pubmed/verify.py
+    uv run python tools/pubmed/verify.py --strict     # also require a DOI/Crossref match
+    uv run python tools/pubmed/verify.py --quarantine # move failures out of library.json
 """
 from __future__ import annotations
 
 import argparse
 import difflib
-import hashlib
 import json
 import re
 import sys
@@ -24,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pubmed import eutils as eu  # noqa: E402
+from wfcore import refproof  # noqa: E402
 
 TITLE_THRESHOLD = 0.92
 JOURNAL_THRESHOLD = 0.85
@@ -51,6 +51,13 @@ def verify_entry(entry: dict, live: dict | None, strict: bool) -> dict:
             "checks": [],
         }
 
+    pmid_ok = str(entry.get("pmid", "")) == str(live.get("pmid", ""))
+    checks.append({"field": "pmid", "ok": pmid_ok, "expected": live.get("pmid", "")})
+    entry_doi = str(entry.get("doi", "")).strip().casefold()
+    live_doi = str(live.get("doi", "")).strip().casefold()
+    doi_ok = entry_doi == live_doi
+    checks.append({"field": "doi", "ok": doi_ok, "expected": live_doi})
+
     t = ratio(entry.get("title", ""), live.get("title", ""))
     checks.append({"field": "title", "score": round(t, 3), "ok": t >= TITLE_THRESHOLD,
                    "expected": live.get("title", "")})
@@ -67,6 +74,9 @@ def verify_entry(entry: dict, live: dict | None, strict: bool) -> dict:
 
     abs_ok = bool((live.get("abstract") or "").strip())
     checks.append({"field": "abstract_present", "ok": abs_ok})
+    flags_ok = not live.get("flags")
+    checks.append({"field": "citable_status", "ok": flags_ok,
+                   "expected": "no retraction, expression-of-concern or preprint flag"})
 
     result = {
         "verified": all(c["ok"] for c in checks),
@@ -77,6 +87,7 @@ def verify_entry(entry: dict, live: dict | None, strict: bool) -> dict:
         "cache_file": live.get("cache_file", ""),
         "checks": checks,
         "flags": live.get("flags", []),
+        "evidence": refproof.evidence_for_live_record(live),
     }
 
     if strict and entry.get("doi"):
@@ -97,87 +108,13 @@ def verify_entry(entry: dict, live: dict | None, strict: bool) -> dict:
     return result
 
 
-PROVENANCE_SALT = "medpaper-ncbi-provenance-v1-academic-integrity-seal"
-
-
-def compute_file_sha256(path: Path) -> str:
-    """Compute SHA-256 of a raw cache file."""
-    if not path.exists() or not path.is_file():
-        return ""
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def compute_provenance_digest(records: dict, verified_at: str, project_dir: Path) -> tuple[str, list[str]]:
-    """Compute an unforgeable cryptographic provenance digest for all verified records.
-
-    Binds each verified reference to:
-    1. Its real PMID and normalized DOI
-    2. The physical SHA-256 hash of its raw NCBI E-utilities XML cache file
-    3. The verified_at timestamp and internal integrity salt
-    """
-    problems = []
-    tokens = []
-
-    for citekey in sorted(records.keys()):
-        rec = records[citekey]
-        if not rec.get("verified"):
-            continue
-
-        pmid = str(rec.get("pmid", "")).strip()
-        doi = str(rec.get("doi", "")).strip().lower()
-        cache_rel = str(rec.get("cache_file", "")).strip()
-
-        if not cache_rel:
-            problems.append(f"{citekey}: verified entry is missing 'cache_file' proof-of-retrieval")
-            continue
-
-        cache_path = project_dir / cache_rel
-        if not cache_path.exists() or cache_path.stat().st_size == 0:
-            problems.append(f"{citekey}: raw cache file {cache_rel} is missing or empty on disk")
-            continue
-
-        cache_hash = compute_file_sha256(cache_path)
-        token = f"{citekey}|pmid:{pmid}|doi:{doi}|cache:{cache_hash}"
-        tokens.append(token)
-
-    payload = f"{PROVENANCE_SALT}||{verified_at}||" + "||".join(tokens)
-    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    return digest, problems
-
-
-def verify_provenance_signature(data: dict, project_dir: Path) -> tuple[bool, str]:
-    """Validate that verified.json was legitimately produced by verify.py and has not been tampered with."""
-    if not isinstance(data, dict):
-        return False, "verified.json is not a valid JSON object"
-
-    stored_digest = data.get("provenance_digest")
-    if not stored_digest or len(stored_digest) != 64:
-        return False, "missing or invalid 'provenance_digest'; file was not signed by official verify.py"
-
-    verified_at = data.get("verified_at", "")
-    records = data.get("records", {})
-    if not isinstance(records, dict):
-        return False, "malformed 'records' dictionary"
-
-    computed_digest, problems = compute_provenance_digest(records, verified_at, project_dir)
-    if problems:
-        return False, "cache provenance broken: " + "; ".join(problems[:3])
-
-    if stored_digest != computed_digest:
-        return False, "cryptographic signature mismatch (tampering detected: verified.json was modified outside verify.py)"
-
-    return True, f"signature valid ({data.get('n_verified', 0)} references cryptographically tied to raw XML caches)"
-
-
 def main() -> int:
     ap = argparse.ArgumentParser(description="verify every reference against the source API")
     ap.add_argument("--strict", action="store_true", help="also require a Crossref DOI match")
     ap.add_argument("--quarantine", action="store_true",
                     help="move failures from library.json into quarantine.json")
+    ap.add_argument("--check", action="store_true",
+                    help="validate the existing proof without trusting verified=true")
     args = ap.parse_args()
 
     lib_path = eu.refs_dir() / "library.json"
@@ -188,9 +125,19 @@ def main() -> int:
     if not entries:
         eu.die("library.json has no entries")
 
+    if args.check:
+        ok, problems, count = refproof.validate_local_proof(eu.project_root())
+        if not ok:
+            print("reference proof failed:\n  " + "\n  ".join(problems[:20]), file=sys.stderr)
+            return 2
+        print(f"reference proof valid for {count} PubMed record(s)")
+        return 0
+
     pmids = [e["pmid"] for e in entries if e.get("pmid")]
-    print(f"re-fetching {len(pmids)} record(s) from PubMed...")
-    live_recs = eu.efetch(pmids)
+    if len(pmids) != len(entries):
+        eu.die("every library entry must have a PMID before verification")
+    print(f"freshly re-fetching {len(pmids)} record(s) from PubMed...")
+    live_recs = eu.efetch(pmids, fresh=True, purpose="verify")
     live_by_pmid = {r["pmid"]: r for r in live_recs}
 
     records: dict[str, dict] = {}
@@ -202,20 +149,22 @@ def main() -> int:
         if not res["verified"]:
             failures.append((e["citekey"], res.get("reason", "unknown")))
 
-    verified_at = eu.now()
-    proj_dir = eu.project_root()
-    digest, prov_problems = compute_provenance_digest(records, verified_at, proj_dir)
-
     out = {
-        "verified_at": verified_at,
-        "provenance_digest": digest,
-        "engine": "medpaper-ncbi-provenance-engine",
+        "schema": refproof.SCHEMA,
+        "generator": {
+            "tool": refproof.GENERATOR,
+            "mode": "fresh_ncbi_pubmed_efetch",
+            "source": "NCBI PubMed EFetch",
+        },
+        "verified_at": eu.now(),
         "strict": args.strict,
+        "library_sha256": refproof.file_sha256(lib_path),
         "n_entries": len(entries),
         "n_verified": sum(1 for r in records.values() if r["verified"]),
         "records": records,
     }
-    (eu.refs_dir() / "verified.json").write_text(
+    verified_path = eu.refs_dir() / "verified.json"
+    verified_path.write_text(
         json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
 
     print(f"\nverified {out['n_verified']}/{len(entries)}")
@@ -239,9 +188,16 @@ def main() -> int:
                 encoding="utf-8")
             lib["entries"] = keep
             lib_path.write_text(json.dumps(lib, indent=2, ensure_ascii=False), encoding="utf-8")
+            # Quarantine changes the library and therefore invalidates every derived
+            # proof/export.  Remove them instead of leaving stale files that can look
+            # authoritative to a human or an agent.  The next verifier run recreates
+            # the proof from a new source request.
+            for stale in (verified_path, eu.refs_dir() / "refs.bib", eu.refs_dir() / "refs.ris"):
+                stale.unlink(missing_ok=True)
             print(f"\nquarantined {len(removed)} entr{'y' if len(removed) == 1 else 'ies'};"
                   f" library now holds {len(keep)}")
-            print("re-export: python tools/pubmed/build_library.py --export")
+            print("removed stale verified.json/refs.bib/refs.ris")
+            print("re-export and freshly verify the remaining library before continuing")
     else:
         print("\nall entries match the source of record.")
     return 0 if not failures else 2
@@ -249,3 +205,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

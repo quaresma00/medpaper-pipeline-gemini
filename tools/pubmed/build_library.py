@@ -4,11 +4,11 @@
 Records without a retrievable abstract are dropped, not summarized. Citekeys already
 used anywhere in the project are pulled in automatically so no citation is orphaned.
 
-    python tools/pubmed/build_library.py --topic "..." --target 50
-    python tools/pubmed/build_library.py --add-query "..." --target 50
-    python tools/pubmed/build_library.py --add-ids 12345678,23456789
-    python tools/pubmed/build_library.py --export
-    python tools/pubmed/build_library.py --report
+    uv run python tools/pubmed/build_library.py --topic "..." --target 50
+    uv run python tools/pubmed/build_library.py --add-query "..." --target 50
+    uv run python tools/pubmed/build_library.py --add-ids 12345678,23456789
+    uv run python tools/pubmed/build_library.py --export
+    uv run python tools/pubmed/build_library.py --report
 """
 from __future__ import annotations
 
@@ -277,9 +277,10 @@ def main() -> int:
 
     n = len(lib["entries"])
     print(f"\nlibrary now holds {n} entr{'y' if n == 1 else 'ies'} "
-          f"-> next: python tools/pubmed/verify.py")
+          f"-> next: uv run python tools/pubmed/verify.py")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

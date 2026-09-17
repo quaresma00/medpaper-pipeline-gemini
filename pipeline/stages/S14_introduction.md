@@ -21,11 +21,11 @@ this stage only.
    from `refs.bib` only.
 3. Check the count targets:
 ```
-python tools/wf.py config list        # intro_words_min/max, intro_refs_min/max
-python tools/wf.py check
+uv run python tools/wf.py config list        # intro_words_min/max, intro_refs_min/max
+uv run python tools/wf.py check
 ```
    If the target journal turns out to want something different, change the target rather
-   than padding: `python tools/wf.py config set intro_words_max 600`.
+   than padding: `uv run python tools/wf.py config set intro_words_max 600`.
 
 ## Outputs
 - `07_manuscript/introduction.md`
@@ -41,5 +41,6 @@ python tools/wf.py check
 
 ## Close
 ```
-python tools/wf.py advance --note "introduction drafted; <n> words, <k> refs; gap sentence: <quote it>"
+uv run python tools/wf.py advance --note "introduction drafted; <n> words, <k> refs; gap sentence: <quote it>"
 ```
+

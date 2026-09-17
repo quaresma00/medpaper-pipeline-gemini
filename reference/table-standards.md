@@ -48,9 +48,14 @@ of interpretation, or a repeat of the Results prose.
 
 - **Title**: self-contained. A reader who sees only the table knows the population, the
   grouping and what is being compared.
-- **Footnotes**: data format (`Data are n (%) unless stated otherwise`), abbreviation
-  expansions in alphabetical order, the test used, the meaning of any symbol, and the
+- **Footnotes**: data format (`Data are n (%) unless stated otherwise`), a short abbreviation
+  list in alphabetical order, the test used, the meaning of any symbol, and the
   adjustment set for adjusted estimates.
+- **Crowded abbreviations**: when more than eight defined abbreviations occur across figures
+  and tables, or any local list exceeds 50 words or dominates its footnote, define them once
+  at S17 in `Declarations and Statements > Abbreviations`; remove the
+  repeated local abbreviation rows from the table source and regenerate the workbook.
+  An explicitly sourced journal requirement for local definitions overrides this preference.
 - **Symbol order** for footnote markers: `*`, `†`, `‡`, `§`, `¶`, `#`, then doubled.
   Reserve `*` for significance if you also use it that way in figures - do not use one
   symbol for two purposes in the same paper.

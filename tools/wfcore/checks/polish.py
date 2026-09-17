@@ -16,9 +16,17 @@ from pathlib import Path
 
 from . import Ctx, Result, check
 
-SNAPSHOT = "07_manuscript/prepolish"
-REPORT = "07_manuscript/polish_report.json"
-SECTIONS = ["introduction.md", "methods.md", "results.md", "discussion.md", "abstract.md"]
+SNAPSHOT = "08_submission/integration/prepolish"
+REPORT = "08_submission/integration/polish_report.json"
+LEGACY_SECTIONS = ["introduction.md", "methods.md", "supplementary_methods.md", "results.md", "discussion.md", "abstract.md"]
+
+
+def _wanted_sections(ctx: Ctx) -> set[str]:
+    if ctx.p("08_submission/integration/full_manuscript.md").exists():
+        return {name for name in ("full_manuscript.md", "supplementary_methods.md",
+                                  "title_page.md", "statements.md")
+                if ctx.p(f"08_submission/integration/{name}").exists()}
+    return {name for name in LEGACY_SECTIONS if ctx.p(f"07_manuscript/{name}").exists()}
 
 
 def _polish_tool(ctx: Ctx) -> Path:
@@ -33,7 +41,7 @@ def polish_snapshot_exists(ctx: Ctx) -> Result:
             False,
             "polish_snapshot_exists",
             f"no pre-polish snapshot at project/{SNAPSHOT}/facts.json",
-            ["Take it BEFORE editing: python tools/text/polish.py snapshot",
+            ["Take it BEFORE editing: uv run python tools/text/polish.py snapshot",
              "Without it there is no way to prove the polish pass did not alter the data."],
         )
     try:
@@ -46,13 +54,13 @@ def polish_snapshot_exists(ctx: Ctx) -> Result:
         return Result(False, "polish_snapshot_exists",
                       "snapshotted section(s) no longer present: " + ", ".join(missing))
     have = {Path(r).name for r in files}
-    wanted = {s for s in SECTIONS if ctx.p(f"07_manuscript/{s}").exists()}
+    wanted = _wanted_sections(ctx)
     gap = sorted(wanted - have)
     if gap:
         return Result(
             False, "polish_snapshot_exists",
             "snapshot predates these sections: " + ", ".join(gap),
-            ["Re-take it: python tools/text/polish.py snapshot --force"],
+            ["Re-take it: uv run python tools/text/polish.py snapshot --force"],
         )
     return Result(True, "polish_snapshot_exists",
                   f"{len(files)} section(s) snapshotted at {data.get('snapshot_at', '?')}")
@@ -110,9 +118,9 @@ def ai_tells_clean(ctx: Ctx) -> Result:
             False,
             "ai_tells_clean",
             "; ".join(bits),
-            ["Full detail: python tools/text/polish.py lint",
+            ["Full detail: uv run python tools/text/polish.py lint",
              "Rewrite the clause. Do not delete the sentence to make the check pass.",
-             f"A genuine exception goes in project/07_manuscript/polish_allowlist.tsv."],
+             f"A genuine exception goes in project/08_submission/integration/polish_allowlist.tsv."],
         )
     tier_b = [x for x in rep.get("ai_tells", []) if x.get("tier") == "B"]
     if tier_b:
@@ -134,7 +142,7 @@ def style_consistent(ctx: Ctx) -> Result:
             "style_consistent",
             f"{len(blocking)} house-style defect(s): "
             + "; ".join(f"{k} x{v}" for k, v in kinds.most_common(8)),
-            ["Full detail: python tools/text/polish.py lint",
+            ["Full detail: uv run python tools/text/polish.py lint",
              "These are settled by convention, not taste: fix them all."],
         )
     advisory = [x for x in rep.get("style", []) if x.get("severity") != "blocking"]
@@ -145,7 +153,7 @@ def style_consistent(ctx: Ctx) -> Result:
 
 @check("journal_limits_met")
 def journal_limits_met(ctx: Ctx) -> Result:
-    """Word and reference counts against the guidelines fetched at S18."""
+    """Word and reference counts against the guidelines fetched at S20."""
     gx = "08_submission/guidelines_extract.md"
     if not ctx.p(gx).exists():
         return Result(False, "journal_limits_met", f"{gx} missing - fetch the guidelines first")
@@ -166,12 +174,19 @@ def journal_limits_met(ctx: Ctx) -> Result:
              "If the journal states no limit, write 'no stated limit' explicitly."],
         )
 
-    body_words = sum(v for k, v in counts.items()
-                     if k in ("introduction.md", "methods.md", "results.md", "discussion.md"))
+    if ctx.p("08_submission/integration/full_manuscript.md").exists():
+        sections = _canonical_section_counts(ctx.read("08_submission/integration/full_manuscript.md"))
+        abstract_words = sections.get("abstract", 0)
+        body_words = sum(sections.get(k, 0) for k in
+                         ("introduction", "methods", "results", "discussion"))
+    else:
+        abstract_words = counts.get("abstract.md", 0)
+        body_words = sum(v for k, v in counts.items()
+                         if k in ("introduction.md", "methods.md", "results.md", "discussion.md"))
     problems, notes = [], []
     for kind, cap in limits.items():
-        if kind == "abstract" and "abstract.md" in counts:
-            got = counts["abstract.md"]
+        if kind == "abstract" and abstract_words:
+            got = abstract_words
             (problems if got > cap else notes).append(f"abstract {got}/{cap} words")
         elif kind == "main":
             (problems if body_words > cap else notes).append(f"main text {body_words}/{cap} words")
@@ -195,7 +210,7 @@ def _report(ctx: Ctx):
     if not p.exists():
         return Result(
             False, "polish_report", f"project/{REPORT} missing",
-            ["Run: python tools/text/polish.py lint"],
+            ["Run: uv run python tools/text/polish.py lint"],
         )
     try:
         return json.loads(p.read_text(encoding="utf-8"))
@@ -233,10 +248,30 @@ def _declared_limits(text: str) -> dict[str, int]:
 
 def _ref_count(ctx: Ctx) -> int:
     keys: set[str] = set()
-    for name in ("introduction.md", "methods.md", "results.md", "discussion.md"):
-        p = ctx.p(f"07_manuscript/{name}")
+    names = (("full_manuscript.md",) if ctx.p("08_submission/integration/full_manuscript.md").exists()
+             else ("introduction.md", "methods.md", "results.md", "discussion.md"))
+    for name in names:
+        base = "08_submission/integration" if name == "full_manuscript.md" else "07_manuscript"
+        p = ctx.p(f"{base}/{name}")
         if p.exists():
             text = p.read_text(encoding="utf-8", errors="replace")
             for grp in re.findall(r"\[([^\]]*@[^\]]*)\]", text):
                 keys.update(re.findall(r"@([A-Za-z][\w:.#$%&+?<>~/-]*)", grp))
     return len(keys)
+
+
+def _canonical_section_counts(text: str) -> dict[str, int]:
+    """Count journal-limited sections without counting title, keywords, refs or legends."""
+    matches = list(re.finditer(r"(?m)^#\s+([^#\n].*)$", text))
+    out: dict[str, int] = {}
+    wanted = {"abstract", "introduction", "methods", "results", "discussion"}
+    for i, match in enumerate(matches):
+        name = match.group(1).strip().casefold()
+        if name not in wanted:
+            continue
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        block = text[match.end():end]
+        block = re.sub(r"(?m)^Keywords\s*:.*$", "", block, flags=re.I)
+        out[name] = len(re.findall(r"[A-Za-z][A-Za-z'-]*", block))
+    return out
+

@@ -11,7 +11,7 @@ Two kinds of source are mixed below and kept distinct on purpose:
 
 ## 1. Publisher requirements
 
-Always re-check the target journal at S18. These are the common denominators.
+Always re-check the target journal at S20. These are the common denominators.
 
 | Property | Requirement | Notes |
 |---|---|---|
@@ -23,7 +23,7 @@ Always re-check the target journal at S18. These are the common denominators.
 | Resolution, combination art | >= 500-600 dpi | Line art plus photo in one figure |
 | Resolution, pure line art | 600-1200 dpi | Vector is better than any raster here |
 | Formats accepted | TIFF (LZW), EPS, PDF | Some accept high-res PNG for review only |
-| Colour mode | RGB for online, CMYK if print-charged | Ask at S18; CMYK conversion shifts colours |
+| Colour mode | RGB for online, CMYK if print-charged | Resolve at S20; CMYK conversion shifts colours |
 | Minimum line width | >= 0.3 pt (0.1 mm) | Below this, lines drop out in print |
 | Minimum font size | 6-8 pt at final size | 7 pt is a safe working default |
 | Fonts | Arial / Helvetica / Times | Embed them; avoid exotic families |
@@ -204,15 +204,26 @@ panel letters, group and category labels, legend entries, significance markers, 
 values (n, HR with CI, AUC, r), and guideline-mandated content such as Kaplan-Meier risk
 tables, CONSORT/PRISMA/STARD box text, scale bars and axis-break marks.
 
-**In the legend** (explanatory, belongs to prose): statistical test names, adjustment sets,
-cohort provenance, abbreviation definitions, sample-size accounting, threshold definitions,
-what a dashed line or a grey point means, `n.s. = not significant`, caveats, software and
-versions.
+**In the legend** (only what decodes the figure): a concise descriptive title, panel
+descriptions, essential statistical/error-bar/threshold definitions, what a reference line
+or symbol means, and a short abbreviation clause when needed. Full adjustment sets, cohort provenance,
+software versions, interpretation, result direction, repeated numerical results and general caveats belong in
+Methods, supplementary Methods or the main Results/Discussion. A legend is not a second
+Methods section; target 40-140 words and keep it below 180 words unless the selected journal
+explicitly requires otherwise.
 
-Test: delete the text. If the reader still knows what every axis, group and colour is, the
-text was explanatory and belongs in the legend.
+When more than eight defined abbreviations accumulate across figures and tables, or a local
+list exceeds 50 words or dominates its legend, define
+them once under `Declarations and Statements > Abbreviations` and remove repeated local
+definition blocks. Retain local definitions only when the chosen journal's official guide
+explicitly requires them. Apply this at S17 before independent and user review. Thresholds
+are workflow defaults; medical clarity remains the criterion. Never use the literal down-arrow
+character as shorthand.
+
+Test: delete the text. If it is still needed to decode an axis, group or symbol, retain it
+locally. Otherwise route methods detail to Methods, findings to Results and interpretation
+to Discussion; do not move every removed panel sentence into the legend.
 
 All panel text is black or near-black (`#000000`-`#1a1a1a`) at or above the size floor.
 Greying text down is not a way to keep explanation in the figure. Every removal is logged
-to `05_figures/moved_to_legend.md` and the information is added to `legends.md` in the
-same edit.
+to `05_figures/moved_to_legend.md` with its actual destination and reconciled in the same edit.

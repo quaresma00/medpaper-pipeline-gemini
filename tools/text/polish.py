@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Manuscript de-AI and academic-English linter. Stdlib only.
 
-    python tools/text/polish.py snapshot      # freeze the pre-polish text (do this first)
-    python tools/text/polish.py lint          # full report -> 07_manuscript/polish_report.json
-    python tools/text/polish.py lint --file 07_manuscript/discussion.md
-    python tools/text/polish.py diff          # what polishing changed, and what it must not have
+    uv run python tools/text/polish.py snapshot      # freeze the pre-polish text (do this first)
+    uv run python tools/text/polish.py lint          # report -> 08_submission/integration/polish_report.json
+    uv run python tools/text/polish.py lint --file 08_submission/integration/full_manuscript.md
+    uv run python tools/text/polish.py diff          # what polishing changed, and what it must not have
 
 Three jobs, deliberately separated:
 
@@ -30,19 +30,27 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Reading order of the assembled manuscript. Abbreviation scope follows this.
-SECTION_ORDER = [
+# Component fallback is retained for focused lint calls. Journal polishing itself uses the
+# derived integration manuscript and never edits the S19 scientific master.
+LEGACY_SECTION_ORDER = [
     "07_manuscript/title_page.md",
     "07_manuscript/abstract.md",
     "07_manuscript/introduction.md",
     "07_manuscript/methods.md",
+    "07_manuscript/supplementary_methods.md",
     "07_manuscript/results.md",
     "07_manuscript/discussion.md",
     "07_manuscript/statements.md",
 ]
-SNAPSHOT_DIR = "07_manuscript/prepolish"
-REPORT = "07_manuscript/polish_report.json"
-ALLOWLIST = "07_manuscript/polish_allowlist.tsv"
+CANONICAL_ORDER = [
+    "08_submission/integration/full_manuscript.md",
+    "08_submission/integration/supplementary_methods.md",
+    "08_submission/integration/title_page.md",
+    "08_submission/integration/statements.md",
+]
+SNAPSHOT_DIR = "08_submission/integration/prepolish"
+REPORT = "08_submission/integration/polish_report.json"
+ALLOWLIST = "08_submission/integration/polish_allowlist.tsv"
 
 FENCE_RE = re.compile(r"```.*?```", re.S)
 CITE_RE = re.compile(r"\[[^\]]*@[^\]]*\]")
@@ -188,7 +196,12 @@ def allowlist() -> dict[str, str]:
 
 def sections(only: str | None = None) -> list[tuple[str, str]]:
     proj = project_root()
-    rels = [only] if only else SECTION_ORDER
+    if only:
+        rels = [only]
+    elif (proj / "08_submission/integration/full_manuscript.md").exists():
+        rels = CANONICAL_ORDER
+    else:
+        rels = LEGACY_SECTION_ORDER
     out = []
     for rel in rels:
         p = proj / rel
@@ -604,7 +617,7 @@ def cmd_diff(args) -> int:
     snap = proj / SNAPSHOT_DIR
     if not (snap / "facts.json").exists():
         print(f"no snapshot at project/{SNAPSHOT_DIR}/facts.json")
-        print("run `python tools/text/polish.py snapshot` BEFORE polishing")
+        print("run `uv run python tools/text/polish.py snapshot` BEFORE polishing")
         return 1
     before = json.loads((snap / "facts.json").read_text(encoding="utf-8"))["files"]
 
@@ -668,3 +681,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

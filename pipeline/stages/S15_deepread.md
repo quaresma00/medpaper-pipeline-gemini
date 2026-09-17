@@ -14,13 +14,23 @@ effect sizes with prior work. Fetch and read ~5 full texts properly.
    Selection is by argumentative need, not by impact factor.
 2. Fetch open-access full text. Legal open-access routes only:
 ```
-python tools/pubmed/fulltext.py --citekey smith2023 --citekey lee2021
+uv run python tools/pubmed/fulltext.py fetch --citekey smith2023 --citekey lee2021
 ```
-   It tries Europe PMC / PMC, Unpaywall, OpenAlex and Crossref, saves the PDF or XML to
-   `06_refs/fulltext/`, and records which route worked. If nothing is open access, record
-   `"fulltext": "<url>"` with `"access": "paywalled"` and note that only the abstract was
-   available - never pretend to have read a paywalled full text.
-3. Read each one and write structured notes to `06_refs/deepread/<citekey>.md`:
+   It tries Europe PMC / PMC, Unpaywall and OpenAlex, saves the PDF or XML to
+   `06_refs/fulltext/`, and records the route, access basis and file hash in
+   `06_refs/fulltext/retrieval_manifest.json`.
+3. If a scholarly retrieval skill supplies an open-access file, or the user legally
+   obtains one through institutional access, register the local copy before reading it:
+```
+uv run python tools/pubmed/fulltext.py register --citekey smith2023 --file "C:\path\paper.pdf" --access oa --source-url "https://publisher.example/article" --route scansci-pdf
+```
+   For institutional access, use `--access authorized --authorization-note "<basis>"`.
+   Do not use Sci-Hub or another unauthorized source. Do not request browser login,
+   cookies or credentials unless the user explicitly authorizes that route. If only a
+   paywalled link or abstract is available, replace the paper or leave the stage blocked;
+   it does not count as a deep read.
+4. Read each registered local full text and write structured notes to
+   `06_refs/deepread/<citekey>.md`:
 ```markdown
 # <citekey> - <short title>
 ## Design and population
@@ -31,13 +41,13 @@ python tools/pubmed/fulltext.py --citekey smith2023 --citekey lee2021
 ```
    Notes must be substantive; the gate rejects notes under 400 characters as evidence that
    no real read happened.
-4. Index them in `project/06_refs/deepread/deepread_index.json`:
+5. Index them in `project/06_refs/deepread/deepread_index.json`:
 ```json
 {"selected": [{"citekey": "", "pmid": "", "reason": "why this paper carries part of the Discussion",
-  "access": "oa|paywalled", "fulltext": "06_refs/fulltext/<file>.pdf",
+  "access": "oa|authorized", "fulltext": "06_refs/fulltext/<file>.pdf",
   "notes": "06_refs/deepread/<citekey>.md"}]}
 ```
-5. Update `03_analysis/notes.md` -> `Discussion points` with what the deep reads changed.
+6. Update `03_analysis/notes.md` -> `Discussion points` with what the deep reads changed.
    If a deep read overturned an assumption, that is the most valuable output of this stage.
 
 ## Outputs
@@ -46,12 +56,14 @@ python tools/pubmed/fulltext.py --citekey smith2023 --citekey lee2021
 
 ## Hard rules
 - Every selected citekey must already be in `library.json`.
+- Every selected file must have a matching retrieval-manifest record and unchanged hash.
 - Every selection needs a recorded reason. "Highly cited" is not a reason.
 - If a paper turns out not to matter, remove it from the index and record why - the gate at
   S16 requires every indexed paper to be cited in the Discussion.
 
 ## Close
 ```
-python tools/wf.py check
-python tools/wf.py advance --note "<n> deep reads: <citekeys>; changed my view on: <...>"
+uv run python tools/wf.py check
+uv run python tools/wf.py advance --note "<n> deep reads: <citekeys>; changed my view on: <...>"
 ```
+

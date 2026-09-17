@@ -10,10 +10,12 @@ half-finish it and move on.
 ## Procedure
 1. **Method scan.** Search for how comparable papers analysed this design - the model
    family, the confounder strategy, the sensitivity analyses, the standard reported
-   metrics. At least 5 distinct queries through the client (the gate counts them):
+   metrics. Discovery tools may suggest candidates, but method claims and citations must
+   resolve to records retrieved by the bundled client. Run at least 5 distinct formal
+   queries through the client (the gate counts them):
 ```
-python tools/pubmed/client.py search --query "<design> <outcome> statistical analysis" --retmax 100
-python tools/pubmed/client.py fetch --ids <...> --with-abstract
+uv run python tools/pubmed/client.py search --query "<design> <outcome> statistical analysis" --retmax 100
+uv run python tools/pubmed/client.py fetch --ids <...> --with-abstract
 ```
    Write `project/03_analysis/method_scan.md`: for each candidate method, what it is,
    which retrieved papers use it, and whether it fits our data. Cite with `[@key]`.
@@ -56,11 +58,14 @@ python tools/pubmed/client.py fetch --ids <...> --with-abstract
 - No p-value computed in prose. If it is not in a JSON file, it does not exist.
 - Do not silently switch the primary analysis. If it changes, that is a protocol
   deviation and it gets recorded at S06.
+- Analytical skills may help implement the approved analysis, but cannot change the
+  protocol, create manuscript prose, bypass results JSON, or advance the stage.
 
 ## Close
 When the analysis has converged (no further analysis would change the conclusions):
 ```
-python tools/wf.py check
-python tools/wf.py advance --note "primary result: <effect, CI, p>; K result files; open: <...>"
+uv run python tools/wf.py check
+uv run python tools/wf.py advance --note "primary result: <effect, CI, p>; K result files; open: <...>"
 ```
-To iterate again later from a downstream stage: `python tools/wf.py loop --to S05_analysis --why "..."`
+To iterate again later from a downstream stage: `uv run python tools/wf.py loop --to S05_analysis --why "..."`
+

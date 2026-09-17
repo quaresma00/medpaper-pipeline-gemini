@@ -10,9 +10,9 @@ def decision_recorded(ctx: Ctx) -> Result:
     allowed = ctx.spec.get("allowed")
     rec = ctx.state.decision(name)
     if not rec:
-        hint = f"python tools/wf.py decide {name} <VALUE> --why \"...\""
+        hint = f"uv run python tools/wf.py decide {name} <VALUE> --why \"...\""
         if allowed:
-            hint = f"python tools/wf.py decide {name} {'|'.join(allowed)} --why \"...\""
+            hint = f"uv run python tools/wf.py decide {name} {'|'.join(allowed)} --why \"...\""
         return Result(
             False,
             "decision_recorded",
@@ -36,3 +36,4 @@ def decision_recorded(ctx: Ctx) -> Result:
             ["Record why, in enough detail that a reviewer could challenge it. At least 40 characters."],
         )
     return Result(True, "decision_recorded", f"{name} = {value} (rationale on record)")
+

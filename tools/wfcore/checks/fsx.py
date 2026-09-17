@@ -10,15 +10,16 @@ from . import Ctx, Result, check
 @check("outputs_exist")
 def outputs_exist(ctx: Ctx) -> Result:
     optional = set(ctx.spec.get("optional", []))
-    missing, empty = [], []
+    missing, empty, optional_present = [], [], 0
     for rel in ctx.stage.outputs:
-        if rel in optional:
-            continue
         p = ctx.p(rel)
         if not p.exists():
-            missing.append(rel)
+            if rel not in optional:
+                missing.append(rel)
         elif p.is_file() and p.stat().st_size == 0:
             empty.append(rel)
+        elif rel in optional:
+            optional_present += 1
     if missing or empty:
         bits = []
         if missing:
@@ -31,7 +32,11 @@ def outputs_exist(ctx: Ctx) -> Result:
             "; ".join(bits),
             [f"Create each declared output under project/. Stage {ctx.stage.id} declares {len(ctx.stage.outputs)}."],
         )
-    return Result(True, "outputs_exist", f"{len(ctx.stage.outputs)} declared output(s) present")
+    required = len(ctx.stage.outputs) - len(optional)
+    detail = f"{required} required output(s) present"
+    if optional:
+        detail += f"; {optional_present}/{len(optional)} optional output(s) present"
+    return Result(True, "outputs_exist", detail)
 
 
 @check("no_future_artifacts")
@@ -56,7 +61,7 @@ def no_future_artifacts(ctx: Ctx) -> Result:
 
 @check("single_section_written")
 def single_section_written(ctx: Ctx) -> Result:
-    """A manuscript stage may add exactly one new section file."""
+    """A manuscript stage may add only its own declared manuscript file(s)."""
     manuscript_stages = [
         s for s in ctx.pipeline.stages
         if any(o.startswith("07_manuscript/") and o.endswith(".md") for o in s.outputs)
@@ -72,10 +77,10 @@ def single_section_written(ctx: Ctx) -> Result:
         return Result(
             False,
             "single_section_written",
-            "more than the current section exists: " + "; ".join(unexpected),
-            ["Write ONE manuscript section per stage. Remove the premature file(s)."],
+            "manuscript file(s) from a future stage exist: " + "; ".join(unexpected),
+            ["Write only the active stage's manuscript file(s). Remove the premature file(s)."],
         )
-    return Result(True, "single_section_written", "only the current section was written")
+    return Result(True, "single_section_written", "only active-stage manuscript file(s) were written")
 
 
 @check("file_count")
@@ -103,7 +108,7 @@ def temp_clean(ctx: Ctx) -> Result:
             False,
             "temp_clean",
             f"{len(leftovers)} leftover scratch file(s): {names}",
-            ["Delete scratch files before advancing:  python tools/wf.py clean --apply"],
+            ["Delete scratch files before advancing:  uv run python tools/wf.py clean --apply"],
         )
     return Result(True, "temp_clean", "scratch dir empty")
 
@@ -130,7 +135,7 @@ def no_orphans(ctx: Ctx) -> Result:
             f"{len(orphans)} undeclared file(s): " + ", ".join(orphans[:10]),
             [
                 "Either delete them, or declare them in pipeline.toml (stage outputs / [freeform].globs).",
-                "Run `python tools/wf.py clean` to review.",
+                "Run `uv run python tools/wf.py clean` to review.",
             ],
             severity=ctx.spec.get("severity", "fail"),
         )
@@ -159,3 +164,4 @@ def json_keys(ctx: Ctx) -> Result:
             bits.append("empty: " + ", ".join(blank))
         return Result(False, "json_keys", f"{rel} -> " + "; ".join(bits))
     return Result(True, "json_keys", f"{rel}: {len(required)} required key(s) populated")
+

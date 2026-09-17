@@ -33,7 +33,7 @@ class State:
     def load(self) -> "State":
         if not self.exists():
             raise SystemExit(
-                "no run state found. Initialise first:  python tools/wf.py init"
+                "no run state found. Initialise first:  uv run python tools/wf.py init"
             )
         self.data = json.loads(self.file.read_text(encoding="utf-8"))
         return self
@@ -66,6 +66,31 @@ class State:
         tmp = self.file.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(self.data, indent=2, ensure_ascii=False), encoding="utf-8")
         tmp.replace(self.file)
+
+    def migrate_pipeline(self, pipeline_version: str, valid_stage_ids: list[str],
+                         stage_aliases: dict[str, str] | None = None) -> bool:
+        """Migrate engine metadata and renamed active stages without touching artifacts."""
+        old_version = str(self.data.get("pipeline_version", "unknown"))
+        current = str(self.data.get("current", ""))
+        aliases = stage_aliases or {}
+        changed = old_version != pipeline_version
+        if current not in valid_stage_ids:
+            replacement = aliases.get(current)
+            if not replacement or replacement not in valid_stage_ids:
+                raise SystemExit(
+                    f"run state uses stage '{current}', which pipeline {pipeline_version} cannot migrate"
+                )
+            self.stage_info(current)["status"] = "superseded"
+            self.stage_info(replacement)["status"] = "active"
+            self.stage_info(replacement).setdefault("started_at", _now())
+            self.data["current"] = replacement
+            changed = True
+        if changed:
+            self.data["pipeline_version"] = pipeline_version
+            self.event("pipeline_migration",
+                       f"{old_version} -> {pipeline_version}; current {current} -> {self.data['current']}")
+            self.save()
+        return changed
 
     # ---- config --------------------------------------------------------
     def config(self) -> dict:
@@ -161,3 +186,15 @@ class State:
             if sid in self.data.get("stages", {}):
                 self.data["stages"][sid]["status"] = "pending"
         self.save()
+
+    def clear_decisions_for(self, stage_ids: list[str]) -> None:
+        """Invalidate decisions made in stages that are about to be rerun."""
+        affected = set(stage_ids)
+        decisions = self.data.get("decisions", {})
+        removed = [name for name, rec in decisions.items() if rec.get("stage") in affected]
+        for name in removed:
+            del decisions[name]
+        if removed:
+            self.event("decisions_invalidated", ", ".join(sorted(removed)))
+        self.save()
+

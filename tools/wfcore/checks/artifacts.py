@@ -18,6 +18,37 @@ ART_CITE_RE = re.compile(
 )
 FENCE_RE = re.compile(r"```.*?```", re.S)
 GROUPS = ("main_figures", "main_tables", "supp_figures", "supp_tables")
+RESULT_CLAIM_RE = re.compile(
+    r"\b(?:(?:was|were|is|are|remained)\s+(?:significantly\s+|independently\s+)?"
+    r"(?:higher|lower|greater|smaller|increased|decreased|reduced|improved|worse|better|"
+    r"associated\s+with|correlated\s+with|unchanged)|"
+    r"(?:significantly\s+(?:higher|lower|greater|smaller|increased|decreased|differed))|"
+    r"(?:demonstrated|showed)\s+(?:an?\s+)?(?:significant\s+)?(?:increase|decrease|improvement))\b",
+    re.I,
+)
+RESULT_ESTIMATE_RE = re.compile(
+    r"\b(?:HR|OR|RR|IRR|SMD|MD|AUC|(?i:beta|coefficient))\s*(?:=|:)?\s*-?\d",
+)
+ABBREVIATION_LABEL_RE = re.compile(
+    r"\bAbbreviations?\s*:[ \t]*([^\r\n]*(?:\n(?!\s*\n|\s*#|\s*(?:Figure|Table)\b)[^\r\n]+)*)",
+    re.I,
+)
+DEFINITION_RE = re.compile(r"(?:^|;|\n)\s*(?:[-*]\s+)?([A-Za-z][A-Za-z0-9-]{1,24})\s*[,=:]\s*([^;\n]+)")
+
+
+def abbreviation_definitions(text: str) -> dict[str, str]:
+    """Read declared acronym/expansion pairs, including eGFR and HbA1c, not all capitals."""
+    return {m.group(1): m.group(2).strip().rstrip(".")
+            for m in DEFINITION_RE.finditer(text)
+            if any(ch.isupper() for ch in m.group(1)) and m.group(2).strip().rstrip(".")}
+
+
+def central_abbreviations(text: str) -> dict[str, str]:
+    declarations = re.search(r"(?ms)^#\s+Declarations and Statements\s*$\n(.*?)(?=^#\s+|\Z)", text)
+    if declarations is None:
+        return {}
+    match = re.search(r"(?ms)^##\s+Abbreviations\s*$\n(.*?)(?=^##\s+|\Z)", declarations.group(1))
+    return abbreviation_definitions(match.group(1)) if match else {}
 
 
 def _plan(ctx: Ctx) -> dict:
@@ -138,11 +169,33 @@ def legends_cover_plan(ctx: Ctx) -> Result:
     problems: list[str] = []
 
     for rel, groups, minlen, what in (
-        (LEGENDS, ("main_figures", "supp_figures"), 80, "figure legend"),
+        (LEGENDS, ("main_figures", "supp_figures"), 40, "figure legend"),
         (CAPTIONS, ("main_tables", "supp_tables"), 40, "table caption"),
     ):
         text = ctx.read(rel)
         blocks = _split_blocks(text)
+        if rel == LEGENDS:
+            section_count = len(re.findall(r"(?mi)^#\s+Figure legends\s*$", text))
+            if section_count != 1:
+                problems.append(
+                    f"{rel}: expected exactly one '# Figure legends' heading, found {section_count}"
+                )
+            matches = list(re.finditer(
+                r"(?mi)^#{2,6}\s+(Figure\s+S?\d+)\.?\s*(.*)$", text))
+            canon = [re.sub(r"\s+", " ", match.group(1)).casefold() for match in matches]
+            duplicates = sorted({item for item in canon if canon.count(item) > 1})
+            if duplicates:
+                problems.append(f"{rel}: duplicate figure legend heading(s): " +
+                                ", ".join(duplicates))
+            for index, match in enumerate(matches):
+                end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+                body_lines = [line.strip() for line in text[match.end():end].splitlines()
+                              if line.strip()]
+                if body_lines and re.match(
+                        rf"^{re.escape(match.group(1))}\b", body_lines[0], re.I):
+                    problems.append(
+                        f"{rel}: {match.group(1)} is repeated at the start of its legend body"
+                    )
         for e in _entries(plan, groups):
             eid = str(e.get("id", "")).strip()
             key = next((k for k in blocks if _same_id(k, eid)), None)
@@ -150,6 +203,11 @@ def legends_cover_plan(ctx: Ctx) -> Result:
                 problems.append(f"{rel}: no {what} for {eid}")
             elif len(blocks[key].strip()) < minlen:
                 problems.append(f"{rel}: {what} for {eid} is only {len(blocks[key].strip())} chars")
+            elif rel == LEGENDS:
+                words = len(re.findall(r"\b[A-Za-z][A-Za-z0-9'-]*\b", blocks[key]))
+                cap = int(ctx.target("figure_legend_words_max", 180))
+                if words > cap:
+                    problems.append(f"{rel}: {what} for {eid} is {words} words (maximum {cap})")
         if rel == CAPTIONS and "abbrevi" not in text.lower() and "footnote" not in text.lower():
             problems.append(f"{rel}: no footnote/abbreviation block anywhere - three-line tables need one")
 
@@ -158,9 +216,130 @@ def legends_cover_plan(ctx: Ctx) -> Result:
             False,
             "legends_cover_plan",
             "; ".join(problems[:8]),
-            ["Every planned display item needs a self-contained legend written before the figure is drawn."],
+            ["Every planned display item needs a concise, self-contained legend written before the figure is drawn."],
         )
-    return Result(True, "legends_cover_plan", "every planned figure and table has a substantive legend")
+    return Result(True, "legends_cover_plan", "every planned display item has a concise substantive legend/caption")
+
+
+@check("legend_no_results_restatement")
+def legend_no_results_restatement(ctx: Ctx) -> Result:
+    rel = ctx.spec.get("path", LEGENDS)
+    if not ctx.p(rel).is_file():
+        return Result(False, "legend_no_results_restatement", f"{rel} missing")
+    value = ctx.read(rel)
+    section = re.search(r"(?ms)^#\s+Figure legends\s*$\n(.*?)(?=^#\s+|\Z)", value)
+    if section:
+        value = section.group(1)
+    elif rel != LEGENDS:
+        return Result(False, "legend_no_results_restatement", f"{rel}: Figure legends section absent")
+    blocks = {key: content for key, content in _split_blocks(value).items()
+              if re.match(r"(?:supplementary\s+)?fig", key, re.I)}
+    if not blocks:
+        if ctx.p(PLAN).is_file() and not _entries(_plan(ctx), ("main_figures", "supp_figures")):
+            return Result(True, "legend_no_results_restatement", "no figures planned")
+        return Result(False, "legend_no_results_restatement", f"{rel}: no figure legend blocks")
+    problems = []
+    for figure_id, content in blocks.items():
+        body = ABBREVIATION_LABEL_RE.sub(" ", content)
+        if RESULT_CLAIM_RE.search(body):
+            problems.append(f"{figure_id}: contains a directional/comparative result claim")
+        # Reference/null values decode the axes; they are not observed study estimates.
+        estimate_body = re.sub(
+            r"\b(?i:reference|null|no-effect)\b[^\n.!?]{0,60}\b(?:HR|OR|RR|IRR)\s*[=:]?\s*1(?:\.0+)?(?![\d.])",
+            " ", body,
+        )
+        estimate_body = re.sub(
+            r"\b(?i:chance|reference)\b[^\n.!?]{0,60}\bAUC\s*[=:]?\s*0\.50*(?!\d)",
+            " ", estimate_body,
+        )
+        if RESULT_ESTIMATE_RE.search(estimate_body):
+            problems.append(f"{figure_id}: repeats a numerical result estimate")
+    if problems:
+        return Result(False, "legend_no_results_restatement", "; ".join(problems[:8]),
+                      ["Keep only the descriptive title, panel map, encodings, symbols, and essential decoding definitions."])
+    return Result(True, "legend_no_results_restatement",
+                  f"{len(blocks)} legend(s) have no obvious result claims; semantic review remains required")
+
+
+def _display_sources(ctx: Ctx) -> list[tuple[str, str]]:
+    sources: list[tuple[str, str]] = []
+    for rel in ctx.spec.get("display_text_paths", [LEGENDS, CAPTIONS]):
+        if ctx.p(rel).is_file():
+            sources.append((rel, ctx.read(rel)))
+    for path in ctx.glob("04_tables/main/*.xlsx") + ctx.glob("04_tables/supplementary/*.xlsx"):
+        try:
+            wb = xlsxlite.Workbook(path)
+        except Exception:  # noqa: BLE001 - the table gates report malformed workbooks
+            continue
+        value = "\n".join(text for sheet in wb.sheets for text in sheet.values())
+        sources.append((path.relative_to(ctx.project).as_posix(), value))
+    return sources
+
+
+@check("abbreviations_centralized")
+def abbreviations_centralized(ctx: Ctx) -> Result:
+    """Move a crowded display-item abbreviation list into Declarations and Statements."""
+    sources = _display_sources(ctx)
+    local_labels = sorted({rel for rel, value in sources if ABBREVIATION_LABEL_RE.search(value)})
+    local_defs = {term: expansion for _, value in sources
+                  for match in ABBREVIATION_LABEL_RE.finditer(value)
+                  for term, expansion in abbreviation_definitions(match.group(1)).items()}
+    largest_list = max((len(match.group(1).split()) for _, value in sources
+                        for match in ABBREVIATION_LABEL_RE.finditer(value)), default=0)
+    threshold = int(ctx.target("abbreviation_centralize_threshold", 8))
+    word_threshold = int(ctx.target("abbreviation_local_words_max", 50))
+
+    target = {}
+    if ctx.p("08_submission/target_journal.json").is_file():
+        try:
+            target = ctx.read_json("08_submission/target_journal.json")
+        except json.JSONDecodeError:
+            target = {}
+    placement = str(target.get("abbreviation_placement", "central")).strip().lower()
+    if placement == "local_required":
+        source = str(target.get("abbreviation_rule_source", "")).strip()
+        guide = str(target.get("guidelines_url", "")).strip()
+        if not guide or guide not in source:
+            return Result(False, "abbreviations_centralized",
+                          "local_required override lacks the exact official guidelines URL")
+        return Result(True, "abbreviations_centralized",
+                      "journal-mandated local abbreviation definitions retained with source")
+    if placement != "central":
+        return Result(False, "abbreviations_centralized",
+                      "abbreviation_placement must be central or local_required")
+
+    statements_rel = ctx.spec.get("statements", "07_manuscript/statements.md")
+    statements = ctx.read(statements_rel) if ctx.p(statements_rel).is_file() else ""
+    manuscript_rel = ctx.spec.get("manuscript", "07_manuscript/full_manuscript.md")
+    full = ctx.read(manuscript_rel) if ctx.p(manuscript_rel).is_file() else ""
+    central_defs = central_abbreviations(full or statements)
+    central_present = bool(central_defs)
+    problems: list[str] = []
+    acronyms = set(local_defs) | set(central_defs)
+    refers_to_central = any(re.search(r"abbreviations[^\n]*Declarations and Statements", value, re.I)
+                           for _, value in sources)
+    needs_central = len(acronyms) > threshold or largest_list > word_threshold or refers_to_central
+    if needs_central:
+        if not re.search(r"(?mi)^#\s+Declarations and Statements\s*$", full or statements):
+            problems.append("many display abbreviations require '# Declarations and Statements'")
+        if not central_present:
+            problems.append("many display abbreviations require a '## Abbreviations' master list")
+        missing = sorted(set(local_defs) - set(central_defs))
+        if central_present and missing:
+            problems.append("master list lacks: " + ", ".join(missing[:12]))
+        if local_labels:
+            problems.append("remove repeated local Abbreviations blocks from: " + ", ".join(local_labels[:6]))
+        if not central_abbreviations(full):
+            problems.append("full manuscript lacks the centralized Declarations and Statements/Abbreviations section")
+    elif central_present and local_labels:
+        problems.append("abbreviations are duplicated centrally and in individual figures/tables")
+    if problems:
+        return Result(False, "abbreviations_centralized", "; ".join(problems[:8]))
+    if needs_central:
+        return Result(True, "abbreviations_centralized",
+                      f"{len(acronyms)} display abbreviations are defined once in Declarations and Statements")
+    return Result(True, "abbreviations_centralized",
+                  f"{len(acronyms)} display abbreviation(s); centralization threshold is {threshold}")
 
 
 @check("artifact_refs_consistent")
@@ -351,7 +530,7 @@ def figures_qc_pass(ctx: Ctx) -> Result:
             False,
             "figures_qc_pass",
             f"{QC} missing",
-            ["Run: python tools/figures/qc.py --all  (writes the QC report)"],
+            ["Run: uv run python tools/figures/qc.py --all  (writes the QC report)"],
         )
     try:
         rep = ctx.read_json(QC)
@@ -366,7 +545,7 @@ def figures_qc_pass(ctx: Ctx) -> Result:
         if f is None:
             problems.append(f"{eid}: no QC entry")
             continue
-        failed = [c.get("name") for c in f.get("checks", []) if (not c.get("ok")) and c.get("severity", "fail") == "fail"]
+        failed = [c.get("name") for c in f.get("checks", []) if not c.get("ok")]
         if failed:
             problems.append(f"{eid}: failing {', '.join(failed)}")
         if not f.get("visual_reviewed"):
@@ -423,6 +602,44 @@ def bundle_complete(ctx: Ctx) -> Result:
     return Result(True, "bundle_complete", f"{len(items)} bundle item(s), each present and traced to a guideline rule")
 
 
+@check("bundle_matches_freeze")
+def bundle_matches_freeze(ctx: Ctx) -> Result:
+    from ..packagefreeze import verify_freeze
+
+    ok, problems, count = verify_freeze(ctx.project)
+    if not ok:
+        return Result(
+            False,
+            "bundle_matches_freeze",
+            "; ".join(problems[:10]),
+            [
+                "Do not audit a package different from the one the user approved.",
+                "Return to S24, reconcile the changes, ask the user to confirm OK again, then create a new freeze.",
+            ],
+        )
+    return Result(True, "bundle_matches_freeze", f"{count} approved package/evidence file(s) unchanged")
+
+
+@check("submission_audit_matches_freeze")
+def submission_audit_matches_freeze(ctx: Ctx) -> Result:
+    freeze_rel = "08_submission/package_review_freeze.json"
+    audit_rel = ctx.spec.get("path", "08_submission/independent_submission_audit.md")
+    try:
+        freeze = ctx.read_json(freeze_rel)
+        audit = ctx.read(audit_rel)
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        return Result(False, "submission_audit_matches_freeze", f"audit/freeze unreadable: {exc}")
+    freeze_id = str(freeze.get("freeze_id", "")).strip()
+    if len(freeze_id) != 64 or freeze_id not in audit:
+        return Result(
+            False,
+            "submission_audit_matches_freeze",
+            "independent audit does not identify the exact current freeze_id",
+            ["Put `Freeze ID: <freeze_id>` under the audit Verdict heading after reviewing that frozen package."],
+        )
+    return Result(True, "submission_audit_matches_freeze", f"audit identifies freeze {freeze_id[:12]}...")
+
+
 # ---------------------------------------------------------------------------
 def _known_archetypes() -> set[str]:
     import tomllib
@@ -453,3 +670,4 @@ def _split_blocks(text: str) -> dict[str, str]:
 def _same_id(a: str, b: str) -> bool:
     norm = lambda s: re.sub(r"[^a-z0-9]", "", s.lower()).replace("figure", "fig")  # noqa: E731
     return norm(a) == norm(b)
+

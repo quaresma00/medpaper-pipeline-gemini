@@ -28,6 +28,10 @@ AI_TELLS = [
     "in the realm of", "shedding light upon", "robust and comprehensive",
 ]
 
+FORBIDDEN_VISIBLE_SYMBOLS = {
+    "\u2193": "down arrow (use words such as 'lower' or 'decreased')",
+}
+
 
 def _body(text: str) -> str:
     text = FENCE_RE.sub(" ", text)
@@ -46,6 +50,24 @@ def _wordcount(text: str) -> int:
 
 def _headings(text: str) -> list[str]:
     return [h.strip() for h in HEADING_RE.findall(text)]
+
+
+@check("forbidden_symbols_absent")
+def forbidden_symbols_absent(ctx: Ctx) -> Result:
+    paths = ctx.spec.get("paths", [])
+    present = [rel for rel in paths if ctx.p(rel).is_file()]
+    if not present:
+        return Result(False, "forbidden_symbols_absent", "none of the target files exist")
+    problems = []
+    for rel in present:
+        value = ctx.read(rel)
+        for symbol, description in FORBIDDEN_VISIBLE_SYMBOLS.items():
+            if symbol in value:
+                problems.append(f"{rel}: contains {description}")
+    if problems:
+        return Result(False, "forbidden_symbols_absent", "; ".join(problems[:8]))
+    return Result(True, "forbidden_symbols_absent",
+                  f"{len(present)} source file(s) contain no forbidden visible control symbols")
 
 
 @check("md_sections")
@@ -127,6 +149,8 @@ def notes_populated(ctx: Ctx) -> Result:
 def no_ai_boilerplate(ctx: Ctx) -> Result:
     rel = ctx.spec["path"]
     if not ctx.p(rel).exists():
+        if ctx.spec.get("optional", False):
+            return Result(True, "no_ai_boilerplate", f"{rel}: optional file absent")
         return Result(False, "no_ai_boilerplate", f"{rel} missing")
     raw = ctx.read(rel)
     low = _body(raw).lower()
@@ -174,3 +198,4 @@ def no_plot_calls(ctx: Ctx) -> Result:
             ["Exploratory analysis is numbers only. Figures are built in S11 from the approved artifact plan."],
         )
     return Result(True, "no_plot_calls", "exploratory code contains no plotting")
+

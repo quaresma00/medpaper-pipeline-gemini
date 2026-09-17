@@ -25,7 +25,7 @@ Interpret the finding against the literature you actually read. One file, this s
       power, and measurement error. State the direction each bias would push the estimate.
    6. **Conclusion** - two or three sentences, no stronger than the Results support.
 2. Write `project/07_manuscript/discussion.md` with pandoc citations `[@key]`.
-3. Check the counts: `python tools/wf.py check` (word and reference targets, and that every
+3. Check the counts: `uv run python tools/wf.py check` (word and reference targets, and that every
    deep-read paper is cited).
 
 ## Outputs
@@ -43,5 +43,6 @@ Interpret the finding against the literature you actually read. One file, this s
 
 ## Close
 ```
-python tools/wf.py advance --note "discussion drafted; <n> words, <k> refs; disagreements addressed: <citekeys>"
+uv run python tools/wf.py advance --note "discussion drafted; <n> words, <k> refs; disagreements addressed: <citekeys>"
 ```
+

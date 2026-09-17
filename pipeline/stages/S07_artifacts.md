@@ -7,10 +7,12 @@ first keep panels from filling up with explanatory text later.
 
 ## Procedure
 1. **Benchmark.** Retrieve comparable papers - same design, same field, the kind of
-   journal you are targeting - and count what they display:
+   journal you are targeting - and count what they display. A scholarly search helper may
+   find candidates, but every comparator used in the benchmark must be retrieved through
+   the bundled client:
 ```
-python tools/pubmed/client.py search --query "<design> <topic>" --retmax 100
-python tools/pubmed/client.py fetch --ids <...> --with-abstract
+uv run python tools/pubmed/client.py search --query "<design> <topic>" --retmax 100
+uv run python tools/pubmed/client.py fetch --ids <...> --with-abstract
 ```
    Write `project/01_protocol/artifact_benchmark.md` with headings
    `Comparable papers surveyed`, `Figure/table counts observed`, `Chosen inventory and why`.
@@ -58,20 +60,23 @@ python tools/pubmed/client.py fetch --ids <...> --with-abstract
    physical scale bar. Pick the archetype that matches what the data needs, then accept its
    requirements. `other` is available but demands an `archetype_rationale`, and it turns off
    the domain checks, so prefer a real archetype.
-4. **Legends.** Write `project/05_figures/legends.md`, one block per figure, each headed
-   `Figure N.` / `Figure S1.` A medical figure legend is strictly an **optical navigation guide** so the reader can understand the visual elements of the chart, NOT a second Results or Methods section.
-   Keep each legend bounded (typically **40–120 words**; maximum 180 words for complex multi-panel figures) and enforce the **three-element visual standard**:
-   - **Concise Title**: A single bold sentence summarizing what the chart displays.
-   - **Panel Guides**: (A), (B)... explaining what is plotted on the axes and what the curves, bars, or markers represent.
-   - **Visual & Statistical Markers**: Definition of sample sizes ($N$), error bars (e.g. $\pm\text{SD}$, 95% CI), significance thresholds (e.g. $*p<0.05$), and reference null lines (e.g. OR=1.0).
-   
-   **Strict Prohibitions**:
-   - **NO Results Conclusion Duplication**: The legend's role is strictly visual interpretation. Never repeat narrative outcome claims, effect size findings, or comparative judgments (e.g. do NOT write "Outcome was lower (OR 0.40, P=0.01)"). Comparative findings belong in Results.
-   - **NO Methods Duplication**: NEVER describe trial screening mechanisms, adjudication committees, or Kappa reliability calculations in the legend. Those belong in Methods.
-   - **NO Repetitive Abbreviations in Legends**: Master abbreviations are centralized in **Declarations and Statements**. Do NOT duplicate full abbreviation dictionaries inside individual figure legends.
-5. **Table captions & footnotes.** Write `project/04_tables/table_captions.md`, one block per table,
-   headed `Table N.` Each needs a title line plus the footnote content: units, data representation (e.g. "Data are n (%) unless stated otherwise"), the statistical tests used, and what asterisks/daggers mark.
-   - **Centralized Abbreviations for Tables**: When a table contains multiple standard abbreviations, centralize them in **Declarations and Statements** (`statements.md`). Footnotes only state: "Abbreviations are defined in the manuscript Statements section" or define at most 1–2 table-specific symbols.
+4. **Legends.** Write `project/05_figures/legends.md`, one compact block per figure, each
+   headed `Figure N.` / `Figure S1.` Use medical-journal form: a brief descriptive title;
+   one clause or sentence per panel; only essential visual encodings; sample size/error-bar
+   definition/statistical test only when the figure cannot be interpreted without it; then
+   a short abbreviations clause when needed. Target 40-140 words and never exceed the
+   configured 180-word ceiling. Describe what is drawn and how to decode it; do not state
+   which group was higher or lower, repeat effect estimates, or retell the Results.
+   Do not repeat cohort acquisition, complete model specification, software versions,
+   interpretation, numerical Results or generic caveats already stated elsewhere. The file
+   contains exactly one `# Figure legends` section heading and exactly one heading for each
+   planned figure. After a `Figure N.` heading, do not begin the body with `Figure N.` again.
+5. **Table captions.** Write `project/04_tables/table_captions.md`, one block per table,
+   headed `Table N.` Each needs a title line plus the footnote content: abbreviation
+   expansions, units, the test used, what a dagger/asterisk marks. Short abbreviation lists
+   may remain local at this stage. If more than eight different abbreviations accumulate
+   across figures and tables, or a local list exceeds 50 words, S17 will move the complete list into `Declarations and
+   Statements` and regenerate the affected tables without repeated abbreviation blocks.
 
 ## Outputs
 - `01_protocol/artifact_benchmark.md`
@@ -82,11 +87,16 @@ python tools/pubmed/client.py fetch --ids <...> --with-abstract
 ## Hard rules
 - Do not draw anything yet. No xlsx, no png.
 - Do not plan a display item you have no result JSON for.
-- **Legends must NOT report narrative results findings**: no comparative effect sizes or claims. Optical visual guide only (40–120 words, max 180).
-- **Abbreviations are centralized in Declarations and Statements**: do NOT clutter figure legends or table footnotes with long repetitive abbreviation lists.
+- Detailed methods, cohort provenance and general caveats belong in Methods or
+  supplementary Methods, not in panels and not automatically in every legend.
+- Do not use the literal down-arrow character. Express direction in words outside legends;
+  legends themselves describe the display without claiming the direction of a result.
+- Do not duplicate the Figure legends section title, a figure identifier, or the descriptive
+  legend title between the heading and the first body sentence.
 
 ## Close
-```bash
+```
 uv run python tools/wf.py check
 uv run python tools/wf.py advance --note "inventory: <F main / T main / F supp / T supp> vs benchmark <range>; legends written"
 ```
+

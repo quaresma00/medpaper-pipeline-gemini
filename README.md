@@ -2,7 +2,7 @@
 
 [中文文档 (Chinese)](README_CN.md) | [English Documentation](README.md)
 
-Turns a research idea into a submission-ready package across 19 stages, in any agentic IDE
+Turns a research idea into a submission-ready package across 25 stages, in any agentic IDE
 (Kiro, Codex, Antigravity, Claude Code), without the workflow degrading as context is
 compacted.
 
@@ -40,8 +40,8 @@ $env:NCBI_API_EMAIL = "your_email@example.com"     # required by Unpaywall, poli
 # export NCBI_API_KEY="your_ncbi_api_key_here"
 # export NCBI_API_EMAIL="your_email@example.com"
 
-python tools/install_adapters.py        # wire the skill into every IDE
-python tools/wf.py doctor               # verify
+# adapters are now native skills under .agents/skills        # wire the skill into every IDE
+uv run python tools/wf.py doctor               # verify
 .venv\Scripts\python tools\selftest.py  # 26 offline checks; --online adds 3 live-API ones
 ```
 
@@ -51,11 +51,11 @@ Only figures and tables need the venv.
 ## Use
 
 ```powershell
-python tools/wf.py init                       # once
-python tools/wf.py status                     # every session, first
+uv run python tools/wf.py init                       # once
+uv run python tools/wf.py status                     # every session, first
 #   ... do what the stage card says ...
-python tools/wf.py check                      # run the gate
-python tools/wf.py advance --note "..."       # close the stage
+uv run python tools/wf.py check                      # run the gate
+uv run python tools/wf.py advance --note "..."       # close the stage
 ```
 
 `wf status` prints the invariants, the progress map, the gate state, the last handoff note,
@@ -129,42 +129,42 @@ copies it to each tool's discovery path and writes a short pointer file:
 | **Antigravity** | `.agents/skills/medpaper-pipeline` (shared) | `.agents/AGENTS.md`, `.agent/rules/`, `.agent/workflows/` |
 | **Kiro** | `.kiro/skills/medpaper-pipeline` | `.kiro/steering/medpaper-pipeline.md`, `.kiro/hooks/` |
 
-Every adapter says the same short thing: run `python tools/wf.py status` and obey the card. Because none of
+Every adapter says the same short thing: run `uv run python tools/wf.py status` and obey the card. Because none of
 them contains the workflow, editing a stage card never means touching an adapter.
-`python tools/install_adapters.py --check` reports drift.
+`# adapters are now native skills under .agents/skills --check` reports drift.
 
 ### How to reuse with Claude Code
 1. Generate Claude adapters (or sync all):
    ```bash
-   python tools/install_adapters.py --only claude
+   # adapters are now native skills under .agents/skills --only claude
    # Or sync all supported IDEs:
-   python tools/install_adapters.py --all
+   # adapters are now native skills under .agents/skills --all
    ```
    This generates `CLAUDE.md` at the project root and `.claude/skills/medpaper-pipeline/SKILL.md`.
 2. Open this directory with Claude Code (`claude`).
 3. Claude automatically picks up `CLAUDE.md` as context and loads the skill. Start the workflow by entering:
    ```
-   Run python tools/wf.py status and start the pipeline.
+   Run uv run python tools/wf.py status and start the pipeline.
    ```
    Or invoke the skill directly.
 
 ### How to reuse with OpenAI Codex
 1. Generate Codex adapters:
    ```bash
-   python tools/install_adapters.py --only codex
+   # adapters are now native skills under .agents/skills --only codex
    # Or sync all supported IDEs:
-   python tools/install_adapters.py --all
+   # adapters are now native skills under .agents/skills --all
    ```
    This generates `AGENTS.md` at the repository root and `.agents/skills/medpaper-pipeline/SKILL.md`.
 2. Open this repository in Codex. Codex natively discovers `AGENTS.md` and reads project rules.
 3. In the chat, prompt Codex:
    ```
-   Run python tools/wf.py status and follow the stage card.
+   Run uv run python tools/wf.py status and follow the stage card.
    ```
 
 ### How to reuse with Google Antigravity
 1. The repository is pre-configured with Antigravity rules (`.agent/rules/`) and slash command (`.agent/workflows/medpaper-resume.md`).
-2. Type `/medpaper-resume` in the chat, or run `uv run python tools/wf.py status`.
+2. Type `/medpaper-resume` in the chat, or run `uv run uv run python tools/wf.py status`.
 
 ## Extending it
 
@@ -192,3 +192,4 @@ them contains the workflow, editing a stage card never means touching an adapter
   silently.
 - Journal acceptance probability at S18 is a reasoned estimate from retrieved evidence, not
   a computed number.
+
