@@ -49,6 +49,7 @@ invariants = [
   "No explanatory prose inside figure panels. Explanation belongs in the figure legend.",
   "If you are unsure where you are, run `python tools/wf.py status`. Never guess the current stage.",
   "Data acquisition strictly mandates full-cohort census. Arbitrary truncation (nrows=, head(), slice, loop cut-offs) and unapproved sampling are strictly prohibited. APIs and datasets must be consumed to complete exhaustion with progress visibility.",
+  "Canonical base manuscript freeze is mandatory before target journal selection. At S17, all foundational research assets and canonical manuscript files are cryptographically locked into 07_manuscript/base_manuscript_freeze.json. Mutating 01-07 files for specific journal constraints is strictly forbidden; all journal-specific adaptations and cuts must reside inside 08_submission/.",
 ]
 
 # `wf advance` refuses to move on unless the agent has recorded a handoff note.
@@ -434,7 +435,8 @@ outputs = [
   "07_manuscript/abstract.md",
   "07_manuscript/statements.md",
   "07_manuscript/manuscript_complete.md",
-  "07_manuscript/review_report.md"
+  "07_manuscript/review_report.md",
+  "07_manuscript/base_manuscript_freeze.json"
 ]
 [[stage.gate]]
 check = "outputs_exist"
@@ -451,6 +453,8 @@ path = "07_manuscript/abstract.md"
 [[stage.gate]]
 check = "decision_recorded"
 name = "publishability_verdict"
+[[stage.gate]]
+check = "base_manuscript_frozen"
 
 [[stage]]
 id = "S18_journal"
@@ -460,6 +464,8 @@ needs_user = true
 outputs = ["08_submission/journal_shortlist.md", "08_submission/target_journal.json", "08_submission/guidelines_extract.md"]
 [[stage.gate]]
 check = "outputs_exist"
+[[stage.gate]]
+check = "base_manuscript_untouched"
 [[stage.gate]]
 check = "md_sections"
 path = "08_submission/journal_shortlist.md"
@@ -476,33 +482,21 @@ check = "guidelines_sourced"
 
 [[stage]]
 id = "S19_polish"
-title = "De-AI pass and academic-English polish, fact-preserving"
+title = "Target journal adaptation and academic-English polish in submission sandbox"
 card = "stages/S19_polish.md"
-outputs = ["07_manuscript/polish_report.json", "07_manuscript/polish_log.md"]
+outputs = [
+  "08_submission/polish_report.json",
+  "08_submission/polish_log.md",
+  "08_submission/adapted_manuscript/manuscript_assembled.md"
+]
 [[stage.gate]]
-check = "polish_snapshot_exists"
+check = "outputs_exist"
 [[stage.gate]]
-check = "polish_preserves_facts"
+check = "base_manuscript_untouched"
 [[stage.gate]]
 check = "ai_tells_clean"
 [[stage.gate]]
-check = "style_consistent"
-[[stage.gate]]
 check = "journal_limits_met"
-[[stage.gate]]
-check = "citekeys_resolve"
-paths = ["07_manuscript/introduction.md", "07_manuscript/methods.md", "07_manuscript/results.md", "07_manuscript/discussion.md"]
-[[stage.gate]]
-check = "numbers_have_provenance"
-path = "07_manuscript/results.md"
-[[stage.gate]]
-check = "numbers_have_provenance"
-path = "07_manuscript/abstract.md"
-[[stage.gate]]
-check = "artifact_refs_consistent"
-paths = ["07_manuscript/results.md", "07_manuscript/methods.md"]
-require_all_cited = true
-require_rendered = true
 [[stage.gate]]
 check = "decision_recorded"
 name = "polish_reviewed"
@@ -524,6 +518,8 @@ outputs = [
 [[stage.gate]]
 check = "outputs_exist"
 optional = ["08_submission/bundle/title_page.docx"]
+[[stage.gate]]
+check = "base_manuscript_untouched"
 [[stage.gate]]
 check = "bundle_complete"
 [[stage.gate]]
@@ -563,5 +559,6 @@ globs = [
   "08_submission/*.json",
   "08_submission/*.md",
   "08_submission/cache/**",
+  "08_submission/adapted_manuscript/**",
   "08_submission/bundle/**",
 ]

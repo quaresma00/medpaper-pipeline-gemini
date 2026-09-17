@@ -471,6 +471,26 @@ def audit_bundle(project_dir: Path) -> dict:
         results["consistency_issues"].append(f"Error auditing data acquisition integrity: {de}")
         results["overall_status"] = "ACTION_REQUIRED"
 
+    # 12. Canonical Base Manuscript Untouched & Freeze Verification
+    try:
+        from tools.wfcore.basefreeze import BASE_FREEZE_REL, verify_base_freeze
+        freeze_file = project_dir / BASE_FREEZE_REL
+        if freeze_file.exists():
+            ok_base, prob_base, cnt_base = verify_base_freeze(project_dir, freeze_file)
+            if not ok_base:
+                results["consistency_issues"].extend([
+                    f"BASE MANUSCRIPT FREEZE VIOLATION: {p}" for p in prob_base
+                ])
+                results["overall_status"] = "ACTION_REQUIRED"
+        else:
+            results["consistency_issues"].append(
+                f"Missing {BASE_FREEZE_REL}: Canonical base manuscript must be frozen before submission bundle review."
+            )
+            results["overall_status"] = "ACTION_REQUIRED"
+    except Exception as bfe:
+        results["consistency_issues"].append(f"Error checking base manuscript freeze: {bfe}")
+        results["overall_status"] = "ACTION_REQUIRED"
+
     return results
 
 

@@ -541,11 +541,24 @@ def post_process_docx(docx_path: Path) -> None:
 
 
 def assemble_manuscript_md(project_dir: Path) -> Path:
-    """Combine sections into a unified markdown file ready for pandoc."""
+    """Combine sections into a unified markdown file ready for pandoc.
+    Prioritizes journal-adapted text in 08_submission/adapted_manuscript/
+    over frozen canonical base files in 07_manuscript/.
+    """
     manuscript_dir = project_dir / "07_manuscript"
+    adapted_dir = project_dir / "08_submission" / "adapted_manuscript"
     figures_dir = project_dir / "05_figures"
 
     def read_part(name: str) -> str:
+        # Priority 1: Check journal-specific adaptation sandbox
+        if adapted_dir.exists():
+            for cand in (adapted_dir / f"adapted_{name}", adapted_dir / name):
+                if cand.exists():
+                    txt = cand.read_text(encoding="utf-8", errors="ignore").strip()
+                    txt = sanitize_latex_math_and_dollars(txt)
+                    return clean_markdown_soft_breaks(txt)
+
+        # Priority 2: Fallback to frozen canonical 07_manuscript
         p = manuscript_dir / name
         if not p.exists():
             return ""
@@ -569,7 +582,7 @@ def assemble_manuscript_md(project_dir: Path) -> Path:
     legends = ""
     if legends_file.exists():
         raw_legends = legends_file.read_text(encoding="utf-8", errors="ignore").strip()
-        cleaned_legends = clean_legend_block(clean_markdown_soft_breaks(raw_legends))
+        cleaned_legends = clean_legend_block(clean_markdown_soft_breaks(sanitize_latex_math_and_dollars(raw_legends)))
         if cleaned_legends:
             legends = "# Figure Legends\n\n" + cleaned_legends
 
@@ -596,7 +609,13 @@ def assemble_manuscript_md(project_dir: Path) -> Path:
     combined = sanitize_latex_math_and_dollars(combined)
     combined = clean_markdown_soft_breaks(combined)
 
-    out_path = project_dir / "07_manuscript" / "manuscript_assembled.md"
+    # If adapted_dir exists or we are in submission stage, output to adapted_manuscript
+    if adapted_dir.exists():
+        out_path = adapted_dir / "manuscript_assembled.md"
+    else:
+        out_path = manuscript_dir / "manuscript_assembled.md"
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(combined, encoding="utf-8")
     return out_path
 

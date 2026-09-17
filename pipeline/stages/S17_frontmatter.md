@@ -74,6 +74,14 @@ The subagent evaluates **whether this paper meets SCIE publication standards**:
   Perform targeted revisions on the affected section files (e.g. tightening discussion, clarifying methods, qualifying conclusions) to address the reviewer's concerns, then refresh `project/07_manuscript/manuscript_complete.md`.
   Record `wf decide publishability_verdict GO --why "..."`.
 
+### Step 5: Canonical Base Manuscript Freeze (Mandatory Before S18)
+Once revisions are finished and the manuscript is verified ready for submission, **freeze the canonical base manuscript**:
+```bash
+uv run python tools/freeze_base.py freeze --project project
+```
+This cryptographically signs and locks `01_protocol/` through `07_manuscript/` into `project/07_manuscript/base_manuscript_freeze.json`.
+From this moment forward, the foundational research files and canonical manuscript are **strictly read-only**. All future adaptations for specific journals (word limits, abstract structures, display item limits) must be isolated inside `08_submission/`.
+
 ## Outputs
 - `00_input/author_info.json`
 - `07_manuscript/title_page.md`
@@ -81,6 +89,7 @@ The subagent evaluates **whether this paper meets SCIE publication standards**:
 - `07_manuscript/statements.md`
 - `07_manuscript/manuscript_complete.md`
 - `07_manuscript/review_report.md`
+- `07_manuscript/base_manuscript_freeze.json`
 
 ## Hard rules
 - Title must be chosen automatically by the agent based on PICO/design standards. Do not pause to offer choices.
@@ -89,10 +98,11 @@ The subagent evaluates **whether this paper meets SCIE publication standards**:
 - Abstract numbers must trace to results JSON.
 - An independent review report must be produced and recorded at `07_manuscript/review_report.md`.
 - If the reviewer identifies high rejection risk with irreversible flaws, stop the pipeline.
+- **Canonical Base Freeze is mandatory**: `07_manuscript/base_manuscript_freeze.json` must be written and verified before advancing to S18. Never mutate 07_manuscript/ for individual journal styles.
 
 ## Close
 ```bash
 uv run python tools/wf.py check
-uv run python tools/wf.py advance --note "front matter and full manuscript assembled; SCIE review completed; acceptance probability: <...>; verdict: GO/STOP"
+uv run python tools/wf.py advance --note "front matter and full manuscript assembled; SCIE review completed; base freeze locked; verdict: GO"
 ```
 

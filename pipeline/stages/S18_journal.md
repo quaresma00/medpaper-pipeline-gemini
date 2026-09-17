@@ -71,6 +71,7 @@ uv run python tools/pubmed/client.py search --query "<topic> <design>" --retmax 
   over an over-ambitious Q1 journal with high rejection rates.
 - Verify SCIE indexing rather than assuming; flag predatory or questionable venues.
 - **The user MUST choose the journal.** The agent must never select the journal itself.
+- **Base Manuscript Read-Only**: The frozen canonical base files under `01_protocol/` through `07_manuscript/` must remain strictly untouched. The `base_manuscript_untouched` gate enforces zero modifications.
 
 ## Close
 Mechanical deltas (word counts, spelling variant, abstract headings, reference caps) are
