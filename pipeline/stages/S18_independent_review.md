@@ -45,7 +45,9 @@ finding. Follow S19 for close, one report, one question and the actual user answ
 4. Preserve the review in `project/07_manuscript/independent_publishability_review.md`
    under these exact headings: `Verdict`, `Critical barriers`, `Scientific validity`,
    `Reporting completeness`, `Tables and supplementary material`, `Journal suitability`,
-   `Required revisions`, `Post-revision outlook`, `Reader comprehension`, `Medical presentation`.
+   `Required revisions`, `Post-revision outlook`, `Reader comprehension`, `Medical presentation`,
+   `Discussion audit`.
+   Under `Discussion audit`, explicitly verify four points: (1) whether the Discussion restates Results sentences/numbers instead of interpreting them, (2) whether it substantively compares findings with prior literature and explains reasons for differences, (3) whether it discusses plausible mechanisms proportionately, and (4) whether it states clinical implications and direction of bias.
    Include the `reviewed_artifacts` JSON from review_round.py in one fenced JSON block inside
    this existing report after verifying the files actually reviewed are unchanged.
    Under Reader comprehension explain the clinical question, population/comparison,

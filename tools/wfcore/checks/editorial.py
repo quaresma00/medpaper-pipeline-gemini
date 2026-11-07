@@ -87,3 +87,73 @@ def display_numbering_consistent(ctx: Ctx) -> Result:
                 if observed and expected and not any(not match[3] for match in figure_calls) and not expected <= observed:
                     problems.append(f"{entry['id']}: missing panel callouts {', '.join(sorted(expected-observed))}")
     return Result(not problems, "display_numbering_consistent", "; ".join(problems) or "first-citation numbering, declared panels and actual table titles agree")
+
+
+@check("discussion_workflow_valid")
+def discussion_workflow_valid(ctx: Ctx) -> Result:
+    from ..discussion import validate_discussion_workflow
+    problems = validate_discussion_workflow(ctx.project)
+    if problems:
+        return Result(
+            False,
+            "discussion_workflow_valid",
+            "; ".join(problems[:6]),
+            [
+                "Prepare table-free, callout-free 07_manuscript/discussion_brief.md and 6-part 07_manuscript/discussion_outline.md.",
+                "Lock the outline BEFORE drafting discussion.md via: uv run python tools/manuscript/discussion_brief.py lock-outline",
+            ],
+        )
+    return Result(True, "discussion_workflow_valid", "isolated Discussion brief and pre-draft 6-part outline verified")
+
+
+@check("discussion_discipline")
+def discussion_discipline(ctx: Ctx) -> Result:
+    from ..discussion import validate_discussion_discipline
+    raw_rel = ctx.spec.get("path", "07_manuscript/discussion.md")
+    resolved = ctx.p(raw_rel)
+    rel = resolved.relative_to(ctx.project).as_posix() if resolved.is_relative_to(ctx.project) else raw_rel
+    supp_max = int(ctx.target("discussion_supp_refs_max", 1))
+    main_max = int(ctx.target("discussion_main_refs_max", 2))
+    problems = validate_discussion_discipline(ctx.project, rel, supp_max=supp_max, main_max=main_max)
+    if problems:
+        return Result(
+            False,
+            "discussion_discipline",
+            "; ".join(problems[:6]),
+            [
+                "Do not lean on supplementary tables/figures in Discussion or copy sentences from Results.",
+                "Synthesize principal findings, literature comparisons, mechanisms, clinical implications, and bias direction.",
+            ],
+        )
+    return Result(True, "discussion_discipline", "Discussion avoids supplementary-callout overuse and Results sentence duplication")
+
+
+@check("discussion_review_verified")
+def discussion_review_verified(ctx: Ctx) -> Result:
+    from ..discussion import validate_discussion_review
+    problems = validate_discussion_review(ctx.project, ctx.stage.id)
+    if problems:
+        return Result(
+            False,
+            "discussion_review_verified",
+            "; ".join(problems[:6]),
+            [
+                "Include a substantive '## Discussion audit' section in the independent review report.",
+                "Explicitly audit: (1) Results restatement, (2) comparison with prior literature + reasons for differences, (3) mechanisms, and (4) clinical implications.",
+            ],
+        )
+    return Result(True, "discussion_review_verified", "independent review includes dedicated Discussion audit")
+
+
+@check("supplemental_filenames_compliant")
+def supplemental_filenames_compliant(ctx: Ctx) -> Result:
+    from ..submissionlayout import supplemental_filename_problems
+    problems = supplemental_filename_problems(ctx.project)
+    if problems:
+        return Result(
+            False,
+            "supplemental_filenames_compliant",
+            "; ".join(problems[:6]),
+            ["Name supplemental uploads 'Supplemental_File_<N>_<Specific_Description>.<ext>' (1..K sequential, no ESM1 shorthand)."],
+        )
+    return Result(True, "supplemental_filenames_compliant", "all supplemental uploads use sequential Supplemental_File_<N>_<Description> naming")

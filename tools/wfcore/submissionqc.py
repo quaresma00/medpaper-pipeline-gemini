@@ -13,7 +13,7 @@ CHECKLIST = "08_submission/evidence/SUBMISSION_CHECKLIST.md"
 BEGIN, END = "<!-- medpaper measured begin -->", "<!-- medpaper measured end -->"
 RULE_FILES = [Path(__file__), *(Path(__file__).with_name(name + ".py") for name in
     ("wordtables", "submission", "journalrules", "journalspec", "determinism", "buildproof", "cslpatch", "qualitylimits",
-     "journalcontext", "guides", "guidelinerules")),
+     "journalcontext", "guides", "guidelinerules", "authorblock", "submissionlayout")),
     Path(__file__).parents[1]/"manuscript/build_docx.py"]
 
 
@@ -58,6 +58,11 @@ def measure(project: Path) -> dict:
     portal_defects = verify_portal(project)
     rows.append({"file": "08_submission/portal_fields.json", "status": "FAIL" if portal_defects else "PASS",
                  "checks": "actual final-DOCX fields, typed journal limits and administrative binding", "defects": portal_defects})
+    from .submissionlayout import supplemental_filename_problems
+    supp_defects = supplemental_filename_problems(project, manifest)
+    if supp_defects:
+        rows.append({"file": "08_submission/bundle/manifest.json", "status": "FAIL",
+                     "checks": "Supplemental_File_<N>_<Description> naming", "defects": supp_defects})
     sources = {rel: _sha256(path) for rel, path in files.items()}
     for rel in ("08_submission/bundle/manifest.json", "08_submission/docx_style.json",
                 "08_submission/submission_requirements.json", "08_submission/target_journal.json",

@@ -20,6 +20,9 @@ pages. Preserve the user's full XML-control cleanup, black text, journal fonts/s
 manual soft breaks/hyperlinks, three-line tables, concise legends and separate supplementary
 tables. Sourced journal line_numbers is audited in actual main-manuscript XML.
 
+Non-blinded `manuscript.docx` places single-source authors on page 1 (separate `title_page.docx`
+only if double-blind or quoted in guidelines); upload figures separately (legends at end), put
+tables one/page after `References`, and name supplements `Supplemental_File_<N>_<Description>.<ext>`.
 Only manifest-listed uploads enter the bundle/release. No directory-wide ZIP, previews,
 Office lock files or internal evidence. Do not draft AI-use disclosure text. S24 is actual
 author package review; this build creates no approval. Never recapture a failed baseline

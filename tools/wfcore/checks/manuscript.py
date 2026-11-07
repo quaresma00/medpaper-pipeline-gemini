@@ -340,7 +340,8 @@ def _docx_legend_problems(root, expected: list[str], cap: int) -> list[str]:
 
 
 def _audit_docx(path: Path, style: dict, role: str,
-                planned_figures: list[str] | None = None, legend_cap: int | None = None) -> list[str]:
+                planned_figures: list[str] | None = None, legend_cap: int | None = None,
+                project: Path | None = None) -> list[str]:
     problems: list[str] = []
     try:
         with zipfile.ZipFile(path) as zf:
@@ -445,6 +446,16 @@ def _audit_docx(path: Path, style: dict, role: str,
         if planned_figures is not None:
             problems.extend(f"{path.name}: {problem}" for problem in
                             _docx_legend_problems(root, planned_figures, legend_cap))
+        if project is not None:
+            from ..submissionlayout import (
+                display_placement_policy,
+                docx_embedded_media_problems,
+                docx_table_placement_problems,
+            )
+            fig_mode, tbl_mode, pol_problems = display_placement_policy(project)
+            problems.extend(pol_problems)
+            problems.extend(docx_embedded_media_problems(path, allow_embedded_figures=(fig_mode == "embedded_in_text")))
+            problems.extend(docx_table_placement_problems(path, project, tables_mode=tbl_mode, check_planned_main_tables=False))
     elif role == "figure_legends":
         count = sum(1 for line in raw_text.splitlines()
                     if line.strip().casefold() == "figure legends")
@@ -495,9 +506,9 @@ def docx_bundle_ready(ctx: Ctx) -> Result:
             problems.append(f"{role}: narrative upload must be DOCX, got {path.name}")
         if path.suffix.casefold() == ".docx":
             problems.extend(_audit_docx(path, style, role, planned,
-                                        check_limit(ctx)))
-    requirements = ctx.read_json("08_submission/submission_requirements.json") if ctx.exists("08_submission/submission_requirements.json") else {}
-    for role in [name for name in requirements.get("required_upload_roles", ["manuscript", "title_page", "cover_letter"]) if name in TEXT_ROLES]:
+                                        check_limit(ctx), project=ctx.project))
+    from ..authorblock import expected_narrative_roles
+    for role in [name for name in expected_narrative_roles(ctx.project) if name in TEXT_ROLES]:
         if not any(p.suffix.casefold() == ".docx" for p in roles.get(role, [])):
             problems.append(f"no DOCX for required role '{role}'")
     if ctx.p(supplementary_rel).exists():
@@ -509,3 +520,37 @@ def docx_bundle_ready(ctx: Ctx) -> Result:
     count = sum(path.suffix.casefold() == ".docx" for paths in roles.values() for path in paths)
     return Result(True, "docx_bundle_ready",
                   f"{count} DOCX file(s): black journal font, consistent sizes, no links or outline headings")
+
+
+@check("author_placement_consistent")
+def author_placement_consistent(ctx: Ctx) -> Result:
+    from ..authorblock import verify_author_placement
+    problems = verify_author_placement(ctx.project, ctx.stage.id)
+    if problems:
+        return Result(
+            False,
+            "author_placement_consistent",
+            "; ".join(problems[:8]),
+            [
+                "Keep a single source in 00_input/author_info.json (authors, affiliations, corresponding + contact, ORCID).",
+                "Run tools/manuscript/author_block.py sync and rebuild DOCX via tools/manuscript/build_docx.py.",
+            ],
+        )
+    return Result(True, "author_placement_consistent", "single-source author placement and blinding policy verified")
+
+
+@check("display_placement_compliant")
+def display_placement_compliant(ctx: Ctx) -> Result:
+    from ..submissionlayout import verify_display_placement
+    problems = verify_display_placement(ctx.project, ctx.stage.id)
+    if problems:
+        return Result(
+            False,
+            "display_placement_compliant",
+            "; ".join(problems[:8]),
+            [
+                "Default: upload figures separately (only '# Figure legends' in manuscript.docx) and put each main table on its own page after References.",
+                "Switch to inline embedding ONLY with a verified verbatim quote from the official journal guidelines.",
+            ],
+        )
+    return Result(True, "display_placement_compliant", "figure/table placement matches journal policy")

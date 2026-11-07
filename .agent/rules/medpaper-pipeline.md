@@ -1,4 +1,4 @@
-# medpaper pipeline — Antigravity workspace rule (v1.27.0)
+# medpaper pipeline — Antigravity workspace rule (v1.28.0)
 
 This repository is a **gated 25-stage medical research paper pipeline**. Do not follow the
 workflow from memory; `pipeline/pipeline.toml`, `AGENTS.md`, and the active stage card own all
@@ -42,7 +42,14 @@ uv run python tools/wf.py card
    at S19/S24, run affected owner checks in place, and rebuild true dependants (`wf rebuild`) without
    rewinding completed stages. Lock S19 with `scientific_master_freeze.json`; isolate all S20–S25
    journal adaptations under `08_submission/integration/` (`tools/journal.py`).
-7. **Clean Word XML & user-owned disclosures**: Final DOCX outputs use native three-line tables and
+7. **Discussion isolation, single-source authors, display placement & supplemental naming (`v1.28.0`)**:
+   Draft S16 from table-free/number-free `discussion_brief.md` after locking the 6-part `discussion_outline.md`;
+   block Results sentence duplication and supplementary-callout overuse, and include `Discussion audit` in
+   S18/S19/S24/S25 reviews. Render non-blinded authors on page 1 of `manuscript.docx` from `00_input/author_info.json`
+   (separate `title_page.docx` only when double-blind or explicitly required by a verified guideline quote).
+   Upload figures separately and put each main table on its own page after `References` unless an official
+   guideline quote mandates inline placement. Name supplements `Supplemental_File_<N>_<Description>.<ext>`.
+8. **Clean Word XML & user-owned disclosures**: Final DOCX outputs use native three-line tables and
    flat `SectionHeading` paragraphs stripped of `outlineLvl`, `keepNext`, `keepLines`,
    `pageBreakBefore`, borders, hyperlinks, and non-black text. Never draft an AI-use disclosure
    unless explicitly requested by the user.

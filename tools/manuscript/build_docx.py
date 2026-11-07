@@ -200,13 +200,18 @@ def _remove_heading_metadata(paragraph, *, strip_numbering: bool = True) -> None
             ppr.remove(node)
 
 
-def _source_problems(kind: str, inputs: list[Path]) -> list[str]:
+def _source_problems(kind: str, inputs: list[Path], project: Path | None = None) -> list[str]:
     text = "\n\n".join(path.read_text(encoding="utf-8", errors="replace") for path in inputs)
     problems: list[str] = []
     if kind in {"manuscript", "figure_legends"}:
         count = len(re.findall(r"(?mi)^#\s+Figure legends\s*$", text))
         if count != 1:
             problems.append(f"source must contain exactly one '# Figure legends' heading, found {count}")
+    if kind == "manuscript":
+        from wfcore.submissionlayout import display_placement_policy, markdown_display_problems
+        fig_mode, tbl_mode, pol_problems = display_placement_policy(project or project_root())
+        problems.extend(pol_problems)
+        problems.extend(markdown_display_problems(text, figures_mode=fig_mode, tables_mode=tbl_mode))
     if kind == "supplementary":
         lines = text.splitlines()
         if (any(PIPE_TABLE_DIVIDER_RE.match(line) for line in lines) or
@@ -286,6 +291,9 @@ def normalize_docx(path: Path, style: dict, kind: str) -> None:
     _replace_manual_line_breaks(doc)
     from wfcore.journalspec import apply_docx
     apply_docx(doc, style.get("journal_profile", {}), kind)
+    if kind == "manuscript":
+        from wfcore.authorblock import inject_docx_author_block
+        inject_docx_author_block(doc, Path(style.get("journal_project", project_root())))
     _format_reference_spacing(doc, style.get("reference_separator", "space"))
     paras = list(iter_paragraphs(doc))
     nonempty_seen = 0
@@ -646,6 +654,16 @@ def audit_docx(path: Path, style: dict, kind: str = "",
         else:
             problems.extend(f"{path.name}: {problem}" for problem in
                             _legend_problems(root, planned_figures, legend_cap))
+        from wfcore.submissionlayout import (
+            display_placement_policy,
+            docx_embedded_media_problems,
+            docx_table_placement_problems,
+        )
+        proj = Path(style.get("journal_project", project_root()))
+        fig_mode, tbl_mode, pol_problems = display_placement_policy(proj)
+        problems.extend(pol_problems)
+        problems.extend(docx_embedded_media_problems(path, allow_embedded_figures=(fig_mode == "embedded_in_text")))
+        problems.extend(docx_table_placement_problems(path, proj, tables_mode=tbl_mode, check_planned_main_tables=False))
     elif kind == "figure_legends":
         count = sum(1 for line in docx_text(path).splitlines()
                     if line.strip().casefold() == "figure legends")
@@ -703,8 +721,11 @@ def build(args) -> int:
         tables, table_inputs = load_spec(project_root(), tables_path)
     profile_path = project_root()/"08_submission/target_journal.json"
     profile_inputs = [profile_path] if profile_path.is_file() else []
+    req_path = project_root()/"08_submission/submission_requirements.json"
+    if req_path.is_file():
+        profile_inputs.append(req_path)
     author_input = project_root()/"00_input/author_info.json"
-    if style.get("journal_profile", {}).get("blinded_main_manuscript") and author_input.is_file():
+    if author_input.is_file():
         profile_inputs.append(author_input)
     patch_path = getattr(args, "csl_patch", None) or project_root()/"08_submission/integration/csl_patch.json"
     patch_path = patch_path if patch_path.is_file() else None
@@ -719,7 +740,7 @@ def build(args) -> int:
         actual_inputs.append(reference_doc)
     before = {p:_sha256(p) for p in actual_inputs}
     try:
-        source_problems = _source_problems(args.kind, args.input)
+        source_problems = _source_problems(args.kind, args.input, project_root())
         if source_problems:
             raise ValueError("; ".join(source_problems))
         # Validate a temporary candidate; a failed rebuild must preserve the user's file.
@@ -733,9 +754,16 @@ def build(args) -> int:
             if reference_doc: run_pandoc(args.input,candidate,args.bibliography,used_csl,reference_doc=reference_doc)
             else: run_pandoc(args.input, candidate, args.bibliography, used_csl)
             if tables:
-                from wfcore.wordtables import append_tables
+                from wfcore.submissionlayout import display_placement_policy
+                from wfcore.wordtables import append_tables, embed_tables_in_text
+                _, tbl_mode, pol_problems = display_placement_policy(project_root())
+                if pol_problems:
+                    raise ValueError("; ".join(pol_problems))
                 document = Document(candidate)
-                append_tables(document, project_root(), tables, style)
+                if args.kind == "manuscript" and tbl_mode == "embedded_in_text":
+                    embed_tables_in_text(document, project_root(), tables, style)
+                else:
+                    append_tables(document, project_root(), tables, style)
                 document.save(candidate)
             normalize_docx(candidate, style, args.kind)
             problems = audit_docx(candidate, style, args.kind,
@@ -761,6 +789,8 @@ def build(args) -> int:
                 ROOT/"tools/wfcore/qualitylimits.py",
                 ROOT/"tools/wfcore/cslpatch.py",
                 ROOT/"tools/wfcore/wordtables.py",
+                ROOT/"tools/wfcore/authorblock.py",
+                ROOT/"tools/wfcore/submissionlayout.py",
                 project.parent/"pipeline/pipeline.toml", plan if plan.is_file() else None]
     observed = [p for p in observed if p is not None and p.is_file()]
     record_build(project, args.output, observed,
@@ -821,7 +851,8 @@ def audit_manifest(args) -> int:
             scope=item.get("legend_scope",style.get("figure_legend_scope","all"))
             wanted=planned_figure_ids(scope=scope) if role in {"manuscript","figure_legends"} else planned
             problems += audit_docx(path, style, role, wanted, legend_cap)
-    for role in ("manuscript", "title_page", "cover_letter"):
+    from wfcore.authorblock import expected_narrative_roles
+    for role in [r for r in expected_narrative_roles(project_root()) if r in TEXT_ROLES]:
         if not any(p.suffix.lower() == ".docx" for p in roles.get(role, [])):
             problems.append(f"manifest lacks a DOCX item for role '{role}'")
     if (project_root() / "08_submission/integration/supplementary_methods.md").exists():

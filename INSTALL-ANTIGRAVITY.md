@@ -1,4 +1,4 @@
-# Install and operate medpaper on Google Antigravity / Gemini (v1.27.0)
+# Install and operate medpaper on Google Antigravity / Gemini (v1.28.0)
 
 ## Requirements
 
@@ -30,7 +30,7 @@ $env:NCBI_API_EMAIL = "you@example.org"
 | File | Read by | Role |
 |---|---|---|
 | `.agent/rules/medpaper-pipeline.md` | Antigravity IDE | Workspace passive rule |
-| `.agents/skills/medpaper-pipeline/SKILL.md` | Antigravity IDE + `agy` CLI | Workspace skill (`v1.27.0`) |
+| `.agents/skills/medpaper-pipeline/SKILL.md` | Antigravity IDE + `agy` CLI | Workspace skill (`v1.28.0`) |
 | `AGENTS.md` | Antigravity + cross-IDE | Primary execution policy and topic router |
 | `reference/antigravity-integration.md` | On-demand router | Subagent (`invoke_subagent`), Science plugin, and tool arbitration |
 | `~/.gemini/config/skills/medpaper-pipeline/SKILL.md` | Global IDE + CLI | Global dispatcher (`F:\workspace\medpapaer\gemini` default, override via `MEDPAPER_MASTER_TEMPLATE` or `tools/medpaper_launcher.py --template-source`) |
@@ -66,8 +66,8 @@ uv run python tools/wf.py advance --note "specific handoff note"
    S06 freezes `analysis_contract.json` and `study_facts.json`; S07 benchmarks registered close comparator PDFs (`tools/manuscript/benchmark.py`) instead of imposing universal reference/word/figure quotas. S11 renders figures via `uv run python tools/figures/render_r.py` from approved results without refitting models.
 4. **Version-bound subagent reviews & explicit `我确认这一版` (`S18`, `S19`, `S24`, `S25`)**:
    No review ZIPs are created. Independent reviews run in one read-only subagent (`invoke_subagent(TypeName="research", ...)`), attached via `uv run python tools/review_round.py ingest --from-file ...`. Safe fixes are applied in place via `tools/rework.py batch`, reported once with clickable paths, and gated on the user's explicit **`我确认这一版`** for the current version.
-5. **Frozen scientific master, journal switching, and native Word tables (`S20`–`S25`)**:
-   `scientific_master_freeze.json` locks S19 scientific sources. All journal adaptations live in `08_submission/integration/` (`tools/journal.py`), archiving prior journal attempts cleanly when switching targets. `uv run python tools/wf.py rebuild` and `build_docx.py` produce native portrait/landscape three-line Word tables and flat, pure-black `SectionHeading` XML free of `outlineLvl`, `keepNext`, `keepLines`, `pageBreakBefore`, borders, and hyperlinks.
+5. **Isolated Discussion, single-source page-1 authors, display placement & `Supplemental_File` naming (`S16`–`S25`)**:
+   S16 isolates `discussion_brief.md` (no result tables or display callout numbers) and locks a concise 6-part `discussion_outline.md` (`discussion_brief.py`) before drafting `discussion.md`, blocks Results sentence restatement and supplementary-callout overuse, and enforces `Discussion audit` in S18/S19/S24/S25 reviews. `scientific_master_freeze.json` locks S19 scientific sources. In `08_submission/`, non-blinded `manuscript.docx` places single-source authors (`author_info.json`) on page 1 (separate `title_page.docx` only when double-blind or backed by a verified official guideline quote), figures upload separately (`# Figure legends` at the end), main tables sit one per page after `# References`, and supplemental files use `Supplemental_File_<N>_<Specific_Description>.<ext>`. `build_docx.py` produces native three-line Word tables and flat, pure-black `SectionHeading` XML.
 
 ## Verify or package
 

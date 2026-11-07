@@ -149,6 +149,8 @@ def apply_docx(doc, target: dict, role: str) -> None:
                     raise ValueError(f"actual keywords violate journal keywords.{key}")
             paragraph.text = "Keywords: " + separator.join(terms)
         if role not in {"title_page", "cover_letter", "statements", "coi_forms"} and name != "Bibliography":
+            if role == "manuscript" and paragraph.text.strip().startswith(("Authors: ", "Affiliations: ", "Corresponding author: ", "ORCID: ")):
+                continue
             for run in paragraph.runs:
                 run.text = number_text(spelling(run.text, target.get("spelling", "")), target.get("number_format", {}))
 

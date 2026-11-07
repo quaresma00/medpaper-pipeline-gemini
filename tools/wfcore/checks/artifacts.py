@@ -633,6 +633,11 @@ def bundle_complete(ctx: Ctx) -> Result:
     stray = sorted(on_disk - listed)
     if stray:
         problems.append(f"{len(stray)} file(s) in the bundle are not in the manifest: {', '.join(stray[:5])}")
+    from ..state import version_tuple
+    pin_ver = str(ctx.state.data.get("engine_pin", ctx.state.data.get("pipeline_version", "0")))
+    if requirements and version_tuple(pin_ver) >= (1, 28, 0):
+        from ..submissionlayout import supplemental_filename_problems
+        problems.extend(supplemental_filename_problems(ctx.project, man))
     if problems:
         return Result(False, "bundle_complete", "; ".join(problems[:8]))
     return Result(True, "bundle_complete", f"{len(items)} bundle item(s), each present and traced to a guideline rule")

@@ -97,6 +97,8 @@ references each own their topic; this policy contains no historical supersession
   legend identifier/title once. Legends decode the display without repeating Results; consolidate
   crowded abbreviations in Declarations and Statements > Abbreviations unless current journal
   rules require local definitions. Keep essential units/symbol meanings locally understandable.
+- At S16, isolate Discussion inputs (`discussion_brief.md` contains prose-only findings, deep-read comparisons, mechanisms, and limitations—no result tables or display numbers), lock a concise 6-part `discussion_outline.md` before drafting `discussion.md`, avoid supplementary-callout overuse or near-duplicate Results sentences, and audit Discussion quality explicitly at S18/S19/S24/S25 (`Discussion audit`).
+- Non-blinded journals render single-source `00_input/author_info.json` directly on page 1 of `manuscript.docx` (generating a separate `title_page.docx` from the same source ONLY when official guidelines explicitly mandate one; double-blind journals keep `manuscript.docx` anonymous and put authors only in `title_page.docx`). When guidelines are silent, figures upload as separate files (only `# Figure legends` in `manuscript.docx`) and main tables sit one per page after `# References`; inline embedding requires a verified verbatim guideline quote. Name supplemental uploads `Supplemental_File_<N>_<Specific_Description>.<ext>` (never `ESM1`).
 - Supplementary Methods is prose; tables go in separate three-line supplementary tables. No
   Markdown rules remain in Word. Actual journal typography governs size/spacing with medical
   defaults Times New Roman and black. Word contains no literal U+2193, manual wrapping breaks,

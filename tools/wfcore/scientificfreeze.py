@@ -26,6 +26,8 @@ CORE_FILES = (
     "07_manuscript/methods.md",
     "07_manuscript/supplementary_methods.md",
     "07_manuscript/results.md",
+    "07_manuscript/discussion_brief.md",
+    "07_manuscript/discussion_outline.md",
     "07_manuscript/discussion.md",
     "07_manuscript/statements.md",
     "07_manuscript/reconciliation.md",

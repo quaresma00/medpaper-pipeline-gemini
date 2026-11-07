@@ -17,9 +17,12 @@ use null for an unstated cap, and retain the current official source. Recheck ma
 supplementary display allocation before expensive Word/figure production.
 
 Record actual font/width/resolution/heading/keyword/legend rules in the existing journal
-configuration. The optional boolean line_numbers applies continuous numbering to the main
-manuscript only; do not add line numbers by default. Early production assumptions are
-reversible and are not an author-approved journal selection.
+configuration. Defaults unless overridden by a verified verbatim official quote: non-blinded
+authors sit on page 1 of `manuscript.docx` (no separate `title_page.docx`; double-blind keeps
+`manuscript.docx` anonymous), figures upload separately (`# Figure legends` at end), and main
+tables go one per page after `# References`. The optional boolean line_numbers applies
+continuous numbering to the main manuscript only; do not add line numbers by default. Early
+production assumptions are reversible and are not an author-approved journal selection.
 
 For selection evidence, journal schemas and integration initialization, use full details.
 

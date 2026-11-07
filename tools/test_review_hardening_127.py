@@ -901,9 +901,10 @@ class CrossDriveLauncherAndNoPandocTests(unittest.TestCase):
             self.assertIn("S01_intake", proc_status.stdout)
 
             # 3. Safe --upgrade from an older 1.25.0 workspace updates engine while preserving project/, .venv/, and engine_pin
+            current_ver = str(registry.load().meta["version"])
             old_toml = new_ws / "pipeline/pipeline.toml"
             old_toml.write_text(
-                old_toml.read_text(encoding="utf-8").replace('version = "1.27.0"', 'version = "1.25.0"', 1),
+                old_toml.read_text(encoding="utf-8").replace(f'version = "{current_ver}"', 'version = "1.25.0"', 1),
                 encoding="utf-8",
             )
             (new_ws / ".medpaper-engine.json").unlink(missing_ok=True)
@@ -934,7 +935,7 @@ class CrossDriveLauncherAndNoPandocTests(unittest.TestCase):
                 errors="replace",
             )
             self.assertEqual(proc_upg.returncode, 0, proc_upg.stdout + proc_upg.stderr)
-            self.assertIn('version = "1.27.0"', old_toml.read_text(encoding="utf-8"))
+            self.assertIn(f'version = "{current_ver}"', old_toml.read_text(encoding="utf-8"))
             self.assertIn("Preserve me across upgrades.", idea_file.read_text(encoding="utf-8"))
             self.assertEqual(venv_marker.read_text(encoding="utf-8"), "existing-venv")
             self.assertEqual(State(new_ws / "project").load().data["engine_pin"], "1.25.0")

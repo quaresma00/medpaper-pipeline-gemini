@@ -32,9 +32,10 @@ uv run python tools/manuscript/reference_count.py sync
 ```
    Use `sync --add` only when the official title-page instructions require that field. Do not
    derive it from the candidate literature-library size.
-3. Build every prose upload with `tools/manuscript/build_docx.py`. For each journal-required narrative role (do not add roles absent from the guide):
+3. Build every prose upload with `tools/manuscript/build_docx.py`. For non-blinded journals, `manuscript.docx` automatically receives the single-source author block on page 1 from `00_input/author_info.json` and main tables are appended one per page after `# References` via `--tables-json`; build a separate `title_page.docx` **only** when double-blind or explicitly mandated by a verified official guideline quote:
 ```
-uv run python tools/manuscript/build_docx.py build --kind manuscript --input project/08_submission/integration/full_manuscript.md --output project/08_submission/bundle/manuscript.docx --style-config project/08_submission/docx_style.json --bibliography project/06_refs/refs.bib --csl <journal.csl>
+uv run python tools/manuscript/build_docx.py build --kind manuscript --input project/08_submission/integration/full_manuscript.md --output project/08_submission/bundle/manuscript.docx --style-config project/08_submission/docx_style.json --bibliography project/06_refs/refs.bib --csl <journal.csl> --tables-json project/08_submission/integration/main_tables.json
+# Only when double-blind or explicitly required by verified official guidelines:
 uv run python tools/manuscript/build_docx.py build --kind title_page --input project/08_submission/integration/title_page.md --output project/08_submission/bundle/title_page.docx --style-config project/08_submission/docx_style.json
 uv run python tools/manuscript/build_docx.py build --kind cover_letter --input project/08_submission/cover_letter.md --output project/08_submission/bundle/cover_letter.docx --style-config project/08_submission/docx_style.json
 ```
@@ -57,7 +58,9 @@ uv run python tools/manuscript/build_docx.py build --kind cover_letter --input p
    not repeat `Figure N` immediately after its heading. Build separate figure
    legend Word files only when the journal explicitly asks, but the legends always remain
    in the manuscript.
-6. Add figures and tables in the exact editable/separate forms required by the journal.
+6. Follow medical-journal display placement & supplemental naming defaults unless an official guideline quote explicitly mandates otherwise:
+   - Upload main figures as separate files (`manuscript.docx` contains NO embedded images, only `# Figure legends` at the end); place main tables on separate pages after `# References` in `manuscript.docx`.
+   - Name every supplemental upload `Supplemental_File_<N>_<Specific_Description>.<ext>` (e.g. `Supplemental_File_1_Supplementary_Methods.docx`, `Supplemental_File_2_Supplementary_Tables.xlsx`), numbered sequentially 1..K without gaps; never use terse names such as `ESM1`.
    Never omit the supplementary file. Supplementary Methods must contain prose only and no
    Markdown horizontal rules. Put every supplementary table in the separate three-line
    workbook under `04_tables/supplementary/` and deliver it in the selected journal's required

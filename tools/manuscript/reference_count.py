@@ -59,6 +59,14 @@ def main() -> int:
         print(f"actual distinct citations: {actual}; source: {manuscript.relative_to(project).as_posix()}")
         print("title-page field: "+("not created" if not title_page.is_file() else "absent" if not values else str(values[0]) if len(values)==1 else "duplicate"))
         return 0 if len(values)<=1 else 2
+    manuscript_path, title_page_path = paths(project)
+    if manuscript_path.is_file() and not title_page_path.is_file():
+        from wfcore.authorblock import title_page_policy
+        _, needs_sep, pol_problems = title_page_policy(project)
+        if not pol_problems and not needs_sep and not args.add:
+            cnt = actual_reference_count(manuscript_path.read_text(encoding="utf-8", errors="replace"))
+            print(f"reference count: {cnt} actual; separate title page is not required for this non-blinded journal")
+            return 0
     try:
         _, title_page, _, title_text, actual = load(project)
     except (FileNotFoundError, OSError) as exc:

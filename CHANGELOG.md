@@ -2,6 +2,15 @@
 
 历史说明用于了解变更；执行以当前 AGENTS.md、阶段卡和程序为准。
 
+## 1.28 版：正文单源作者块、默认图表位置门禁、讨论脱敏提纲与审阅闭环及补充文件标准命名
+
+围绕临床期刊真实投稿惯例与讨论写作质量，在不破坏历史 `engine_pin` 兼容性的前提下落地四项不可豁免门禁（`since = "1.28.0"`）：
+
+- **非双盲正文首页单源作者信息与双盲隔离（S20–S25）。** 新增 `authorblock.py` 与 `tools/manuscript/author_block.py`，以 `00_input/author_info.json` 作为唯一数据源确定性渲染完整作者信息块（题目、作者及单位标号、单位全称、通讯作者及联系方式、ORCID）。非双盲期刊默认直接排入 `manuscript.docx` 第一页且不生成多余的 `title_page.docx`；仅当目标期刊官方指南原文明确要求单独上传题名页（经快照原文逐字验真 `quote`）时才同源生成 `title_page.docx` 并逐字比对一致。双盲期刊正文保持完全匿名，作者信息仅写入单独的 `title_page.docx`。
+- **图片与表格默认位置门禁（S20/S22–S25）。** 新增 `submissionlayout.py`：指南未作规定时，严禁将图片嵌进 `manuscript.docx`（作为独立文件上传，正文末尾仅保留 `# Figure legends`），主表置于 `# References` 之后且每张表独立分节单独占一页。仅当目标期刊官方指南原文明确要求并在已捕获指南文本中验真逐字 `quote` 时，才允许切换为嵌在正文内，严禁 AI 凭自身判断决定。
+- **讨论部分写作材料隔离、前置 6 要素提纲、自动查重与专项审阅（S16–S19/S22–S25）。** 新增 `discussion.py` 与 `tools/manuscript/discussion_brief.py`：S16 输入材料（`07_manuscript/discussion_brief.md`）剔除所有结果表格与图表编号，仅保留纯文字概括的主要发现、精读文献对比要点、可能机制和局限性；动笔写 `discussion.md` 前强制先锁定包含“主要发现、与既往研究的比较和差异原因、可能机制、临床意义、局限性及偏倚方向、结论”6 项要素的简短提纲（`07_manuscript/discussion_outline.md`）；自动拦截过分引用补充表/补充图及与 `results.md` 近似重复的句子；S18/S19/S24/S25 独立审阅强制包含 `Discussion audit` 专项核查。
+- **补充文件描述性连续命名（S23–S25）。** 所有上传补充材料统一强制采用 `Supplemental_File_<序号>_<具体补充文件描述>.<ext>`（如 `Supplemental_File_1_Supplementary_Methods.docx`、`Supplemental_File_2_Supplementary_Tables.xlsx`），从 `1` 连续编号，拦截 `ESM1` 等简略或跳号文件名（除非官方指南原文强制指定机器命名模板并附验真 `quote`）。
+
 ## 1.27 版：全场景数值语境闭环、图表显式标注溯源与终审不可豁免加固
 
 针对外部专家交叉评审识别出的残余结构性漏口，在不增加新阶段、不破坏 `1.14`–`1.26` 既有历史锁（`engine_pin`）的前提下补齐六项硬门禁与跨环境适配：

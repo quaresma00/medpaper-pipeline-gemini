@@ -52,6 +52,8 @@ NON_OVERRIDABLE_GATES = {
     "numbers_have_provenance", "numbers_cross_match",
     "research_context_known", "study_governance", "variable_definitions", "statistical_reporting_plan", "source_record_spotcheck", "reference_usage",
     "dependent_checks_pending",
+    "author_placement_consistent", "display_placement_compliant", "supplemental_filenames_compliant",
+    "discussion_workflow_valid", "discussion_discipline", "discussion_review_verified",
 }
 
 

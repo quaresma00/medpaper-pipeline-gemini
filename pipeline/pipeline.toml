@@ -14,7 +14,7 @@
 
 [meta]
 name = "medpaper"
-version = "1.27.0"
+version = "1.28.0"
 schema = 1
 description = "Medical/clinical research pipeline: idea -> feasibility -> data -> analysis -> artifacts -> manuscript -> submission package."
 
@@ -90,6 +90,8 @@ abbreviation_local_words_max = 50
 journal_source_age_days_max = 90
 reference_verification_age_days_max = 90
 live_reference_age_hours_max = 24
+discussion_supp_refs_max = 1
+discussion_main_refs_max = 2
 
 # ==============================================================================
 # STAGES
@@ -521,9 +523,9 @@ check = "deepread_complete"
 
 [[stage]]
 id = "S16_discussion"
-title = "Write Discussion"
+title = "Write Discussion from isolated brief and 6-part outline"
 card = "stages/S16_discussion.md"
-outputs = ["07_manuscript/discussion.md"]
+outputs = ["07_manuscript/discussion_brief.md", "07_manuscript/discussion_outline.md", "07_manuscript/discussion.md"]
 [[stage.gate]]
 check = "outputs_exist"
 [[stage.gate]]
@@ -553,6 +555,13 @@ path = "07_manuscript/discussion.md"
 check = "prose_not_lists"
 path = "07_manuscript/discussion.md"
 since = "1.13.0"
+[[stage.gate]]
+check = "discussion_workflow_valid"
+since = "1.28.0"
+[[stage.gate]]
+check = "discussion_discipline"
+path = "07_manuscript/discussion.md"
+since = "1.28.0"
 
 [[stage]]
 id = "S17_assemble"
@@ -621,6 +630,10 @@ check = "manuscript_size_health"
 
 [[stage.gate]]
 check = "legend_length_advice"
+[[stage.gate]]
+check = "discussion_discipline"
+path = "07_manuscript/full_manuscript.md"
+since = "1.28.0"
 
 [[stage]]
 id = "S18_independent_review"
@@ -644,6 +657,9 @@ name = "independent_publishability"
 allowed = ["READY", "REVISE", "NOT_READY"]
 [[stage.gate]]
 check = "reader_review_coverage"
+[[stage.gate]]
+check = "discussion_review_verified"
+since = "1.28.0"
 
 [[stage]]
 id = "S19_human_review"
@@ -689,6 +705,13 @@ check = "scientific_master_frozen"
 
 [[stage.gate]]
 check = "writing_ready"
+[[stage.gate]]
+check = "discussion_discipline"
+path = "07_manuscript/full_manuscript.md"
+since = "1.28.0"
+[[stage.gate]]
+check = "discussion_review_verified"
+since = "1.28.0"
 
 [[stage]]
 id = "S20_journal"
@@ -736,6 +759,12 @@ check = "journal_display_fit"
 [[stage.gate]]
 check = "journal_requirements_current"
 since = "1.24.0"
+[[stage.gate]]
+check = "author_placement_consistent"
+since = "1.28.0"
+[[stage.gate]]
+check = "display_placement_compliant"
+since = "1.28.0"
 
 [[stage]]
 id = "S21_authors"
@@ -745,6 +774,7 @@ needs_user = true
 outputs = ["00_input/author_info.json", "08_submission/integration/title_page.md", "08_submission/integration/statements.md"]
 [[stage.gate]]
 check = "outputs_exist"
+optional = ["08_submission/integration/title_page.md"]
 [[stage.gate]]
 check = "scientific_master_unchanged"
 [[stage.gate]]
@@ -781,6 +811,9 @@ check = "study_governance"
 [[stage.gate]]
 check = "journal_requirements_current"
 since = "1.24.0"
+[[stage.gate]]
+check = "author_placement_consistent"
+since = "1.28.0"
 
 [[stage]]
 id = "S22_polish"
@@ -847,6 +880,16 @@ layer = "journal"
 [[stage.gate]]
 check = "journal_requirements_current"
 since = "1.24.0"
+[[stage.gate]]
+check = "author_placement_consistent"
+since = "1.28.0"
+[[stage.gate]]
+check = "display_placement_compliant"
+since = "1.28.0"
+[[stage.gate]]
+check = "discussion_discipline"
+path = "08_submission/integration/full_manuscript.md"
+since = "1.28.0"
 
 [[stage]]
 id = "S23_package"
@@ -919,6 +962,19 @@ final = true
 check = "journal_requirements_current"
 since = "1.24.0"
 final = true
+[[stage.gate]]
+check = "author_placement_consistent"
+since = "1.28.0"
+[[stage.gate]]
+check = "display_placement_compliant"
+since = "1.28.0"
+[[stage.gate]]
+check = "supplemental_filenames_compliant"
+since = "1.28.0"
+[[stage.gate]]
+check = "discussion_discipline"
+path = "08_submission/integration/full_manuscript.md"
+since = "1.28.0"
 
 [[stage]]
 id = "S24_package_human_review"
@@ -979,6 +1035,18 @@ final = true
 check = "journal_requirements_current"
 since = "1.24.0"
 final = true
+[[stage.gate]]
+check = "author_placement_consistent"
+since = "1.28.0"
+[[stage.gate]]
+check = "display_placement_compliant"
+since = "1.28.0"
+[[stage.gate]]
+check = "supplemental_filenames_compliant"
+since = "1.28.0"
+[[stage.gate]]
+check = "discussion_review_verified"
+since = "1.28.0"
 
 [[stage]]
 id = "S25_submission_audit"
@@ -1037,6 +1105,18 @@ check = "portal_fields_current"
 check = "journal_requirements_current"
 since = "1.24.0"
 final = true
+[[stage.gate]]
+check = "author_placement_consistent"
+since = "1.28.0"
+[[stage.gate]]
+check = "display_placement_compliant"
+since = "1.28.0"
+[[stage.gate]]
+check = "supplemental_filenames_compliant"
+since = "1.28.0"
+[[stage.gate]]
+check = "discussion_review_verified"
+since = "1.28.0"
 
 # Directories where the agent may legitimately create many files.
 # Anything under project/ that matches neither a stage `outputs` entry nor one of

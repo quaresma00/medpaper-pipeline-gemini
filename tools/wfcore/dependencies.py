@@ -110,6 +110,8 @@ def closure(project: Path, changed: list[str], *, change_type: str = "scientific
         if source not in producer_scripts:
             for result in results:
                 link(source, result.relative_to(project).as_posix())
+    link("07_manuscript/discussion_brief.md", "07_manuscript/discussion.md")
+    link("07_manuscript/discussion_outline.md", "07_manuscript/discussion.md")
     for rel in ("title", "abstract", "keywords", "methods", "results", "introduction", "discussion", "statements"):
         link(f"07_manuscript/{rel}.md", "07_manuscript/full_manuscript.md")
         link(f"07_manuscript/{rel}.md", "07_manuscript/claim_bindings.json")
@@ -160,6 +162,7 @@ def closure(project: Path, changed: list[str], *, change_type: str = "scientific
             for source in ("08_submission/target_journal.json", "08_submission/integration/csl_patch.json"):
                 link(source, item["file"])
         if item.get("role") == "manuscript":
+            link("00_input/author_info.json", item["file"])
             link(item["file"], "08_submission/portal_fields.json")
         if item.get("upload", True):
             link(item.get("file"), "08_submission/evidence/SUBMISSION_CHECKLIST.md")

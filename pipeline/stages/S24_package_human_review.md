@@ -22,7 +22,7 @@ science or an explicitly requested additional independent reading still follows 
    Do not transfer patient data/credentials. Missing delegation means independent review pending.
 2. The reviewer reads as a first-time reader and screening editor, then checks files,
    compliance and consistency. Require precise locations, severity and rule/evidence; the
-   exact printed `reviewed_artifacts` JSON; substantive `Reader comprehension`, `Medical presentation`, `Editorial
+   exact printed `reviewed_artifacts` JSON; substantive `Reader comprehension`, `Medical presentation`, `Discussion audit` (verifying non-restatement of Results, literature comparison + reasons for differences, mechanisms, and clinical implications), `Editorial
    screening and low-level errors` and `Guideline compliance` sections. Attach before editing:
 ```
 uv run python tools/review_round.py attach --scope package --report <actual-report.md>

@@ -188,6 +188,73 @@ def append_tables(doc, project: Path, entries: list[dict], style: dict) -> None:
             workbook.close()
 
 
+def embed_tables_in_text(doc, project: Path, entries: list[dict], style: dict) -> None:
+    """Insert native three-line tables inline ONLY when official guidelines explicitly mandate it."""
+    import re
+    from copy import deepcopy
+    from docx import Document as _Doc
+
+    scratch = _Doc()
+    append_tables(scratch, project, entries, style)
+    body_children = [el for el in scratch.element.body if el.tag.rsplit("}", 1)[-1] in {"p", "tbl"}]
+    blocks: dict[str, list] = {}
+    idx = 0
+    while idx < len(body_children):
+        el = body_children[idx]
+        if el.tag.rsplit("}", 1)[-1] == "tbl":
+            cap_node = el.find(qn("w:tblPr"))
+            lbl = cap_node.find(qn("w:tblCaption")) if cap_node is not None else None
+            val = lbl.get(qn("w:val"), "") if lbl is not None else ""
+            tid = val.split(":", 1)[1].strip() if val.startswith("medpaper-threeline:") else ""
+            group = []
+            if idx > 0 and body_children[idx - 1].tag.rsplit("}", 1)[-1] == "p":
+                prev_p = deepcopy(body_children[idx - 1])
+                ppr = prev_p.find(qn("w:pPr"))
+                if ppr is not None:
+                    sect = ppr.find(qn("w:sectPr"))
+                    if sect is not None:
+                        ppr.remove(sect)
+                group.append(prev_p)
+            group.append(deepcopy(el))
+            j = idx + 1
+            while j < len(body_children) and body_children[j].tag.rsplit("}", 1)[-1] == "p":
+                ppr = body_children[j].find(qn("w:pPr"))
+                if ppr is not None and ppr.find(qn("w:sectPr")) is not None:
+                    break
+                group.append(deepcopy(body_children[j]))
+                j += 1
+            if tid:
+                blocks[tid.casefold()] = group
+            idx = j
+        else:
+            idx += 1
+
+    ref_para = next((p for p in doc.paragraphs if p.text.strip().casefold() == "references"), None)
+    for entry in entries:
+        tid = entry["id"].strip()
+        elems = blocks.get(tid.casefold(), [])
+        if not elems:
+            continue
+        target_p = None
+        for p in doc.paragraphs:
+            if p is ref_para:
+                break
+            if re.search(rf"\b{re.escape(tid)}\b", p.text, re.I):
+                target_p = p
+                break
+        if target_p is not None:
+            anchor = target_p._p
+            for elem in elems:
+                anchor.addnext(elem)
+                anchor = elem
+        elif ref_para is not None:
+            for elem in elems:
+                ref_para._p.addprevious(elem)
+        else:
+            for elem in elems:
+                doc.element.body.append(elem)
+
+
 def table_problems(doc) -> list[str]:
     problems = []
     for table in doc.tables:

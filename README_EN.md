@@ -1,10 +1,10 @@
-# medpaper-pipeline-gemini — Gated Medical Research Paper Workflow (v1.27.0)
+# medpaper-pipeline-gemini — Gated Medical Research Paper Workflow (v1.28.0)
 
 [中文说明](README.md) | [English Documentation](README_EN.md)
 
-A 25-stage, fail-closed medical and clinical research paper workflow optimized for **Google Antigravity / Gemini** (`uv run python` + `pwsh`), running the `v1.27.0` verification architecture. It drives a clinical research idea from feasibility and full-census data acquisition through R-first statistical graphics, context- and scale-bound IMRAD writing, version-bound read-only subagent review, frozen scientific master isolation, and journal-compliant native Word submission bundles.
+A 25-stage, fail-closed medical and clinical research paper workflow optimized for **Google Antigravity / Gemini** (`uv run python` + `pwsh`), running the `v1.28.0` verification architecture. It drives a clinical research idea from feasibility and full-census data acquisition through R-first statistical graphics, context- and scale-bound IMRAD writing, version-bound read-only subagent review, frozen scientific master isolation, and journal-compliant native Word submission bundles.
 
-## Architectural Highlights (`v1.27.0`)
+## Architectural Highlights (`v1.28.0`)
 
 | Risk / Failure Mode | Architectural Enforcement |
 |---|---|
@@ -15,7 +15,8 @@ A 25-stage, fail-closed medical and clinical research paper workflow optimized f
 | Results drafted before displays settle | **Table/figure-first execution order**: `S08_methods` -> `S10_tables` -> `S11_figures` -> `S09_results` -> `S12_reconcile`, gated by `display_review.json`. |
 | Amateur plots & universal quotas | Comparator full-text PDF benchmarking at S07 (`pypdf`) replaces rigid word/reference/figure quotas. S11 defaults to managed R clinical recipes (`render_r.py`: flowcharts, aligned-column forest plots, KM, ROC, calibration, dose-response, DCA, balance) with `renv` and per-figure job locks. |
 | Destructive rewrites & journal drift | Version-bound read-only subagent reviews (`invoke_subagent` + `review_round.py`, no review ZIPs), explicit `我确认这一版` sign-off, in-place scoped `rework.py` batches + `wf rebuild`, S19 `scientific_master_freeze.json`, and isolated `08_submission/integration/` (`tools/journal.py`). |
-| Corrupted Word formatting | `build_docx.py` + `wordtables.py` produce native portrait/landscape three-line Word tables and strip `outlineLvl`, `keepNext`, `keepLines`, `pageBreakBefore`, borders, hyperlinks, and non-black runs across all Word XML parts. |
+| Corrupted Word formatting & layout drift | `build_docx.py` + `authorblock.py` + `submissionlayout.py` render single-source page-1 authors for non-blinded journals (separate `title_page.docx` only when double-blind or explicitly quoted in official guidelines), enforce separate figure uploads + one-table-per-page after `References` unless overridden by a verified guideline quote, enforce `Supplemental_File_<N>_<Description>.<ext>` naming, and strip forbidden Word XML controls. |
+| Discussion restating Results | `discussion_brief.py` + `discussion.py` strip tables and display callouts from S16 drafting inputs, require a locked 6-part `discussion_outline.md` before prose, block supplementary-callout overuse and near-duplicate `Results` sentences, and enforce `Discussion audit` in S18/S19/S24/S25 reviews. |
 
 ## Quick Start (Windows `pwsh`)
 

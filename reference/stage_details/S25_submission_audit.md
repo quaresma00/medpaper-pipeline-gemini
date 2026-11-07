@@ -78,7 +78,7 @@ uv run python tools/manuscript/journal_workspace.py verify
      - portal-only tasks that cannot be verified from local files, clearly separated from
        defects in the package.
 4. Save the review as `project/08_submission/independent_submission_audit.md` with headings
-   `Verdict`, `Reader comprehension`, `Medical presentation`, `Editorial screening and low-level errors`,
+   `Verdict`, `Reader comprehension`, `Medical presentation`, `Discussion audit`, `Editorial screening and low-level errors`,
    `Guideline compliance`, `Required files and omissions`, `Cross-file consistency`,
    `Formatting and technical checks`, `Issues requiring correction`, `Final recommendation`.
    Under `Verdict`, write the exact `Freeze ID: <freeze_id>` from

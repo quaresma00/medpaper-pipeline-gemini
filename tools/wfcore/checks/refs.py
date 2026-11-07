@@ -113,21 +113,25 @@ def title_page_reference_count(ctx: Ctx) -> Result:
     title_rel = ctx.spec.get("title_page", "07_manuscript/title_page.md")
     if not ctx.p(manuscript_rel).is_file():
         return Result(False, "title_page_reference_count", f"{manuscript_rel} missing")
-    if not ctx.p(title_rel).is_file():
-        return Result(False, "title_page_reference_count", f"{title_rel} missing")
-
     actual = actual_reference_count(ctx.read(manuscript_rel))
     problems: list[str] = []
     declared_any = False
-    source_values = declared_reference_counts(ctx.read(title_rel))
-    if len(source_values) > 1:
-        problems.append(f"{title_rel}: more than one reference-count field")
-    elif source_values:
-        declared_any = True
-        if source_values[0] != actual:
-            problems.append(
-                f"{title_rel}: declares {source_values[0]} references but the manuscript uses {actual} distinct citekeys"
-            )
+    source_values: list[int] = []
+    if not ctx.p(title_rel).is_file():
+        from ..authorblock import title_page_policy
+        _, needs_sep, pol_problems = title_page_policy(ctx.project)
+        if pol_problems or needs_sep:
+            return Result(False, "title_page_reference_count", f"{title_rel} missing")
+    else:
+        source_values = declared_reference_counts(ctx.read(title_rel))
+        if len(source_values) > 1:
+            problems.append(f"{title_rel}: more than one reference-count field")
+        elif source_values:
+            declared_any = True
+            if source_values[0] != actual:
+                problems.append(
+                    f"{title_rel}: declares {source_values[0]} references but the manuscript uses {actual} distinct citekeys"
+                )
 
     manifest_path = ctx.p("08_submission/bundle/manifest.json")
     if manifest_path.is_file():

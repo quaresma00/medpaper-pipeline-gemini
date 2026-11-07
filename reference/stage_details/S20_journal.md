@@ -91,7 +91,11 @@ uv run python tools/manuscript/journal_workspace.py verify --require-pristine
 
 Before leaving S20, write `08_submission/submission_requirements.json` as described in
 `reference/efficient-quality.md`: exact required upload roles, article type, blinding rules,
-and sourced main/abstract word-count scopes and limits. Do not produce submission files
+sourced main/abstract word-count scopes and limits, optional `separate_title_page` (for non-blinded
+journals, omit `'title_page'` from `required_upload_roles` unless official guidelines explicitly
+mandate a separate title-page upload with a verified verbatim `quote`), and optional
+`display_placement` (defaults: `figures="separate_files"`, `tables="after_references"`; inline
+embedding is blocked unless backed by a verified verbatim official guideline `quote`). Do not produce submission files
 until the user has confirmed the journal and administrative facts are available.
 An explicitly required reporting form is prepared at S23 using integration sources. If it
 exposes a real scientific omission, use the existing scoped correction/reapproval route;

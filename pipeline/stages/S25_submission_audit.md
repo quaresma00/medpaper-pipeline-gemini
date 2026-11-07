@@ -7,7 +7,10 @@ a new clinical reader, screens as an editor, and checks submission completeness/
 consistency. All actionable findings in every section require a disposition, not only the
 must-fix list. A truncated response or a typed PASS is not a complete independent report.
 Include substantive Medical presentation observations about actual main/supplement prose,
-table titles/cells/notes and figure labels/marks/legends. First read without backstage context,
+table titles/cells/notes and figure labels/marks/legends, plus a dedicated `Discussion audit`
+section verifying Results non-restatement, comparison with prior literature + reasons for
+differences, mechanisms, and clinical implications, as well as single-source author placement,
+default figure/table placement, and `Supplemental_File_<N>_<Description>` naming. First read without backstage context,
 then check the evidence. The report's actual Verdict must PASS, not just the workflow state.
 
 Do not add a reporting form, registration or disclosure wording by default. Do not expose
