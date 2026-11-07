@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import matplotlib
 import numpy as np
-from matplotlib.ticker import ScalarFormatter
+from matplotlib.ticker import FixedLocator, MaxNLocator, NullFormatter, LogLocator, ScalarFormatter
 
 from .style import GREY, LIGHT_GREY, figure, significance  # noqa: F401
 
@@ -38,7 +38,11 @@ def km_survival(groups, time_points=None, width="single", height_mm=95.0,
                 risk_table_frac=None, ylabel="Overall survival", xlabel="Time (months)",
                 hr=None, hr_ci=None, logrank_p=None, show_ci=True, show_median=True,
                 colors=None, min_at_risk=10):
-    """Kaplan-Meier curves with a number-at-risk table, via lifelines.
+    """Legacy combined estimation/graphics helper, not the S11 production renderer.
+
+    Retained for compatibility; no current workflow calls this helper. New/updated
+    production figures consume approved analysis exports in R and must not use this
+    helper to refit curves or supply an unplanned log-rank test at plotting time.
 
     groups: [{"name": str, "time": array, "event": array(0/1)}, ...]
     hr, hr_ci, logrank_p: values from your results JSON. If logrank_p is omitted and
@@ -240,14 +244,21 @@ def forest_plot(rows, width="double", height_mm=None, null_value=1.0, log_x=True
     highs = [r["ci"][1] for r in rows]
     if log_x:
         ax.set_xscale("log")
-        # Default log ticks render as 10^0 / 2x10^0, which no clinician reads. Force plain
-        # numbers at the decade and minor positions.
+        # Label a sparse major sequence; numbering every log minor tick crowds narrow
+        # effect ranges. Retain minor marks without their labels.
+        ax.xaxis.set_major_locator(LogLocator(base=10, subs=(1.0, 2.0, 5.0), numticks=5))
         ax.xaxis.set_major_formatter(ScalarFormatter())
-        ax.xaxis.set_minor_formatter(ScalarFormatter())
-        ax.ticklabel_format(axis="x", style="plain")
+        ax.xaxis.set_minor_formatter(NullFormatter())
         span = max(highs) / min(min(lows), null_value)
         ax.set_xlim(min(min(lows), null_value) / span ** 0.18,
                     max(highs) * span ** 0.10)
+        low, high = ax.get_xlim()
+        if high / low < 10:
+            # Sparse decade ticks can leave only "1" on a narrow ratio range. Label
+            # a few readable values at their true log positions, including the null.
+            ticks = MaxNLocator(nbins=3, steps=[1, 2, 2.5, 5, 10]).tick_values(low, high)
+            ticks = sorted(set([float(x) for x in ticks if low <= x <= high] + [float(null_value)]))
+            ax.xaxis.set_major_locator(FixedLocator(ticks))
     else:
         pad = 0.12 * (max(highs) - min(min(lows), null_value))
         ax.set_xlim(min(min(lows), null_value) - pad, max(highs) + pad)
@@ -262,11 +273,14 @@ def forest_plot(rows, width="double", height_mm=None, null_value=1.0, log_x=True
 
     # Direction labels at the axes corners, not both hung off the null line, where they
     # collide whenever the null sits near an edge.
-    for frac, txt, ha in ((0.0, f"\u2190 {left_label}", "left"),
-                          (1.0, f"{right_label} \u2192", "right")):
-        ax.annotate(txt, xy=(frac, 0), xycoords="axes fraction",
-                    xytext=(0, -26), textcoords="offset points",
-                    ha=ha, va="top", color="black", annotation_clip=False)
+    for frac, txt, ha in ((0.0, f"\u2190 {left_label}" if left_label else "", "right"),
+                          (1.0, f"{right_label} \u2192" if right_label else "", "left")):
+        if txt:
+            # Anchor to the xlabel, whose measured position follows font/tick/layout
+            # changes; a fixed axes offset can overlap the xlabel after drawing.
+            ax.annotate(txt, xy=(frac, 0), xycoords=("axes fraction", ax.xaxis.label),
+                        xytext=(0, -9), textcoords="offset points",
+                        ha=ha, va="top", color="black", annotation_clip=False)
 
     trans = ax.get_yaxis_transform()
     for y, r in zip(ys, rows):

@@ -1,5 +1,11 @@
 # S17 - Select the title and assemble the complete manuscript
 
+Bind numeric Abstract findings under `reference/numeric-claims.md`. The assembler carries
+matching Abstract/Results bindings to full-manuscript mappings without printing them in prose.
+
+Read the Abstract/title section of `reference/medical-writing.md` before distilling the
+accepted paper. Reuse the existing close-paper observations.
+
 ## Purpose
 Create the first complete paper before asking for author or affiliation details. The paper
 must be readable as one medical-journal manuscript and becomes the canonical scientific
@@ -18,15 +24,16 @@ source for review, user editing, polishing and packaging.
    `Keywords: term 1, term 2, term 3`. Use 3-6 specific, MeSH-aligned terms where suitable.
    Commas are the only separators: no slash, semicolon, ampersand or conjunction padding.
 4. Assemble the exact order with the deterministic tool:
-   First, review the display-item abbreviation lists. When they exceed eight unique terms,
+   First, verify S07's abbreviation policy was followed. When lists exceed eight unique terms,
    any local list exceeds 50 words, or the lists visibly dominate captions, define the terms
    once in optional `07_manuscript/statements.md` under `# Declarations and Statements`
    and `## Abbreviations`. These thresholds are workflow defaults, not journal standards.
    Use one `term, full expansion` entry per line or semicolon-separated entries, preserving
    mixed-case names such as eGFR. Remove the corresponding `Abbreviations:` blocks from
    legends/captions and the table-building source. Add a short pointer to the central list
-   where needed; keep units, symbol meanings and error-bar definitions local. Regenerate
-   and visually recheck affected tables. No author/admin details or blank declaration
+   where needed; keep units, symbol meanings and error-bar definitions local. This should
+   already be reflected in the first table build; regenerate and visually recheck only an
+   actually defective table, not every table as a scheduled second pass. No author/admin details or blank declaration
    sections are needed here. Then run:
 ```
 uv run python tools/manuscript/assemble.py
@@ -61,8 +68,24 @@ uv run python tools/manuscript/assemble.py
   this file; never patch it as a detached manuscript.
 
 ## Close
+Before S18/user delivery, read `reference/project-benchmarking.md`, read the complete actual
+paper and inspect rendered tables/figures. Resolve routine evidence, Methods/Discussion,
+abbreviation, legend and cross-reference defects; bind actual executor findings with
+`tools/manuscript/benchmark.py accept --review <findings.json>`. This does not replace S18.
+Out-of-range quantities need a coverage-based reason, not padded citations or lowered ranges.
+
 ```
 uv run python tools/wf.py check
 uv run python tools/wf.py advance --note "full manuscript assembled; selected title: <title>; keywords=<n>; figure legends=<n>"
 ```
+
+
+## Medical-reader presentation
+
+Read `reference/medical-reader-presentation.md`: check actual clinical labels, counting units,
+denominators, statistical marks and state distinctions, table footnotes and figure decoding.
+Retain necessary methods; do not imply prespecification or change counts by renaming units.
+Use the existing acceptance/review, not an additional audit. At S23 verify actual rendered
+Word pages and journal-directed legend/figure placement; don't reintroduce forbidden controls.
+
 

@@ -23,7 +23,7 @@ from pathlib import Path
 
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 CROSSREF = "https://api.crossref.org/works"
-TOOL = "medpaper-pipeline"
+TOOL = "medpaper-codex-pipeline"
 UA = f"{TOOL}/1.0 (research pipeline; contact via NCBI_API_EMAIL)"
 
 _last_call = [0.0]
@@ -250,7 +250,8 @@ def _one_record(art, cache_file: str) -> dict:
             continue
         last, fore = _text(a, "LastName"), _text(a, "ForeName")
         if last:
-            authors.append({"last": last, "first": fore, "initials": _text(a, "Initials")})
+            authors.append({"last": last, "first": fore, "initials": _text(a, "Initials"),
+                            "suffix": _text(a, "Suffix")})
 
     year = _text(art, ".//Journal/JournalIssue/PubDate/Year")
     if not year:
@@ -366,4 +367,3 @@ def make_citekey(rec: dict, taken: set[str] | None = None) -> str:
 def die(msg: str) -> None:
     print(f"error: {msg}", file=sys.stderr)
     raise SystemExit(1)
-

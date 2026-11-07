@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from decimal import Decimal
 
 from .. import xlsxlite
 from . import Ctx, Result, check
@@ -16,10 +17,7 @@ RESULTS_GLOB = "03_analysis/results/*.json"
 ALLOWLIST = "03_analysis/results/number_allowlist.tsv"
 
 # Numbers that are conventions rather than findings.
-CONVENTIONS = {
-    "95", "99", "90", "100", "0.05", "0.01", "0.001", "0.025", "1.96", "0.5",
-    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "0",
-}
+CONVENTIONS = set()  # A small estimate or denominator is still a scientific finding.
 
 CITE_RE = re.compile(r"\[@[^\]]*\]")
 FENCE_RE = re.compile(r"```.*?```", re.S)
@@ -28,7 +26,14 @@ ARTIFACT_RE = re.compile(
     r"[A-Za-z]?\d+[A-Za-z]?(?:\s*[-,and]+\s*[A-Za-z]?\d+[A-Za-z]?)*",
     re.I,
 )
-NUM_RE = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)(?![\w])")
+NUM_RE = re.compile(r"(?<![\w.])([+\-−]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+\-]?\d+)?)(?![\w])")
+P_RE = re.compile(r"\b[Pp]\s*([<>=≤≥])\s*(0?\.\d+(?:[eE][+-]?\d+)?)\b")
+
+
+def normalize_grouping(text):
+    # Strict three-digit groups only: never merge a comma-separated list or round a value.
+    pattern=r"(?<![\w.,])([+\-−]?\d{1,3}(?:[,\u00a0\u2009\u202f]\d{3})+(?:\.\d+)?)(?![\w.,])"
+    return re.sub(pattern,lambda m:re.sub(r"[,\u00a0\u2009\u202f]","",m[0]),text)
 
 
 # ---------------------------------------------------------------------------
@@ -41,12 +46,13 @@ def _walk(obj, sink: set[str]) -> None:
         sink.add(_norm(obj))
         return
     if isinstance(obj, str):
-        for m in NUM_RE.finditer(obj):
+        for m in NUM_RE.finditer(normalize_grouping(obj)):
             sink.add(_norm(m.group(1)))
         return
     if isinstance(obj, dict):
-        for v in obj.values():
-            _walk(v, sink)
+        for key, v in obj.items():
+            if key != "environment":  # Versions, seeds and file hashes are not scientific findings.
+                _walk(v, sink)
         return
     if isinstance(obj, (list, tuple)):
         for v in obj:
@@ -55,7 +61,7 @@ def _walk(obj, sink: set[str]) -> None:
 
 def _norm(v) -> str:
     try:
-        f = float(v)
+        f = float(str(v).replace("−", "-"))
     except (TypeError, ValueError):
         return str(v)
     if f == int(f) and abs(f) < 1e15:
@@ -91,9 +97,15 @@ def _allowlist(ctx: Ctx) -> set[str]:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            token = line.split("\t")[0].strip()
-            if token:
-                allowed.add(token)
+            columns=line.split("\t")
+            if len(columns)!=4 or columns[1]!="constant" or len(columns[3].strip())<20:
+                continue  # old free-number allowlists cannot authorize invented evidence
+            from ..packagefreeze import _safe_path
+            try:
+                _,source=_safe_path(ctx.project,columns[2])
+                if source.is_file() and columns[0] in source.read_text(encoding="utf-8"):
+                    allowed.add(columns[0])
+            except (OSError,ValueError): pass
     return allowed
 
 
@@ -101,14 +113,16 @@ def _matches(token: str, floats: set[float], strings: set[str]) -> bool:
     if token in strings:
         return True
     try:
-        val = float(token)
+        val = float(token.replace("−", "-"))
     except ValueError:
         return False
     if val in floats:
         return True
     # Tolerate rounding to the precision the author displayed.
-    dp = len(token.split(".")[1]) if "." in token else 0
+    dp = -Decimal(token.replace("−", "-")).as_tuple().exponent
     for f in floats:
+        if (f < 0) != (val < 0) and f != 0 and val != 0:
+            continue
         if round(f, dp) == val:
             return True
         if dp == 0 and abs(f - val) < 0.5 and f != 0:
@@ -117,18 +131,40 @@ def _matches(token: str, floats: set[float], strings: set[str]) -> bool:
 
 
 def _scrub(text: str) -> str:
+    text=normalize_grouping(text)
+    from ..displayrefs import scrub
+    text = scrub(text)
     text = FENCE_RE.sub(" ", text)
     text = CITE_RE.sub(" ", text)
     text = ARTIFACT_RE.sub(" ", text)
+    text = re.sub(r"\b[A-Za-z][A-Za-z0-9]*-\d+[A-Za-z]?\b", " ", text)  # codes, not measurements
     text = re.sub(r"^\s*#{1,6}\s.*$", " ", text, flags=re.M)
-    text = re.sub(r"\bp\s*[<>=]\s*0?\.0+\d*\b", " ", text, flags=re.I)  # p<0.001 style
+    text = re.sub(r"\b(?:90|95|99)%\s*(?:CI|confidence interval)\b", "CI", text, flags=re.I)
     text = re.sub(r"\b(19|20)\d{2}\s*[-\u2013]\s*(19|20)?\d{2}\b", " ", text)  # not scrubbed values
     return text
 
 
-def _offenders(text: str, floats, strings, allowed) -> list[tuple[int, str]]:
+def _offenders(text: str, floats, strings, allowed, p_values=None) -> list[tuple[int, str]]:
     bad: list[tuple[int, str]] = []
     for lineno, raw in enumerate(_scrub(text).splitlines(), start=1):
+        def pvalue(match):
+            op, token = match.groups()
+            threshold = float(token)
+            candidates = [f for f in (floats if p_values is None else p_values) if 0 <= f <= 1]
+            ok = (any(f < threshold for f in candidates) if op == "<" else
+                  any(f <= threshold for f in candidates) if op == "≤" else
+                  any(f > threshold for f in candidates) if op == ">" else
+                  any(f >= threshold for f in candidates) if op == "≥" else
+                  _matches(token, set(candidates), {_norm(p) for p in candidates}))
+            if token in allowed:
+                ok = True  # Explicit Methods constants; bound findings pass no allowlist.
+            if not ok:
+                bad.append((lineno, "P" + op + token))
+            return " "
+        raw = P_RE.sub(pvalue, raw)
+        # Formatted table cells use a threshold without the P label.
+        if re.fullmatch(r"\s*[<≤]\s*0?\.\d+\s*", raw):
+            raw = P_RE.sub(pvalue, "P" + raw.strip())
         for m in NUM_RE.finditer(raw):
             tok = m.group(1)
             if tok in allowed:
@@ -160,20 +196,26 @@ def numbers_have_provenance(ctx: Ctx) -> Result:
             f"no result files under {RESULTS_GLOB}",
             ["Analysis code must dump every reported statistic to JSON before any prose is written."],
         )
-    allowed = _allowlist(ctx)
+    allowed = _allowlist(ctx) if source != "tables" and rel.endswith(("methods.md","supplementary_methods.md")) else set()
     if source == "tables":
         offenders = []
         for p in ctx.glob("04_tables/main/*.xlsx") + ctx.glob("04_tables/supplementary/*.xlsx"):
             try:
                 cells = xlsxlite.numeric_cell_values(p)
+            except PermissionError as exc:
+                return Result(False,"numbers_have_provenance",f"Workbook IO pending: {p.name}: {exc}",
+                              ["Close or finish saving this workbook in Excel, then rerun the check; do not regenerate data or mark provenance passed."])
             except Exception as exc:  # noqa: BLE001 - report, do not crash the gate
                 return Result(False, "numbers_have_provenance", f"cannot read {p.name}: {exc}")
             for sheet, ref, val in cells:
-                for m in NUM_RE.finditer(str(val)):
-                    tok = m.group(1)
-                    if tok in allowed or _matches(tok, floats, strings):
-                        continue
+                from ..claims import table_unit_constants
+                try: constants=table_unit_constants(ctx.project,p,sheet,ref,val)
+                except (OSError,ValueError,KeyError,TypeError,StopIteration) as exc:
+                    return Result(False,"numbers_have_provenance",f"{p.name}[{sheet}]!{ref}: {exc}")
+                if _offenders(str(val), floats, strings, allowed|constants):
                     offenders.append(f"{p.name}[{sheet}]!{ref}={val}")
+        from ..claims import validate_tables
+        offenders.extend(validate_tables(ctx.project, ctx.glob("04_tables/main/*.xlsx") + ctx.glob("04_tables/supplementary/*.xlsx")))
         if offenders:
             uniq = sorted(set(offenders))
             return Result(
@@ -187,7 +229,12 @@ def numbers_have_provenance(ctx: Ctx) -> Result:
             )
         return Result(True, "numbers_have_provenance", f"all table values trace to {len(sources)} result file(s)")
 
-    bad = _offenders(ctx.read(rel), floats, strings, allowed)
+    from ..journalspec import admin_scrub
+    from ..sourceclaims import mask
+    masked, external_problems = mask(ctx.project,rel,ctx.read(rel))
+    if external_problems:
+        return Result(False,"numbers_have_provenance","; ".join(external_problems[:8]))
+    bad = _offenders(admin_scrub(masked, ctx.project, rel), floats, strings, allowed)
     if bad:
         shown = "; ".join(f"line {ln}: {tok}" for ln, tok in bad[:10])
         return Result(
@@ -196,11 +243,14 @@ def numbers_have_provenance(ctx: Ctx) -> Result:
             f"{rel}: {len(bad)} number(s) with no provenance -> {shown}",
             [
                 "Every statistic must already exist in 03_analysis/results/*.json, written by executed code.",
-                f"For genuine constants (thresholds, conventions), add them to {ALLOWLIST} as 'value<TAB>reason'.",
+                "Own findings require executed facts; cited numbers require exact full-text source_claims. Only documented Methods constants use the typed allowlist.",
                 "Do not fix this by rounding differently. Re-run the analysis and dump the value.",
             ],
         )
-    return Result(True, "numbers_have_provenance", f"{rel}: every number traces to results JSON")
+    from ..claims import validate_prose
+    problems = validate_prose(ctx.project, rel, ctx.read(rel))
+    return Result(not problems, "numbers_have_provenance", "; ".join(problems[:8]) or
+                  f"{rel}: numeric source checks passed; clinical interpretation still requires scientific review")
 
 
 @check("numbers_cross_match")
@@ -230,7 +280,7 @@ def numbers_cross_match(ctx: Ctx) -> Result:
     if not table_files:
         return Result(False, "numbers_cross_match", "no rendered tables found to cross-match against")
 
-    allowed = _allowlist(ctx)
+    allowed = set()  # crossmatched Results cannot borrow a Methods constant exemption
     text = FENCE_RE.sub(" ", ctx.read(rel))
     sentences = re.split(r"(?<=[.;])\s+", text)
     problems: list[str] = []
@@ -282,4 +332,3 @@ def _is_num(v) -> bool:
         return True
     except (TypeError, ValueError):
         return False
-

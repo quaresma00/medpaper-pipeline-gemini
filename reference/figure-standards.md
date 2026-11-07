@@ -1,7 +1,9 @@
 # Medical/SCI figure standards - synthesis
 
-Loaded on demand by S11. The numbers here are what `tools/figures/style.py` encodes and
-`tools/figures/qc.py` enforces, so change them here and there together.
+Loaded on demand by S11. New statistical graphics use R under `r-first.md`; the physical
+defaults are shared by `tools/figures/r_style.R`, the retained Matplotlib style, and common
+QC. Language-specific Matplotlib examples below apply only to documented Python exceptions,
+not a reason to replace R. The current target journal overrides unsourced defaults.
 
 Two kinds of source are mixed below and kept distinct on purpose:
 **publisher requirements** (binding, verify against your target journal) and
@@ -96,7 +98,8 @@ Encoded in `tools/figures/style.py`:
   non-significant points. Never for text.
 - `pdf.fonttype=42`, `ps.fonttype=42`, `svg.fonttype=none` so text stays editable;
   `axes.unicode_minus=False` so a negative sign never renders as a missing-glyph box.
-- PNG preview plus LZW-compressed TIFF master at 600 dpi from one `save()` call.
+- Vector PDF master plus PNG preview from one `save()` call. Export a LZW-compressed TIFF
+  only if the chosen journal requires it; specify the journal's actual resolution.
 
 Checked by `tools/figures/qc.py`:
 
@@ -106,7 +109,7 @@ Checked by `tools/figures/qc.py`:
 | `not_clipped`, `no_excess_whitespace` | `no_panel_overlap`, `no_text_clipped` |
 | `margins_symmetric` | `no_missing_glyphs` (glyph warnings during rasterization) |
 | `no_grey_footnote_text` | `no_tick_label_collision` (adjacent tick-label bboxes) |
-| `tiff_master` | `no_interior_void` (dead bands between panels) |
+| `publication_master` | `no_interior_void` (dead bands between panels) |
 | | `bar_baseline_zero` |
 | | `element:*` for the declared archetype |
 
@@ -202,7 +205,7 @@ Content was rephrased for compliance with licensing restrictions.
 **In the panel** (structural, needed to read the plot): axis titles and units, tick labels,
 panel letters, group and category labels, legend entries, significance markers, key data
 values (n, HR with CI, AUC, r), and guideline-mandated content such as Kaplan-Meier risk
-tables, CONSORT/PRISMA/STARD box text, scale bars and axis-break marks.
+tables, participant/study-selection box text, scale bars and axis-break marks.
 
 **In the legend** (only what decodes the figure): a concise descriptive title, panel
 descriptions, essential statistical/error-bar/threshold definitions, what a reference line

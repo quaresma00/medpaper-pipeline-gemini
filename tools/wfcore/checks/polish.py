@@ -1,4 +1,4 @@
-"""Polish-stage checks: de-AI, house style, and fact preservation.
+"""Polish-stage checks: contextual language, house style, and fact preservation.
 
 The last one matters most. A language pass rewrites sentences wholesale, which is the
 easiest place in the whole pipeline to silently lose a number or a citation. The gate
@@ -24,7 +24,7 @@ LEGACY_SECTIONS = ["introduction.md", "methods.md", "supplementary_methods.md", 
 def _wanted_sections(ctx: Ctx) -> set[str]:
     if ctx.p("08_submission/integration/full_manuscript.md").exists():
         return {name for name in ("full_manuscript.md", "supplementary_methods.md",
-                                  "title_page.md", "statements.md")
+                                  "title_page.md", "statements.md","figure_legends.md","supplementary_figure_legends.md")
                 if ctx.p(f"08_submission/integration/{name}").exists()}
     return {name for name in LEGACY_SECTIONS if ctx.p(f"07_manuscript/{name}").exists()}
 
@@ -103,30 +103,21 @@ def ai_tells_clean(ctx: Ctx) -> Result:
     rep = _report(ctx)
     if isinstance(rep, Result):
         return rep
-    tier_a = [x for x in rep.get("ai_tells", []) if x.get("tier") == "A"]
     struct = [x for x in rep.get("structure", []) if x.get("severity") == "blocking"]
-    if tier_a or struct:
-        bits = []
-        if tier_a:
-            labels = Counter(x["label"] for x in tier_a)
-            bits.append(f"{len(tier_a)} tier-A phrase(s): "
-                        + ", ".join(f"{k} x{v}" for k, v in labels.most_common(6)))
-        if struct:
-            bits.append(f"{len(struct)} structural tell(s): "
-                        + "; ".join(f"{x['kind']} in {Path(x['file']).name}" for x in struct[:4]))
+    if struct:
         return Result(
             False,
             "ai_tells_clean",
-            "; ".join(bits),
+            f"{len(struct)} prose structure finding(s): "
+            + "; ".join(f"{x['kind']} in {Path(x['file']).name}" for x in struct[:4]),
             ["Full detail: uv run python tools/text/polish.py lint",
-             "Rewrite the clause. Do not delete the sentence to make the check pass.",
-             f"A genuine exception goes in project/08_submission/integration/polish_allowlist.tsv."],
+             "Correct the actual structure while preserving scientific content and explicit journal requirements."],
         )
-    tier_b = [x for x in rep.get("ai_tells", []) if x.get("tier") == "B"]
-    if tier_b:
+    prompts = rep.get("ai_tells", [])
+    if prompts:
         return Result(True, "ai_tells_clean",
-                      f"no tier-A tells; {len(tier_b)} tier-B phrase(s) left for your judgement")
-    return Result(True, "ai_tells_clean", "no machine-generated phrasing detected")
+                      f"{len(prompts)} advisory wording prompt(s); assess medical meaning, redundancy and claim support before acceptance")
+    return Result(True, "ai_tells_clean", "no wording prompts; medical semantic acceptance remains required")
 
 
 @check("style_consistent")
@@ -153,55 +144,38 @@ def style_consistent(ctx: Ctx) -> Result:
 
 @check("journal_limits_met")
 def journal_limits_met(ctx: Ctx) -> Result:
-    """Word and reference counts against the guidelines fetched at S20."""
-    gx = "08_submission/guidelines_extract.md"
-    if not ctx.p(gx).exists():
-        return Result(False, "journal_limits_met", f"{gx} missing - fetch the guidelines first")
-    text = ctx.read(gx)
-    rep = _report(ctx)
-    if isinstance(rep, Result):
-        return rep
-    counts = {Path(r["file"]).name: r["words"] for r in rep.get("readability", [])}
-
-    limits = _declared_limits(text)
-    if not limits:
-        return Result(
-            False,
-            "journal_limits_met",
-            "no word or reference limit could be found in guidelines_extract.md",
-            ["Quote the journal's actual limits under 'Word limits', e.g. "
-             "'Abstract: 250 words', 'Main text: 3500 words', 'References: max 50'.",
-             "If the journal states no limit, write 'no stated limit' explicitly."],
-        )
-
-    if ctx.p("08_submission/integration/full_manuscript.md").exists():
-        sections = _canonical_section_counts(ctx.read("08_submission/integration/full_manuscript.md"))
-        abstract_words = sections.get("abstract", 0)
-        body_words = sum(sections.get(k, 0) for k in
-                         ("introduction", "methods", "results", "discussion"))
-    else:
-        abstract_words = counts.get("abstract.md", 0)
-        body_words = sum(v for k, v in counts.items()
-                         if k in ("introduction.md", "methods.md", "results.md", "discussion.md"))
-    problems, notes = [], []
-    for kind, cap in limits.items():
-        if kind == "abstract" and abstract_words:
-            got = abstract_words
-            (problems if got > cap else notes).append(f"abstract {got}/{cap} words")
-        elif kind == "main":
-            (problems if body_words > cap else notes).append(f"main text {body_words}/{cap} words")
-        elif kind == "references":
-            n = _ref_count(ctx)
-            (problems if n and n > cap else notes).append(f"references {n}/{cap}")
-    if problems:
-        return Result(
-            False,
-            "journal_limits_met",
-            "over the journal's limit: " + "; ".join(problems),
-            ["Cut content, do not compress into denser jargon.",
-             "If cutting would remove something a reviewer needs, move it to the supplement."],
-        )
-    return Result(True, "journal_limits_met", "within journal limits: " + "; ".join(notes))
+    """Use explicitly sourced, article-specific fields; unknown limits remain null."""
+    from ..journalrules import limits, compare
+    from ..submission import docx_sections, word_count
+    try:
+        requirements,rules = limits(ctx.project)
+        include = requirements["word_count"]["include_sections"]
+        if not isinstance(include,list) or not include:
+            raise ValueError("Explicit journal main-text section scope is missing")
+        manifest = ctx.read_json("08_submission/bundle/manifest.json") if ctx.exists("08_submission/bundle/manifest.json") else {}
+        final = [r for r in manifest.get("items",[]) if r.get("role") == "manuscript"]
+        if ctx.stage.index >= ctx.pipeline.stage("S23_package").index and len(final) == 1:
+            from ..journalspec import aliases, load
+            mapping = {label.casefold(): key for key,label in aliases(load(ctx.project)).items()}
+            mapping.update(requirements.get("section_aliases", {}))
+            _,parts,_ = docx_sections(ctx.p(final[0]["file"]),mapping)
+            counts = {k:word_count(v) for k,v in parts.items()}
+        else:
+            rel = "08_submission/integration/full_manuscript.md"
+            if ctx.exists(rel):
+                counts = _canonical_section_counts(ctx.read(rel))
+                counts = {k.title():v for k,v in counts.items()}
+            else:
+                counts = {name:word_count(ctx.read(f"07_manuscript/{name.lower()}.md"))
+                          for name in [*include,"Abstract"] if ctx.exists(f"07_manuscript/{name.lower()}.md")}
+        missing = [name for name in [*include,"Abstract"] if name not in counts]
+        if missing:
+            raise ValueError("Journal-count sections missing: "+", ".join(missing))
+        actual = {"main":sum(counts[name] for name in include),"abstract":counts["Abstract"],"references":_ref_count(ctx)}
+        problems = compare(actual,rules)
+        return Result(not problems,"journal_limits_met","; ".join(problems) or "Article-specific structured limits met; unspecified caps not invented")
+    except (OSError,ValueError,KeyError,TypeError) as exc:
+        return Result(False,"journal_limits_met",str(exc),["Resolve the actual S20 requirement fields, not numbers found by regex in guide prose."])
 
 
 # ---------------------------------------------------------------------------
@@ -213,9 +187,30 @@ def _report(ctx: Ctx):
             ["Run: uv run python tools/text/polish.py lint"],
         )
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        return Result(False, "polish_report", f"{REPORT} invalid JSON: {exc}")
+        report=json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(report,dict): raise ValueError("language report must be an object")
+        from ..state import version_tuple
+        required=(version_tuple(str(ctx.state.data.get("pipeline_version","0"))) >= (1,23,0)
+                  and not ctx.state.pin_excludes(ctx.stage.id,"1.23.0"))
+        if required or report.get("lint_policy_version")==2:
+            from ..packagefreeze import _sha256, _safe_path
+            if report.get("lint_policy_version")!=2: raise ValueError("language report uses an obsolete policy; rerun lint")
+            hashes=report.get("input_hashes",{})
+            from text.polish import CANONICAL_ORDER, LEGACY_SECTION_ORDER
+            order=CANONICAL_ORDER if ctx.p("08_submission/integration/full_manuscript.md").is_file() else LEGACY_SECTION_ORDER
+            wanted={rel for rel in order if ctx.p(rel).is_file() and ctx.p(rel).stat().st_size>0}
+            if set(hashes)!=wanted: raise ValueError("language report does not cover the current manuscript files")
+            for rel,digest in hashes.items():
+                _,source=_safe_path(ctx.project,rel)
+                if not source.is_file() or _sha256(source)!=digest: raise ValueError(f"language report is stale for {rel}; rerun lint")
+            if report.get("linter_sha256")!=_sha256(Path(__file__).resolve().parents[2]/"text/polish.py"):
+                raise ValueError("language diagnostics changed; rerun lint")
+            allow=ctx.p("08_submission/integration/polish_allowlist.tsv")
+            if report.get("allowlist_sha256")!=(_sha256(allow) if allow.is_file() else None):
+                raise ValueError("language exceptions changed; rerun lint")
+        return report
+    except (OSError,ValueError,TypeError) as exc:
+        return Result(False, "polish_report", f"{REPORT} missing valid current evidence: {exc}")
 
 
 def _env(ctx: Ctx) -> dict:
@@ -274,4 +269,3 @@ def _canonical_section_counts(text: str) -> dict[str, int]:
         block = re.sub(r"(?m)^Keywords\s*:.*$", "", block, flags=re.I)
         out[name] = len(re.findall(r"[A-Za-z][A-Za-z'-]*", block))
     return out
-

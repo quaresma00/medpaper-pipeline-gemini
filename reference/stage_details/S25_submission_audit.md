@@ -1,0 +1,181 @@
+# S25 - Independent reader, editor and compliance audit of the confirmed package
+
+Audit a reporting checklist only if the chosen journal explicitly requires that form.
+Do not introduce a new generic catalogue or an OSF-registration demand for an ordinary
+mining/retrospective study. Actual study-specific mandatory requirements still apply.
+
+## Purpose
+Give the exact package approved by the user one final fresh reading immediately before
+submission. The same independent reviewer must judge it from three complementary positions:
+an ordinary scientific reader trying to understand the paper without backstage context, a
+journal editor screening for avoidable defects, and a submission-compliance reviewer applying
+the chosen journal's current official instructions.
+
+## Procedure
+For an already approved package's proven presentation-only correction, follow
+`reference/content-aware-amendments.md`; preserve prior review, validate affected files and
+report once, without an automatic S19/S24 loop or repeated confirmation. A new exact release
+retains its historical approval lineage, not a false claim of a new independent reading.
+If the author explicitly wants a manually finished upload copy, use `final_copy.py
+prepare|record|check|finish`. Original independent PASS remains required; the terminal mode
+is explicitly AUTHOR_FINAL_COPY handoff, not submission or a new independent PASS. Missing
+facts, scientific changes and unresolved objective defects cannot be waived.
+
+Read actual current source documents; do not generate extra reading copies by default.
+If explicitly requested, `reader-copies --why <actual request>` creates local extracts, never
+a substitute for page/figure inspection. Run `tools/submission_qc.py
+verify` for the same final-file measurements used at S23/S24.
+
+1. Before delegation, verify that the package still matches the user's freeze:
+```
+uv run python tools/package_review.py verify --project project
+uv run python tools/manuscript/scientific_freeze.py verify
+uv run python tools/manuscript/journal_workspace.py verify
+```
+   Stop auditing if uploads drifted. Classify the actual source changes through scoped rework;
+   never bless them by replacing the freeze. A genuine scientific correction invokes its
+   owning rules and renewed S19 review, without replaying all completed stages. A proved
+   presentation amendment uses its existing approval lineage and changed-file checks.
+2. Spawn exactly one independent read-only subagent for this frozen package revision. Do not
+   give it the intended verdict, prior reviewers' conclusions, or ask it to edit files. Tell
+   it to read the actual package in normal submission order before consulting backstage QA.
+   Give it:
+   - `08_submission/package_review_freeze.json` and every upload file in its read-only `release_dir`;
+   - the selected journal metadata, `guidelines_extract.md`, and the cached official author
+     instructions;
+   - `bundle/manifest.json`, `evidence/SUBMISSION_CHECKLIST.md`, `portal_fields.json`, and `submission_qc.md`.
+   - `07_manuscript/scientific_master_freeze.json` and
+     `08_submission/integration/journal_workspace.json`, to prove that journal changes were
+     isolated from the accepted scientific master.
+3. Require the reviewer to inspect the actual upload files rather than trusting the manifest
+   or earlier QA. It must perform all three lenses and report exact locations for every
+   actionable finding:
+   - **Reader comprehension:** passages, terminology, abbreviations, referents, transitions,
+     methods, tables, figures or legends that cannot be understood from the submitted files;
+     contradictions, unexplained logic jumps and claims whose evidence is hard to locate;
+   - **Medical presentation:** first explain the question, study unit/comparison, finding
+     and limits without relying on scripts or internal labels. Read each actual main and
+     supplementary table (title, cells, notes) and figure (labels, marks, legend) as a medical
+     reader. Locate engineering narration, unexplained processing codes, formulaic promotional
+     prose, missing denominators or misleading statistical encodings. Preserve legitimate
+     methods and real exploratory status; judge meaning, not forbidden-word counts;
+   - **Editorial screening:** typographical, grammatical and punctuation errors; duplicated,
+     missing or unfinished text; template residue and placeholders; inconsistent spelling,
+     capitalization, tense, units, decimals, statistical notation, headings, numbering,
+     citations, labels and terminology; title/abstract/keywords that misstate or obscure the
+     paper; and any obvious issue likely to trigger an avoidable query or desk rejection;
+   - **Journal compliance:** compare the frozen package with the official guide and report:
+     - required, missing, extra or incorrectly formatted upload items and filenames;
+     - article type, title page, abstract, keywords, word/reference limits and reference style;
+     - any title-page reference count against the distinct citations actually used in the
+       manuscript, never against the candidate-library or bibliography-file size;
+     - author/affiliation/correspondence facts, declarations, ethics, funding, conflicts and
+       data-availability consistency across all applicable files, without inventing facts;
+     - figure/table callouts, numbering, legends/captions, abbreviations, file types, resolution
+       and supplement correspondence;
+     - mismatched titles, counts, versions, values, labels, citations or statements between
+       manuscript, cover letter, title page, tables, figures, supplements and checklist;
+     - portal-only tasks that cannot be verified from local files, clearly separated from
+       defects in the package.
+4. Save the review as `project/08_submission/independent_submission_audit.md` with headings
+   `Verdict`, `Reader comprehension`, `Medical presentation`, `Editorial screening and low-level errors`,
+   `Guideline compliance`, `Required files and omissions`, `Cross-file consistency`,
+   `Formatting and technical checks`, `Issues requiring correction`, `Final recommendation`.
+   Under `Verdict`, write the exact `Freeze ID: <freeze_id>` from
+   `package_review_freeze.json`, plus `Audit context ID: <audit_context_id>` from
+   `08_submission/evidence/evidence_manifest.json`. This binds the verdict to the actual
+   uploads and the journal rules, without treating cache/log changes as author revisions.
+   Every finding names the affected file and, where available, page plus heading, paragraph,
+   table cell or figure panel; include only a short identifying fragment rather than rewriting
+   the manuscript. Classify it as `BLOCKING`, `MINOR` or `PREFERENCE`, and cite the exact
+   official rule or cross-file evidence when applicable. Use `PASS` only when there is no
+   objective low-level error, reader-comprehension problem, material omission, noncompliance
+   or unexplained mismatch. Use `REVISE` for any correctable `BLOCKING` or `MINOR` defect and
+   `BLOCKED` when a required fact or file can only come from the user or journal portal.
+   Pure preferences do not prevent `PASS` and must be clearly separated from defects.
+5. Verify the freeze again after the reviewer returns. Then record the actual verdict:
+```
+uv run python tools/wf.py decide submission_package_independent_audit "PASS|REVISE|BLOCKED" --why "<concise evidence-based basis>"
+```
+6. For `REVISE`, retain the genuine version-matching findings and open one scoped
+   `tools/rework.py batch` for the actual defects; do not ask another agent to rediscover
+   them, use `wf loop`, or replay S20-S23. Source-owned presentation amendments can run in
+   place at S25. Classify before expensive rebuilds; any genuine scientific route requires
+   the existing explicit authorization, affected owner/review rules and renewed S19 approval.
+   Recheck repaired findings and their cross-file effects. A first audit that found material
+   defects needs actual independent follow-up on the fixes; retain its original findings,
+   supply current frozen files plus the delta, and reuse the same reviewer when available.
+   Never turn an earlier REVISE into PASS by copying its freeze ID or by primary self-review.
+   Proven local presentation work after a genuine PASS uses the existing lineage without a
+   new full audit or confirmation. For `BLOCKED`, ask only for the missing user-owned fact/file.
+   Only a verified visible-text-preserving layout edit may remain solely in Word.
+
+## Outputs
+- `08_submission/independent_submission_audit.md`
+
+If an independent agent is unavailable, perform a clearly labelled preliminary local check,
+preserve the pending independent audit and report the exact blocker. Never claim independence
+or final PASS for that fallback. Reuse an audit of unchanged upload bytes/context; repeat only
+when the package/context changes or a material defect warrants it. Verify release hashes and
+read-only attributes immediately before actual upload; preview working copies must not
+replace the release.
+
+## Hard rules
+- The independent subagent is read-only and audits exactly the user-confirmed frozen files.
+  It may write only the designated audit report outside the frozen uploads. If unavailable,
+  return the complete report for verbatim parent persistence; never scrape other sessions.
+- Earlier S18 publishability review and S23 automated/visual QA do not substitute for this
+  journal-specific final audit.
+- A checklist assertion is not evidence; inspect the actual file and official rule.
+- Read as a first-time reader and editor; do not treat prior automated QA or scientific review
+  as proof that the prose is understandable or free of elementary errors.
+- The subagent reports defects but never edits frozen uploads. Corrections use scoped source
+  revisions and a new release when upload bytes change; approval/review renewal depends on
+  actual scientific meaning and prior verdict, not on a blanket backward-stage rule.
+- A reference-count field is optional when the journal is silent, but if present it must match
+  the actual citation set in both the integration title page and frozen Word file.
+- `PASS` is required to complete the pipeline. Portal-only user tasks may be listed, but an
+  unmet required local upload or unresolved cross-file mismatch is not a pass.
+
+## Close
+```
+uv run python tools/wf.py check
+uv run python tools/wf.py advance --note "independent final submission audit=PASS; frozen package unchanged; remaining portal-only user tasks=<none or list>"
+```
+
+## v1.14 execution update
+
+Read `reference/quality-before-writing.md` at this checkpoint. Its sequencing, source-based
+declarations, no free numeric whitelist, soft size budgets and exact current-version confirmation
+supersede older conflicting instructions. Do not create external-review materials by default.
+
+## Medical-reader presentation
+
+Read `reference/medical-reader-presentation.md`: check actual clinical labels, counting units,
+denominators, statistical marks and state distinctions, table footnotes and figure decoding.
+Retain necessary methods; do not imply prespecification or change counts by renaming units.
+Use the existing acceptance/review, not an additional audit. At S23 verify actual rendered
+Word pages and journal-directed legend/figure placement; don't reintroduce forbidden controls.
+
+## Structural quality and bounded rework
+
+Read `reference/structural-quality.md`. Use clinical display names and physical-size assumptions
+before production. Percentage claims bind numerator, denominator and source percentage basis.
+Every actionable point in every review section needs a stable ID and disposition, not only
+the must-fix subset. Review neutral actual artifacts; don't prime with the writer's conclusion.
+Use read-only rework preview and actual scoped checks; never infer scientific change from a
+publication label number or silently invalidate author approval. Existing privacy, freezes,
+centralized abbreviations, Word cleanup and final actual-page inspection remain in force.
+
+
+
+# Bound repeat review after a material defect
+
+On a necessary repeat review, verify the previous objective defects and their actual changed
+consumers, using the existing delta/approval-lineage rules. Full current context remains
+available for consistency checks. Do not invent a new list of style preferences each pass.
+New material scientific errors, missing uploads and explicit journal-rule violations still
+block. An engine-owned formatting error must be repaired at its source; calling it an engine
+issue is never an exemption from a real journal requirement. Only an actual author choice can
+use the existing author-final-copy handoff, which is not a fabricated independent PASS.
+

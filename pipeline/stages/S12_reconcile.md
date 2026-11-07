@@ -39,4 +39,3 @@ uv run python tools/wf.py check
 ```
 uv run python tools/wf.py advance --note "reconciled <n> display items; <k> discrepancies fixed: <...>"
 ```
-

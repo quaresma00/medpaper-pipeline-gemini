@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manuscript de-AI and academic-English linter. Stdlib only.
+"""Medical-manuscript language diagnostics and fact preservation. Stdlib only.
 
     uv run python tools/text/polish.py snapshot      # freeze the pre-polish text (do this first)
     uv run python tools/text/polish.py lint          # report -> 08_submission/integration/polish_report.json
@@ -8,7 +8,7 @@
 
 Three jobs, deliberately separated:
 
-  ai_tells    machine-generated writing patterns. Tier A blocks, Tier B is advisory.
+  ai_tells    context-sensitive wording prompts. Both tiers are advisory, not AI detection.
   style       journal-house-style consistency that code can settle definitively.
   readability advisory metrics that need a human call.
 
@@ -20,6 +20,7 @@ of figure/table references to be unchanged.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -29,6 +30,7 @@ import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 
 # Component fallback is retained for focused lint calls. Journal polishing itself uses the
 # derived integration manuscript and never edits the S19 scientific master.
@@ -47,6 +49,8 @@ CANONICAL_ORDER = [
     "08_submission/integration/supplementary_methods.md",
     "08_submission/integration/title_page.md",
     "08_submission/integration/statements.md",
+    "08_submission/integration/figure_legends.md",
+    "08_submission/integration/supplementary_figure_legends.md",
 ]
 SNAPSHOT_DIR = "08_submission/integration/prepolish"
 REPORT = "08_submission/integration/polish_report.json"
@@ -60,13 +64,13 @@ NUM_RE = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)(?![\w])")
 HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+.*$", re.M)
 # P-value notation is a style matter this stage is meant to normalize
 # (P = 0.000 -> P < 0.001), so its digits are excluded from fact comparison.
-PVAL_RE = re.compile(r"\b[Pp]\s*[<>=]\s*\.?\d*\.?\d+", re.I)
+PVAL_RE = re.compile(r"\b[Pp]\s*[<>=≤≥]\s*(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?",re.I)
 
 
 # ===========================================================================
 # pattern tables
 # ===========================================================================
-# Tier A: phrasing that reads as machine-generated in a clinical paper. Blocking.
+# Historical tier names are retained for report compatibility; neither proves an error.
 AI_TIER_A = [
     (r"\bdelve[sd]?\s+(?:in)?to\b", "delve into"),
     (r"\bit\s+is\s+worth\s+noting\b", "it is worth noting"),
@@ -95,8 +99,8 @@ AI_TIER_A = [
     (r"\bcomprehensive\s+understanding\b", "comprehensive understanding"),
     (r"\bit\s+is\s+(?:crucial|essential|imperative|vital)\s+to\s+(?:note|understand|recognize|recognise)\b",
      "it is crucial to note"),
-    (r"\bleverag\w+\b", "leverage (use 'use')"),
-    (r"\butili[sz]\w+\b", "utilize (use 'use')"),
+    (r"\bleverag(?:e[sd]?|ing)\b", "leverage (consider 'use' outside technical terminology)"),
+    (r"\butili[sz](?:e[sd]?|ing)\b", "utilize (consider 'use')"),
     (r"\bbridg\w*\s+(?:this\s+|the\s+)?gap\b", "bridge the gap"),
     (r"\bnot\s+only\s+\w[^.;]{0,60}?\s+but\s+also\b", "not only ... but also"),
     (r"\bdeep\s+dive\b", "deep dive"),
@@ -139,8 +143,8 @@ SPELLING_PAIRS = [
     (r"\bmodel(ed|ing)\b", r"\bmodell(ed|ing)\b", "modeling/modelling"),
     (r"\bag(e)?ing\b", r"\bageing\b", "aging/ageing"),
     (r"\brandomi[z]\w+\b", r"\brandomi[s]\w+\b", "randomize/randomise"),
-    (r"\banaly[z]\w+\b", r"\banaly[s]e\w*\b", "analyze/analyse"),
-    (r"\bcharacteri[z]\w+\b", r"\bcharacteri[s]\w+\b", "characterize/characterise"),
+    (r"\banalyz(?:e[sd]?|ing)\b", r"\banalys(?:e|ed|ing)\b", "analyze/analyse"),
+    (r"\bcharacteriz(?:e[sd]?|ing|ations?)\b", r"\bcharacteris(?:e[sd]?|ing|ations?)\b", "characterize/characterise"),
     (r"\bhospitali[z]\w+\b", r"\bhospitali[s]\w+\b", "hospitalize/hospitalise"),
     (r"\bfavor(able|ably)?\b", r"\bfavour(able|ably)?\b", "favor/favour"),
     (r"\bbehavior(al)?\b", r"\bbehaviour(al)?\b", "behavior/behaviour"),
@@ -152,6 +156,7 @@ NO_DEF_NEEDED = {
     "HIV", "AIDS", "WHO", "USA", "US", "UK", "CT", "MRI", "PET", "ECG", "EKG", "ICU",
     "BP", "HDL", "LDL", "GFR", "eGFR", "CRP", "TNF", "IL", "PCR", "ELISA", "FDA", "EMA",
     "NHS", "NA", "SD", "ANOVA", "ROC", "APC", "AI", "ML",
+    "CRediT", "CREDIT", "ORCID",
 }
 STAT_SYMBOLS = ["n", "P", "r", "t", "F", "z", "df"]
 
@@ -234,7 +239,16 @@ def facts(text: str) -> dict:
                    for a in ART_RE.findall(b)})
     stripped = PVAL_RE.sub(" ", ART_RE.sub(" ", CITE_RE.sub(" ", b)))
     nums = sorted(NUM_RE.findall(_normalize_for_facts(stripped)))
-    return {"numbers": nums, "citekeys": keys, "artifacts": arts}
+    pvalues=[]
+    for token in PVAL_RE.findall(b):
+        match=re.search(r"([<>=≤≥])\s*((?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?)",token)
+        if match:
+            operator,value=match.groups()
+            from decimal import Decimal
+            operator={"≤":"<=","≥":">="}.get(operator,operator)
+            normalized="<0.001" if operator=="=" and Decimal(value)==0 else operator+str(Decimal(value).normalize())
+            pvalues.append(normalized)
+    return {"numbers":nums,"citekeys":keys,"artifacts":arts,"pvalues":sorted(pvalues)}
 
 
 # ===========================================================================
@@ -251,7 +265,15 @@ def lint_ai(rel: str, text: str, allow: dict) -> list[dict]:
             rx = re.compile(pattern, re.I)
             for i, line in enumerate(lines, 1):
                 for m in rx.finditer(line):
+                    # Healthcare utilization is not an inflated verb. Keep regression
+                    # leverage/high-leverage observations out of wording substitutions.
+                    nearby=line[max(0,m.start()-55):m.end()+55]
+                    if label.startswith("leverage") and re.search(
+                            r"(?:high[- ]|statistical |regression |hat[- ]matrix )leverage|leverage\s+(?:values?|points?|observations?|diagnostics?|scores?|statistics?)",
+                            nearby,re.I):
+                        continue
                     out.append({"file": rel, "line": i, "tier": tier, "label": label,
+                                "severity":"advisory",
                                 "match": m.group(0)[:60],
                                 "context": line.strip()[max(0, m.start() - 30):m.end() + 30][:120]})
     return out
@@ -271,7 +293,7 @@ def lint_structure(rel: str, text: str) -> list[dict]:
     em = len(re.findall(r"\u2014|\s--\s", b))
     if em / nwords * 1000 > 4:
         flag("em_dash_density", f"{em} em dashes in {nwords} words "
-                               f"({em / nwords * 1000:.1f} per 1000; > 4 reads as generated)", "blocking")
+                               f"({em / nwords * 1000:.1f} per 1000; inspect readability)", "advisory")
 
     transitions = re.findall(
         r"(?:(?<=[.!?])\s+|(?<=\n\n)|\A)(Furthermore|Moreover|Additionally|Notably|"
@@ -283,7 +305,7 @@ def lint_structure(rel: str, text: str) -> list[dict]:
         if rate > 6:
             flag("transition_density",
                  f"{len(transitions)} paragraph-initial transitions ({rate:.1f} per 1000 words): "
-                 + ", ".join(f"{k}x{v}" for k, v in c.most_common(5)), "blocking")
+                 + ", ".join(f"{k}x{v}" for k, v in c.most_common(5)), "advisory")
         for word, n in c.items():
             if n >= 3:
                 flag("transition_repeat", f"'{word}' opens {n} sentences", "advisory")
@@ -319,17 +341,56 @@ def lint_structure(rel: str, text: str) -> list[dict]:
             r"\b(?:may|might|could)\s+(?:possibly|potentially|perhaps)\b|"
             r"\b(?:suggests?|indicates?)\s+that\s+\w+\s+(?:may|might|could)\s+(?:possibly|potentially)\b",
             b, re.I):
-        flag("hedge_stacking", f"stacked hedges: {m.group(0)!r}", "blocking")
+        flag("hedge_stacking", f"stacked hedges: {m.group(0)!r}; preserve justified uncertainty", "advisory")
     if len(hedges) / nwords * 1000 > 28:
         flag("hedge_density",
              f"{len(hedges)} hedge words per {nwords} words ({len(hedges) / nwords * 1000:.0f} "
-             "per 1000) - commit to what the data shows", "advisory")
+             "per 1000) - inspect redundancy while retaining justified uncertainty", "advisory")
 
     long_sents = [s for s in re.split(r"(?<=[.!?])\s+", b) if len(s.split()) > 45]
     if long_sents:
         flag("long_sentences",
              f"{len(long_sents)} sentence(s) over 45 words, longest {max(len(s.split()) for s in long_sents)}",
              "advisory")
+    return out
+
+
+def lint_medical(rel: str, text: str) -> list[dict]:
+    """Narrow reading prompts for Results/Abstract, never semantic certification.
+
+    Keep headings when locating sections so an abstract's Results subheading cannot be
+    mistaken for the main section. Do not police tense or participant names by word counts.
+    """
+    component = Path(rel).name.lower() in {"results.md", "abstract.md"}
+    active = component
+    levels = [len(m[1]) for m in re.finditer(r"^\s{0,3}(#{1,6})\s+", text, re.M)]
+    root_level = min(levels) if levels else 1
+    paragraphs = []
+    current = []
+    for line in text.splitlines() + [""]:
+        heading = re.match(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$", line)
+        if heading:
+            if current: paragraphs.append(" ".join(current)); current = []
+            level, title = len(heading[1]), heading[2].casefold()
+            if not component and level == root_level:
+                active = title in {"results", "abstract"}
+            continue
+        if not line.strip():
+            if current: paragraphs.append(" ".join(current)); current = []
+        elif active:
+            current.append(line.strip())
+    out = []
+    estimate = re.compile(r"\b(?:HR|OR|RR|hazard ratio|odds ratio|risk ratio|mean difference)\s*(?:(?:was|is|of)\s+)?[,=:]?\s*-?\d", re.I)
+    interval = re.compile(r"\b(?:CI|CrI|confidence interval|credible interval)\b", re.I)
+    for paragraph in paragraphs:
+        if estimate.search(paragraph) and not interval.search(paragraph):
+            out.append({"file": rel, "kind": "medical_interval_context", "severity": "advisory",
+                        "detail": "Effect estimate without an explicit interval in this paragraph; inspect its actual source, design and cited display. Do not invent an interval.",
+                        "context": paragraph[:180]})
+        if re.search(r"\b(?:statistically significant|significantly (?:higher|lower|greater|reduced|increased))\b", paragraph, re.I) and not estimate.search(paragraph) and not interval.search(paragraph):
+            out.append({"file": rel, "kind": "medical_significance_context", "severity": "advisory",
+                        "detail": "Significance-led result; inspect whether magnitude, units and uncertainty are clear in this paragraph or its display. A p-value alone is not the finding.",
+                        "context": paragraph[:180]})
     return out
 
 
@@ -373,7 +434,8 @@ def lint_style(rel: str, text: str) -> list[dict]:
     if spaced_pct and tight_pct:
         flag("percent_spacing", f"'5 %' ({spaced_pct}) and '5%' ({tight_pct}) both used")
 
-    m = re.search(r"(?:(?<=[.!?])\s+|(?<=\n\n))(\d[\w.,]*(?:\s+\S+){0,3})", b)
+    sentence_scan=re.sub(r"\b(?:No|Nos|Fig|Figs|Eq|Eqs|Dr|Prof|vs)\.\s*(?=\d)",lambda m:m[0].replace(".",""),b,flags=re.I)
+    m = re.search(r"(?:(?<=[.!?])\s+|(?<=\n\n))(\d[\w.,]*(?:\s+\S+){0,3})", sentence_scan)
     if m:
         flag("sentence_starts_with_numeral",
              f"a sentence begins with a numeral ({m.group(1)[:30]!r}) - spell it out or restructure")
@@ -384,7 +446,8 @@ def lint_style(rel: str, text: str) -> list[dict]:
         flag("p_zero", "P = 0 / P = 0.000 is not a value; report P < 0.001")
     if re.search(r"\b(?:proves?|proven|demonstrates?\s+causation|causes?\s+the\s+outcome)\b", b, re.I):
         flag("causal_overclaim",
-             "causal language - use 'associated with' unless the design supports causation")
+             "Review actual claim and design: negated/prior-study statements and justified causal designs are not errors; unsupported own-study causation must be corrected",
+             "advisory")
     if re.search(r"[ \t]+$", b, re.M):
         flag("trailing_whitespace", "trailing whitespace on one or more lines", "advisory")
     if "  " in re.sub(r"^\s+", "", b, flags=re.M):
@@ -501,6 +564,26 @@ def cmd_snapshot(args) -> int:
     proj = project_root()
     dest = proj / SNAPSHOT_DIR
     docs = sections()
+    from wfcore.revision import active
+    from wfcore.packagefreeze import _sha256
+    from wfcore.readiness import atomic_json
+    import hashlib
+    round_id=(active(proj) or {}).get("round_id")
+    existing=dest/"facts.json"
+    if existing.is_file() and args.force and round_id and not getattr(args,"new_round",False):
+        previous=json.loads(existing.read_text(encoding="utf-8"))
+        if previous.get("round_id")==round_id and any(previous.get("source_hashes",{}).get(rel)!=_sha256(proj/rel) for rel,_ in docs):
+            raise ValueError("Same-round facts changed after snapshot; force cannot bless post-edit content")
+    if getattr(args,"new_round",False):
+        previous=json.loads(existing.read_text(encoding="utf-8")) if existing.is_file() else {}
+        if not round_id or round_id==previous.get("round_id"):
+            raise ValueError("New snapshot requires a different active feedback round; do not reset a failed same-round comparison")
+        baseline=(active(proj) or {}).get("baseline",{})
+        if any(baseline.get(rel,"").casefold()!=_sha256(proj/rel).casefold() for rel,_ in docs if rel in baseline):
+            raise ValueError("Take the new round snapshot before editing its manuscript sources")
+        if previous:
+            atomic_json(proj/".wf/polish_snapshots"/(previous.get("snapshot_id","legacy")+".json"),previous)
+        args.force=True
     if not docs:
         print("nothing to snapshot: no manuscript section files exist yet")
         return 1
@@ -515,9 +598,10 @@ def cmd_snapshot(args) -> int:
         name = Path(rel).name
         shutil.copy2(proj / rel, dest / name)
         facts_index[rel] = facts(text)
-    (dest / "facts.json").write_text(
-        json.dumps({"snapshot_at": now(), "files": facts_index}, indent=2, ensure_ascii=False),
-        encoding="utf-8")
+    source_hashes={rel:_sha256(proj/rel) for rel,_ in docs}
+    snapshot_id=hashlib.sha256(json.dumps({"round":round_id,"sources":source_hashes},sort_keys=True).encode()).hexdigest()
+    atomic_json(dest/"facts.json",{"schema_version":2,"snapshot_at":now(),"round_id":round_id,
+                                 "snapshot_id":snapshot_id,"source_hashes":source_hashes,"files":facts_index})
     print(f"snapshotted {len(docs)} section(s) -> project/{SNAPSHOT_DIR}/")
     for rel, f in facts_index.items():
         print(f"  {Path(rel).name:<20} {len(f['numbers']):>4} numbers  "
@@ -527,6 +611,7 @@ def cmd_snapshot(args) -> int:
 
 
 def cmd_lint(args) -> int:
+    from wfcore.packagefreeze import _sha256
     proj = project_root()
     docs = sections(args.file)
     if not docs:
@@ -538,6 +623,7 @@ def cmd_lint(args) -> int:
     for rel, text in docs:
         ai += lint_ai(rel, text, allow)
         struct += lint_structure(rel, text)
+        struct += lint_medical(rel, text)
         style += lint_style(rel, text)
         read.append(readability(rel, text))
     style += lint_spelling(docs)
@@ -550,6 +636,10 @@ def cmd_lint(args) -> int:
     blocking_style = [x for x in style if x["severity"] == "blocking"]
 
     report = {
+        "lint_policy_version":2,
+        "input_hashes":{rel:_sha256(proj/rel) for rel,_ in docs},
+        "linter_sha256":_sha256(Path(__file__)),
+        "allowlist_sha256":_sha256(proj/ALLOWLIST) if (proj/ALLOWLIST).is_file() else None,
         "linted_at": now(),
         "files": [rel for rel, _ in docs],
         "counts": {
@@ -559,7 +649,7 @@ def cmd_lint(args) -> int:
             "style_blocking": len(blocking_style),
             "style_advisory": len(style) - len(blocking_style),
         },
-        "blocking_total": len(tier_a) + len(blocking_struct) + len(blocking_style),
+        "blocking_total": len(blocking_struct) + len(blocking_style),
         "ai_tells": ai, "structure": struct, "style": style, "readability": read,
         "allowlisted": sorted(allow),
     }
@@ -581,9 +671,9 @@ def cmd_lint(args) -> int:
         if len(items) > 40:
             print(f"  ... {len(items) - 40} more (see project/{REPORT})")
 
-    block("AI TELLS - tier A (blocking)", tier_a,
+    block("WORDING PROMPTS - tier A (advisory, assess context)", tier_a,
           lambda x: f"{Path(x['file']).name}:{x['line']}  {x['label']}  -> {x['match']!r}")
-    block("AI TELLS - tier B (advisory: conventional but overused)", tier_b,
+    block("WORDING PROMPTS - tier B (advisory)", tier_b,
           lambda x: f"{Path(x['file']).name}:{x['line']}  {x['label']}  -> {x['match']!r}")
     block("STRUCTURE", struct,
           lambda x: f"[{x['severity']:<9}] {Path(x['file']).name}  {x['kind']}: {x['detail']}")
@@ -602,10 +692,9 @@ def cmd_lint(args) -> int:
     print("\n" + "=" * 70)
     n = report["blocking_total"]
     if n == 0:
-        print("no blocking findings. Tier B and advisory items are yours to judge.")
+        print("no blocking findings. Wording prompts require medical/contextual judgement; this is not semantic acceptance.")
     else:
-        print(f"{n} blocking finding(s): {len(tier_a)} tier-A phrase(s), "
-              f"{len(blocking_struct)} structural, {len(blocking_style)} style.")
+        print(f"{n} blocking finding(s): {len(blocking_struct)} structural, {len(blocking_style)} style.")
         print("Rewrite them. Do not change a number, a citation, or a figure/table reference")
         print("while doing it - `polish.py diff` will catch it if you do.")
         print(f"A genuine exception goes in project/{ALLOWLIST} as 'pattern<TAB>reason'.")
@@ -619,7 +708,13 @@ def cmd_diff(args) -> int:
         print(f"no snapshot at project/{SNAPSHOT_DIR}/facts.json")
         print("run `uv run python tools/text/polish.py snapshot` BEFORE polishing")
         return 1
-    before = json.loads((snap / "facts.json").read_text(encoding="utf-8"))["files"]
+    index=json.loads((snap/"facts.json").read_text(encoding="utf-8"))
+    from wfcore.presentation import MAP,check as check_migration
+    if (proj/MAP).is_file():
+        problems=check_migration(proj,snap,index,facts)
+        print("\n".join(problems) if problems else "Explicit package migration preserves approved facts/citations; scientific master unchanged")
+        return 2 if problems else 0
+    before = index["files"]
 
     problems, rows = [], []
     for rel, expect in before.items():
@@ -630,7 +725,9 @@ def cmd_diff(args) -> int:
         got = facts(p.read_text(encoding="utf-8", errors="replace"))
         old_words = len(body((snap / Path(rel).name).read_text(encoding="utf-8", errors="replace")).split())
         new_words = len(body(p.read_text(encoding="utf-8", errors="replace")).split())
-        for field, label in (("numbers", "number"), ("citekeys", "citekey"), ("artifacts", "artifact ref")):
+        fields=[("numbers","number"),("citekeys","citekey"),("artifacts","artifact ref")]
+        if "pvalues" in expect: fields.append(("pvalues","P value"))
+        for field, label in fields:
             lost = sorted(Counter(expect[field]) - Counter(got[field]))
             added = sorted(Counter(got[field]) - Counter(expect[field]))
             if lost:
@@ -664,6 +761,7 @@ def main() -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("snapshot", help="freeze the pre-polish manuscript (run first)")
+    p.add_argument("--new-round",action="store_true",help="versioned pre-edit snapshot for a different feedback round")
     p.add_argument("--force", action="store_true")
     p.set_defaults(fn=cmd_snapshot)
 
@@ -681,4 +779,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

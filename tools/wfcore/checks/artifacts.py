@@ -1,5 +1,6 @@
 """Artifact-plan, table and figure structural checks."""
 from __future__ import annotations
+from ..qualitylimits import check_limit
 
 import json
 import re
@@ -93,12 +94,8 @@ def artifact_plan_sane(ctx: Ctx) -> Result:
         return Result(False, "artifact_plan_sane", f"{rel} invalid JSON: {exc}")
 
     problems: list[str] = []
-    max_fig = ctx.target("main_figures_max", 6)
-    max_tab = ctx.target("main_tables_max", 5)
-    if len(plan.get("main_figures", [])) > max_fig:
-        problems.append(f"{len(plan['main_figures'])} main figures, cap {max_fig}")
-    if len(plan.get("main_tables", [])) > max_tab:
-        problems.append(f"{len(plan['main_tables'])} main tables, cap {max_tab}")
+    # Inventory adequacy is project/benchmark-dependent, not a universal 6/5 cap.
+    # Explicit journal limits are checked against its typed requirements separately.
     if not plan.get("main_figures") and not plan.get("main_tables"):
         problems.append("no main display items planned")
 
@@ -118,6 +115,15 @@ def artifact_plan_sane(ctx: Ctx) -> Result:
         if not e.get("file"):
             problems.append(f"{tag}: missing 'file'")
         if e["_group"].endswith("figures"):
+            renderer = e.get("renderer")
+            if renderer is not None:
+                if renderer not in {"R", "Python"}:
+                    problems.append(f"{tag}: renderer must be R or Python")
+                expected_suffix = ".r" if renderer == "R" else ".py"
+                if not str(e.get("script", "")).casefold().endswith(expected_suffix):
+                    problems.append(f"{tag}: script extension differs from declared renderer")
+                if renderer == "Python" and len(str(e.get("renderer_reason", "")).strip()) < 20:
+                    problems.append(f"{tag}: explain the concrete Python exception; R is the default")
             if e.get("width") not in ("single", "double", "1.5"):
                 problems.append(f"{tag}: width must be single | 1.5 | double")
             if not e.get("script"):
@@ -205,11 +211,11 @@ def legends_cover_plan(ctx: Ctx) -> Result:
                 problems.append(f"{rel}: {what} for {eid} is only {len(blocks[key].strip())} chars")
             elif rel == LEGENDS:
                 words = len(re.findall(r"\b[A-Za-z][A-Za-z0-9'-]*\b", blocks[key]))
-                cap = int(ctx.target("figure_legend_words_max", 180))
-                if words > cap:
+                cap = check_limit(ctx)
+                if cap is not None and words > cap:
                     problems.append(f"{rel}: {what} for {eid} is {words} words (maximum {cap})")
-        if rel == CAPTIONS and "abbrevi" not in text.lower() and "footnote" not in text.lower():
-            problems.append(f"{rel}: no footnote/abbreviation block anywhere - three-line tables need one")
+        # Planned captions need no magic word. S10 audits actual notes beneath EACH
+        # workbook's bottom rule, so one generic "footnote" cannot certify all tables.
 
     if problems:
         return Result(
@@ -490,13 +496,8 @@ def _audit_sheet(wb: xlsxlite.Workbook, sh: xlsxlite.Sheet) -> list[str]:
     footnotes = [r for r in range(last_ruled + 1, sh.max_row + 1) if rows[r]["text"]]
     if not footnotes:
         out.append("no footnote row beneath the bottom rule")
-    else:
-        total = sum(len(rows[r]["text"]) for r in footnotes)
-        if total > 1500:
-            out.append(f"footnotes are {total} chars - that is an analysis report, not a table footnote")
-
     for c in sh.cells:
-        if c.value and len(c.value) > 300:
+        if header < c.row <= last_ruled and c.value and len(c.value) > 300:
             out.append(f"cell {c.ref} holds {len(c.value)} chars of prose")
             break
     return out
@@ -513,11 +514,9 @@ def figures_match_plan(ctx: Ctx) -> Result:
             v = e.get(key)
             if v and not ctx.p(v).exists():
                 problems.append(f"{e.get('id')}: {what} {v} missing")
-        tiff = e.get("tiff")
-        if tiff and not ctx.p(tiff).exists():
-            problems.append(f"{e.get('id')}: print master {tiff} missing")
-        elif not tiff:
-            problems.append(f"{e.get('id')}: no 'tiff' print master declared")
+        master = e.get("pdf") or e.get("tiff")
+        if not master or not ctx.p(master).is_file():
+            problems.append(f"{e.get('id')}: vector PDF (or existing TIFF) master missing")
     if problems:
         return Result(False, "figures_match_plan", "; ".join(problems[:8]))
     return Result(True, "figures_match_plan", f"{len(entries)} figure(s) rendered with print masters")
@@ -541,15 +540,31 @@ def figures_qc_pass(ctx: Ctx) -> Result:
     problems = []
     for e in _entries(plan, ("main_figures", "supp_figures")):
         eid = str(e.get("id"))
+        from ..figurejobs import marker
+        if marker(ctx.project,eid).exists():
+            return Result(False,"figures_qc_pass",f"{eid}: figure job pending; the previous QC is not fresh validation",
+                          ["Wait for the matching render/QC task's real completion, then retry. Do not change scientific code to fix an in-flight job."])
         f = figs.get(eid)
         if f is None:
             problems.append(f"{eid}: no QC entry")
             continue
-        failed = [c.get("name") for c in f.get("checks", []) if not c.get("ok")]
+        failed = [c.get("name") for c in f.get("checks", []) if not c.get("ok") and c.get("severity", "fail") == "fail"]
         if failed:
             problems.append(f"{eid}: failing {', '.join(failed)}")
         if not f.get("visual_reviewed"):
             problems.append(f"{eid}: never visually reviewed (deterministic QC alone is not enough)")
+        if str(e.get("script", "")).casefold().endswith(".r"):
+            from ..packagefreeze import _sha256, _safe_path
+            _, png = _safe_path(ctx.project, e["file"])
+            if not png.is_file() or f.get("png_sha256") != _sha256(png):
+                problems.append(f"{eid}: R QC/visual review belongs to a different PNG")
+            # Recompute source/output identity checks without regenerating the figure.
+            from figures.qc import qc_figure, load_archetypes
+            actual = qc_figure(e, ctx.pipeline.targets, load_archetypes(), project=ctx.project)
+            if actual.get("pending"):
+                return Result(False,"figures_qc_pass",actual["checks"][0]["detail"])
+            if actual.get("engine") != "R" or not actual["ok"]:
+                problems.append(f"{eid}: current R output/source QC failed")
     if problems:
         return Result(
             False,
@@ -574,8 +589,9 @@ def bundle_complete(ctx: Ctx) -> Result:
         return Result(False, "bundle_complete", f"{rel} invalid JSON: {exc}")
     items = man.get("items", [])
     problems = []
-    roles = {str(i.get("role", "")).lower() for i in items}
-    for need in ("title_page", "manuscript", "cover_letter", "figures", "tables", "checklist"):
+    roles = {str(i.get("role", "")).lower() for i in items if i.get("upload", True)}
+    requirements = ctx.read_json("08_submission/submission_requirements.json") if ctx.exists("08_submission/submission_requirements.json") else {}
+    for need in requirements.get("required_upload_roles", ["manuscript"]):
         if need not in roles:
             problems.append(f"no bundle item with role '{need}'")
     listed = set()
@@ -589,10 +605,24 @@ def bundle_complete(ctx: Ctx) -> Result:
             problems.append(f"{f} listed but absent")
         if not i.get("required_by"):
             problems.append(f"{f}: no 'required_by' reference to the journal guideline")
+        if requirements and i.get("upload", True):
+            from ..packagefreeze import _safe_path
+            sources = i.get("source_files")
+            if not isinstance(sources, list) or not sources:
+                problems.append(f"{f}: declare the actual source_files for incremental rebuilding")
+            else:
+                for source in sources:
+                    try:
+                        _, path = _safe_path(ctx.project, source)
+                        if not path.is_file():
+                            problems.append(f"{f}: source absent: {source}")
+                    except (ValueError, TypeError) as exc:
+                        problems.append(f"{f}: invalid source: {exc}")
     on_disk = {
         p.relative_to(ctx.project).as_posix()
         for p in (ctx.project / "08_submission/bundle").rglob("*")
-        if p.is_file() and p.name != "manifest.json"
+        if p.is_file() and p.name not in {"manifest.json", ".gitkeep", "SUBMISSION_CHECKLIST.md"}
+        and not p.name.startswith("~$")  # Office locks are not uploads; manifest items still require real files.
     }
     stray = sorted(on_disk - listed)
     if stray:
@@ -617,7 +647,7 @@ def bundle_matches_freeze(ctx: Ctx) -> Result:
                 "Return to S24, reconcile the changes, ask the user to confirm OK again, then create a new freeze.",
             ],
         )
-    return Result(True, "bundle_matches_freeze", f"{count} approved package/evidence file(s) unchanged")
+    return Result(True, "bundle_matches_freeze", f"{count} approved upload file(s) unchanged in read-only release")
 
 
 @check("submission_audit_matches_freeze")
@@ -630,14 +660,49 @@ def submission_audit_matches_freeze(ctx: Ctx) -> Result:
     except (FileNotFoundError, json.JSONDecodeError) as exc:
         return Result(False, "submission_audit_matches_freeze", f"audit/freeze unreadable: {exc}")
     freeze_id = str(freeze.get("freeze_id", "")).strip()
-    if len(freeze_id) != 64 or freeze_id not in audit:
+    from ..state import version_tuple
+    from ..reviewfindings import sections
+    version=ctx.state.data.get("engine_pin",ctx.state.data.get("pipeline_version","0"))
+    current_reader_rules=version_tuple(str(version)) >= (1,19,0)
+    bodies={}
+    if current_reader_rules:
+        try:
+            bodies=sections(audit)
+        except ValueError as exc:
+            return Result(False,"submission_audit_matches_freeze",str(exc))
+        verdicts=re.findall(r"(?mi)^\s*(PASS|REVISE|BLOCKED)\s*$",bodies.get("Verdict",""))
+        if verdicts != ["PASS"]:
+            return Result(False,"submission_audit_matches_freeze",
+                          "The genuine audit Verdict must explicitly PASS; missing/ambiguous/REVISE/BLOCKED cannot inherit a PASS from state or presentation lineage")
+    amendment = freeze.get("presentation_approval", {})
+    inherited = False
+    if freeze_id not in audit and amendment:
+        try:
+            revision = ctx.read_json(f".wf/revisions/{amendment['round']}.json")
+            inherited = (revision.get("status") == "complete" and revision.get("validation", {}).get("ok")
+                         and revision.get("content_classification", {}).get("class") == "presentation"
+                         and any(identity in audit for identity in amendment.get("ancestors", [])))
+        except (OSError, ValueError, KeyError): pass
+    if len(freeze_id) != 64 or (freeze_id not in audit and not inherited):
         return Result(
             False,
             "submission_audit_matches_freeze",
             "independent audit does not identify the exact current freeze_id",
             ["Put `Freeze ID: <freeze_id>` under the audit Verdict heading after reviewing that frozen package."],
         )
-    return Result(True, "submission_audit_matches_freeze", f"audit identifies freeze {freeze_id[:12]}...")
+    from ..packagefreeze import sync_evidence
+    evidence = sync_evidence(ctx.project)
+    if evidence["audit_context_id"] not in audit and not (inherited and bool(amendment.get("prior_audit_context")) and amendment.get("prior_audit_context") in audit
+                                                         and amendment.get("current_audit_context") == evidence["audit_context_id"]):
+        return Result(False, "submission_audit_matches_freeze",
+                      "audit context changed or is missing; recheck changed journal requirements without asking the user to reapprove unchanged uploads")
+    if not inherited and current_reader_rules:
+        required=("Reader comprehension","Medical presentation","Editorial screening and low-level errors")
+        missing=[heading for heading in required if len(bodies.get(heading,""))<80]
+        if missing:
+            return Result(False,"submission_audit_matches_freeze",
+                          "Final reading needs concrete observations of actual medical prose, tables and figures: "+", ".join(missing))
+    return Result(True, "submission_audit_matches_freeze", f"{'prior audit + validated presentation amendment; not a new independent reading' if inherited else 'audit identifies freeze'} {freeze_id[:12]}...")
 
 
 # ---------------------------------------------------------------------------
@@ -670,4 +735,3 @@ def _split_blocks(text: str) -> dict[str, str]:
 def _same_id(a: str, b: str) -> bool:
     norm = lambda s: re.sub(r"[^a-z0-9]", "", s.lower()).replace("figure", "fig")  # noqa: E731
     return norm(a) == norm(b)
-

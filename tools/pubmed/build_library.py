@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Build 06_refs/library.json and export refs.bib / refs.ris.
 
-Records without a retrievable abstract are dropped, not summarized. Citekeys already
+Records without an abstract remain candidates pending registered full-text evidence; never
+write a substitute abstract. Citekeys already
 used anywhere in the project are pulled in automatically so no citation is orphaned.
 
-    uv run python tools/pubmed/build_library.py --topic "..." --target 50
-    uv run python tools/pubmed/build_library.py --add-query "..." --target 50
+    uv run python tools/pubmed/build_library.py --add-ids <selected PMIDs>
+    uv run python tools/pubmed/build_library.py --add-query "<uncovered argument>"
     uv run python tools/pubmed/build_library.py --add-ids 12345678,23456789
     uv run python tools/pubmed/build_library.py --export
     uv run python tools/pubmed/build_library.py --report
@@ -94,9 +95,6 @@ def add_records(lib: dict, records: list[dict]) -> tuple[int, int, int]:
     taken = {e["citekey"] for e in lib["entries"]}
     added = dropped = dup = 0
     for rec in records:
-        if not (rec.get("abstract") or "").strip():
-            dropped += 1
-            continue
         if rec.get("pmid") and rec["pmid"] in by_pmid:
             dup += 1
             continue
@@ -130,7 +128,10 @@ def to_bibtex(entries: list[dict]) -> str:
     chunks = ["% Generated from library.json. Do not edit by hand - regenerate with --export.\n"]
     for e in entries:
         authors = " and ".join(
-            (a["last"] if a.get("collective") else f"{a['last']}, {a.get('first') or a.get('initials', '')}".strip(", "))
+            ("{" + _bib_escape(a["last"]) + "}" if a.get("collective") else
+             "{" + _bib_escape(a["last"]) + "}, " +
+             (_bib_escape(a["suffix"]) + ", " if a.get("suffix") else "") +
+             _bib_escape(a.get("first") or a.get("initials", "")))
             for a in e.get("authors", []) if a.get("last")
         )
         fields = [
@@ -158,7 +159,9 @@ def to_ris(entries: list[dict]) -> str:
         lines = ["TY  - JOUR"]
         for a in e.get("authors", []):
             if a.get("last"):
-                name = a["last"] if a.get("collective") else f"{a['last']}, {a.get('first') or a.get('initials', '')}".strip(", ")
+                name = a["last"] if a.get("collective") else (
+                    f"{a['last']}, {a.get('first') or a.get('initials', '')}".strip(", ") +
+                    (f", {a['suffix']}" if a.get("suffix") else ""))
                 lines.append(f"AU  - {name}")
         lines += [
             f"TI  - {e.get('title', '')}",
@@ -196,7 +199,7 @@ def report(lib: dict) -> None:
         print(f"years  : {years[0]}-{years[-1]}  ({recent} from the last 5 years)")
     print(f"with abstract : {len(entries) - len(no_abs)}/{len(entries)}")
     if no_abs:
-        print(f"  !! must be removed: {', '.join(no_abs)}")
+        print(f"  requires registered, identity-checked full text before citation: {', '.join(no_abs)}")
     if flagged:
         print("flagged records (do not cite as evidence):")
         for k, f in flagged:
@@ -216,15 +219,29 @@ def main() -> int:
     ap.add_argument("--topic", help="primary topic; runs a small family of queries")
     ap.add_argument("--add-query", action="append", default=[], help="one extra query (repeatable)")
     ap.add_argument("--add-ids", help="comma-separated PMIDs to add directly")
-    ap.add_argument("--target", type=int, default=50, help="stop searching once this many entries exist")
+    ap.add_argument("--target", type=int, help="legacy advisory planning hint; never skips remaining coverage queries")
     ap.add_argument("--retmax", type=int, default=60, help="records to pull per query")
     ap.add_argument("--years", type=int, help="restrict searches to the last N years")
     ap.add_argument("--export", action="store_true", help="regenerate refs.bib and refs.ris")
     ap.add_argument("--report", action="store_true", help="audit the current library")
+    ap.add_argument("--uncited-reason", nargs=2, action="append", default=[], metavar=("CITEKEY","REASON"), help="record why a genuine library entry is not cited; does not modify metadata")
     ap.add_argument("--drop", action="append", default=[], help="remove a citekey")
     args = ap.parse_args()
 
     lib = load_library()
+    if args.uncited_reason:
+        if args.topic or args.add_query or args.add_ids or args.drop or args.export:
+            raise ValueError("Record usage separately from metadata acquisition/export")
+        from wfcore.readiness import atomic_json
+        usage=eu.project_root()/"06_refs/usage.json"
+        record=json.loads(usage.read_text(encoding="utf-8")) if usage.is_file() else {"uncited_reasons":{}}
+        for key,reason in args.uncited_reason:
+            if key not in {e["citekey"] for e in lib["entries"]} or len(reason.strip())<20:
+                raise ValueError("Uncited reason needs an existing citekey and concrete explanation")
+            record["uncited_reasons"][key]=reason
+        atomic_json(usage,record)
+        print("Uncited usage explanations recorded; verified bibliographic metadata unchanged")
+        return 0
 
     for key in args.drop:
         before = len(lib["entries"])
@@ -243,9 +260,6 @@ def main() -> int:
     queries += args.add_query
 
     for q in queries:
-        if len(lib["entries"]) >= args.target:
-            print(f"target of {args.target} reached; skipping remaining queries")
-            break
         res = eu.esearch(q, retmax=args.retmax, years=args.years)
         recs = eu.efetch(res["ids"])
         added, dropped, dup = add_records(lib, recs)
@@ -255,13 +269,13 @@ def main() -> int:
              "cache_file": res["cache_file"]}
         )
         print(f"[{q[:60]}] hits={res['count']} +{added} added, "
-              f"{dropped} dropped for having no abstract, {dup} duplicate(s)")
+              f"{dup} duplicate(s); records without abstracts await full-text verification")
 
     if args.add_ids:
         ids = [x for x in args.add_ids.replace(" ", "").split(",") if x]
         recs = eu.efetch(ids)
         added, dropped, dup = add_records(lib, recs)
-        print(f"[--add-ids] +{added} added, {dropped} without abstract dropped, {dup} already present")
+        print(f"[--add-ids] +{added} added, {dup} already present; no-abstract records require registered full text")
 
     missing = used_citekeys() - {e["citekey"] for e in lib["entries"]}
     if missing:
@@ -283,4 +297,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

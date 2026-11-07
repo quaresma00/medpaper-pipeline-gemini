@@ -1,7 +1,8 @@
 # S13 - Build the verified reference library
 
 ## Purpose
-Assemble roughly 50 real references with real abstracts, verified against the source APIs.
+Complete the S07-seeded library according to the project's genuine argument needs, verified
+against source APIs. No universal total or chapter minimum substitutes for coverage.
 Everything the Introduction and Discussion say about the literature comes from here.
 
 ## Procedure
@@ -11,20 +12,29 @@ Everything the Introduction and Discussion say about the literature comes from h
    the papers they disagree with, and the guideline/definition sources.
 2. Build it. Discovery tools may suggest titles, DOI values or queries, but they do not
    populate the formal library. The script searches, fetches full records, generates
-   citekeys, drops records with no abstract, and caches every raw payload:
+   citekeys and caches every raw payload. It retains genuine no-abstract records as
+   candidates; inclusion in this file does not itself authorize citation:
 ```
-uv run python tools/pubmed/build_library.py --topic "<core topic>" --target 50
-uv run python tools/pubmed/build_library.py --add-query "<gap area>" --target 50
+uv run python tools/pubmed/build_library.py --add-query "<uncovered argument area>"
 uv run python tools/pubmed/build_library.py --add-ids 12345678,23456789
 ```
    Anything already cited in `feasibility.md`, `method_scan.md` or `methods.md` is pulled in
    automatically so no existing citekey is orphaned.
+   For a no-abstract record, obtain and register its legal full text before verification:
+```
+uv run python tools/pubmed/fulltext.py fetch --citekey <generated-key>
+```
+   Use the existing `register`/identity-confirmation route in `reference/codex-integration.md`
+   for an acquired local file. Registration needs the candidate library identity, not prior
+   verification. A missing full text is an explicit evidence gap; do not invent an abstract
+   or silently substitute a less relevant citation just to pass.
 3. Verify every entry against the source of record. This is what makes a citekey usable:
 ```
 uv run python tools/pubmed/verify.py
 ```
-   This command always performs a fresh PubMed EFetch, compares PMID, DOI, title, journal,
-   year, first author and abstract status, and writes `06_refs/verified.json` together with
+   This command always performs a fresh PubMed EFetch, compares PMID, DOI, PMCID, title,
+   journal, year, the complete ordered author list and actual abstract text, and writes
+   `06_refs/verified.json` together with
    the exact `library.json` hash and hashes/fingerprints of the cached raw PubMed XML.
    Confirm the stored proof by running:
 ```
@@ -34,14 +44,18 @@ uv run python tools/pubmed/verify.py --check
    a second time and recomputes the comparisons. If NCBI cannot be reached, the gate fails
    closed; it must never be replaced with a handwritten boolean, fabricated DOI, copied
    metadata, or an alternate script. Entries that fail are quarantined, not patched.
+   S25 also always performs a new independent live check. Intermediate gates may reuse
+   hash-bound independent live XML for at most 24 hours only while all identities match.
 4. Export both formats from `library.json` - never hand-edit them:
 ```
 uv run python tools/pubmed/build_library.py --export
 ```
-5. Read the abstracts. Update `03_analysis/notes.md` (`Introduction points`,
+5. Read the source abstracts, or the registered full text when no abstract exists. Update
+   `03_analysis/notes.md` (`Introduction points`,
    `Discussion points`) with what the literature actually says, tagging each point with the
    citekey that supports it. The Introduction is written from these notes plus the
-   abstracts, so vague notes here become vague prose later.
+   source content, so vague notes here become vague prose later. Detailed method or numerical
+   claims require the relevant full text regardless of abstract availability.
 
 ## Outputs
 - `06_refs/library.json`
@@ -50,22 +64,25 @@ uv run python tools/pubmed/build_library.py --export
 - `06_refs/refs.ris`
 
 ## Hard rules
-- **No abstract, no entry.** A record without a retrievable abstract is removed from the
-  library. Do not write a summary and call it the abstract.
+- **Real identity and readable evidence.** A record without a PubMed abstract may be cited
+  only with registered, identity-matched, hash-valid full text. A link, notes stub or AI summary
+  is insufficient. Leave its abstract empty; never supply synthetic content in a source field.
+  Both abstract text and bibliographic metadata must match independently fetched PubMed records.
 - Never invent, guess or "reconstruct" a citekey, PMID, DOI, title, journal or year.
 - Never write or modify `library.json`, `verified.json`, `refs.bib` or `refs.ris` with an
   ad-hoc script. Only `tools/pubmed/build_library.py` and `tools/pubmed/verify.py` may produce
   them. A green Pandoc build is not evidence that a citation exists.
 - A plugin result becomes citable only after the bundled tools independently fetch and
   verify it into `library.json` and `verified.json`.
-- Do not pad to hit the count. If genuine coverage is 42 papers, lower the target:
-  `uv run python tools/wf.py config set reflib_min 40`.
+- Never pad or lower configuration to pass. Complete the sealed benchmark's required
+  argument-source mappings with real selected references; record genuine coverage gaps.
+  Library size, main citations, chapter citations and supplement citations are different.
 - Retracted or expression-of-concern records must be flagged in `library.json` and not
   cited as evidence.
 
 ## Close
 ```
 uv run python tools/wf.py check
-uv run python tools/wf.py advance --note "library: <n> fresh-PubMed-proven entries with abstracts; independent live gate passed; coverage gaps: <...>"
+uv run python tools/wf.py advance --note "library: <n> fresh-PubMed-proven entries with readable source evidence; independent live gate passed; coverage gaps: <...>"
 ```
 

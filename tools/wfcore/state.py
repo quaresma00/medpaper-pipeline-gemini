@@ -13,6 +13,10 @@ from pathlib import Path
 SCHEMA = 1
 
 
+def version_tuple(value: str) -> tuple:
+    return tuple(int(part) for part in value.split("-")[0].split(".") if part.isdigit())
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -44,6 +48,7 @@ class State:
             "schema": SCHEMA,
             "pipeline": pipeline_name,
             "pipeline_version": pipeline_version,
+            "engine_pin": pipeline_version,
             "created_at": _now(),
             "current": first_stage,
             "stages": {first_stage: {"status": "active", "started_at": _now(), "loops": 0}},
@@ -51,7 +56,12 @@ class State:
             "handoff": [],
             "events": [{"at": _now(), "kind": "init", "detail": first_stage}],
         }
+        from .paths import repo_root
+        from .engineintegrity import BASELINE
+        self.data["engine_integrity_required"]=(repo_root()/BASELINE).is_file()
         self.save()
+        if "spelling" not in self.config().get("targets", {}):
+            self.set_config("spelling", "american")
         if not self.handoff_file.exists():
             self.handoff_file.write_text(
                 "# Handoff log\n\n"
@@ -74,6 +84,14 @@ class State:
         current = str(self.data.get("current", ""))
         aliases = stage_aliases or {}
         changed = old_version != pipeline_version
+        if (changed and current=="S09_results" and version_tuple(old_version)<(1,14,0)
+                and version_tuple(pipeline_version)>=(1,14,0) and not self.data.get("active_revision_round")):
+            for prerequisite in ("S10_tables","S11_figures"):
+                if prerequisite in valid_stage_ids and not self.is_done(prerequisite):
+                    self.data["current"]=prerequisite
+                    self.stage_info(prerequisite)["status"]="active"
+                    self.event("display_first_migration","Preserved existing Results draft and history; finish missing displays before Results acceptance")
+                    break
         if current not in valid_stage_ids:
             replacement = aliases.get(current)
             if not replacement or replacement not in valid_stage_ids:
@@ -86,11 +104,23 @@ class State:
             self.data["current"] = replacement
             changed = True
         if changed:
+            self.data.setdefault("engine_pin", old_version)
             self.data["pipeline_version"] = pipeline_version
             self.event("pipeline_migration",
                        f"{old_version} -> {pipeline_version}; current {current} -> {self.data['current']}")
+            self.event("requirements_changed", "Engine refreshed; completed stages retain their pinned added-gate set until wf migrate. Research files were not rewritten.")
             self.save()
         return changed
+
+    def pin_excludes(self, sid: str, since: str | None) -> bool:
+        return bool(since and self.status_of(sid) in {"done", "skipped"} and
+                    version_tuple(str(self.data.get("engine_pin", self.data.get("pipeline_version", "0")))) < version_tuple(since))
+
+    def migrate_pin(self, version: str) -> None:
+        old = self.data.get("engine_pin", self.data.get("pipeline_version"))
+        self.data["engine_pin"] = version
+        self.event("engine_pin_migrated", f"{old} -> {version}; no research-file edits or stage rewind")
+        self.save()
 
     # ---- config --------------------------------------------------------
     def config(self) -> dict:
@@ -139,12 +169,19 @@ class State:
         self.data.setdefault("events", []).append({"at": _now(), "kind": kind, "detail": detail})
 
     def record_decision(self, name: str, value: str, why: str) -> None:
-        self.data.setdefault("decisions", {})[name] = {
+        record = {
             "value": value,
             "rationale": why,
             "at": _now(),
             "stage": self.current,
         }
+        if (version_tuple(str(self.data.get("pipeline_version","0"))) >= (1,20,0)
+                and (name,value) in {("analysis_converged","YES"),("go_nogo_2","GO")}):
+            from .readiness import writing_sources
+            # Bind the scientific judgment when it is actually made, not retroactively
+            # when a later freeze is created. This is evidence identity, not clinical QA.
+            record["scientific_inputs"] = writing_sources(self.project,validate_analysis=False)
+        self.data.setdefault("decisions", {})[name] = record
         self.event("decision", f"{name}={value}")
         self.save()
 
@@ -197,4 +234,3 @@ class State:
         if removed:
             self.event("decisions_invalidated", ", ".join(sorted(removed)))
         self.save()
-

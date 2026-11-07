@@ -2,9 +2,9 @@
 """End-to-end self test. Builds a throwaway project, exercises the toolchain against the
 real gate checks, then deletes everything it made.
 
-    .venv/Scripts/uv run python tools/selftest.py
-    .venv/Scripts/uv run python tools/selftest.py --keep     # leave the temp project for inspection
-    .venv/Scripts/uv run python tools/selftest.py --online   # also hit PubMed, Crossref
+    uv run python tools/selftest.py
+    uv run python tools/selftest.py --keep     # leave the temp project for inspection
+    uv run python tools/selftest.py --online   # also hit PubMed, Crossref
 
 Run this after changing the style module, the table writer, the QC script or any check.
 It is the regression test for the parts of the pipeline that code can verify.
@@ -115,7 +115,7 @@ def build_fixture(proj: Path) -> None:
     axB.set_ylabel("Grip strength (kg)")
     significance(axB, 1, 2, max(v.max() for v in vals) + 0.3, "***")
     sfB.suptitle("Grip strength by group")
-    save(fig, proj / "05_figures/out/Figure1", width="double")
+    save(fig, proj / "05_figures/out/Figure1", width="double", tiff=True)
 
     plan = {
         "main_figures": [{"id": "Figure 1", "slug": "primary",
@@ -172,6 +172,41 @@ def build_fixture(proj: Path) -> None:
         "(Table S1), and discrimination was similar (Table S2).\n",
         encoding="utf-8")
 
+    # Synthetic rendering fixture only. Narrow clinical-context fault injection lives in
+    # test_incremental_quality.py; no real study records are manufactured by this test.
+    from wfcore.readiness import atomic_json
+    from wfcore.xlsxlite import Workbook, numeric_cell_values
+    from wfcore.checks.numbers import NUM_RE, _scrub
+    numeric_facts, claim_rows = {}, []
+    def add_fixture_fact(key, label):
+        context = {"outcome": label, "population": "synthetic test cohort", "comparison": "synthetic groups",
+                   "model": "test fixture model", "timepoint": "test follow-up", "unit": "as labelled",
+                   "denominator": "synthetic eligible participants"}
+        res.setdefault("reported", {})[key] = {"context": context, "values": {
+            "cohort": {k: v for k, v in res.items() if k != "reported"}, "p_value": 0.00021, "p": 0.62}}
+        numeric_facts[key] = {"source": "03_analysis/results/primary.json", "pointer": "/reported/" + key,
+                              "context": context}
+    paragraphs = (proj / "07_manuscript/results.md").read_text(encoding="utf-8").split("\n\n")[1:]
+    for index, paragraph in enumerate(paragraphs):
+        if not paragraph.strip():
+            continue
+        key = "prose_" + str(index)
+        add_fixture_fact(key, "participants" if index == 0 else "outcome")
+        claim_rows.append({"path": "07_manuscript/results.md", "text": paragraph.strip(), "fact_ids": [key]})
+    for table in sorted((proj / "04_tables").rglob("*.xlsx")):
+        workbook = Workbook(table)
+        for sheet, cell, value in numeric_cell_values(table):
+            if not NUM_RE.search(_scrub(value)):
+                continue
+            key = "cell_" + str(len(numeric_facts))
+            label = next(c.value for c in workbook.sheet(sheet).cells if c.ref == "A1")
+            add_fixture_fact(key, label)
+            claim_rows.append({"path": table.relative_to(proj).as_posix(), "sheet": sheet, "cell": cell,
+                               "text": value, "label_cells": ["A1"], "fact_ids": [key]})
+    atomic_json(proj / "03_analysis/results/primary.json", res)
+    atomic_json(proj / "01_protocol/study_facts.json", {"numeric_facts": numeric_facts})
+    atomic_json(proj / "07_manuscript/claim_bindings.json", {"schema_version": 1, "claims": claim_rows})
+
 
 # ---------------------------------------------------------------------------
 def run_checks(proj: Path) -> None:
@@ -183,6 +218,10 @@ def run_checks(proj: Path) -> None:
     pipe = registry.load()
     st = State(proj, ".wf")
     st.create(pipe.meta["name"], pipe.meta["version"], pipe.first().id)
+    # Historical rendering/number-pool fixture, not a clinical context-readback claim.
+    # Current-version attribution and per-occurrence safety have dedicated v1.26 cases.
+    st.data["engine_pin"] = "1.25.0"
+    st.save()
 
     def run(check_name: str, stage_id: str, **spec) -> Result:
         fn = get(check_name)
@@ -238,7 +277,9 @@ def run_checks(proj: Path) -> None:
                        ("Repeated implementation detail that belongs in supplementary Methods. " * 35),
                        encoding="utf-8")
     r = run("legends_cover_plan", "S07_artifacts")
-    record("overlong figure legend is rejected", not r.ok, r.detail[:110])
+    record("default legend length does not discard necessary information", r.ok, r.detail[:110])
+    advice=run("legend_length_advice","S07_artifacts")
+    record("overlong default legend produces a nonblocking advisory",not advice.ok and not advice.blocking,advice.detail[:110])
     legends.write_text(legend_good, encoding="utf-8")
 
     legends.write_text(
@@ -320,7 +361,7 @@ def run_checks(proj: Path) -> None:
          "S19_polish": "S17_assemble", "S20_package": "S17_assemble"})
     record("legacy tail state migrates without resetting project artifacts",
            changed and legacy.current == "S17_assemble" and
-           legacy.data["pipeline_version"] == "1.4.0",
+           legacy.data["pipeline_version"] == pipe.meta["version"],
            f"current={legacy.current}; version={legacy.data['pipeline_version']}")
     shutil.rmtree(migration_root, ignore_errors=True)
 
@@ -335,7 +376,7 @@ def run_checks(proj: Path) -> None:
     migrated_state = State(freeze_migration_root, ".wf").load()
     record("pre-freeze late-stage workspace migrates back to S19 without deleting artifacts",
            migrated.returncode == 0 and migrated_state.current == "S19_human_review" and
-           migrated_state.data["pipeline_version"] == "1.4.0",
+           migrated_state.data["pipeline_version"] == pipe.meta["version"],
            f"current={migrated_state.current}; version={migrated_state.data['pipeline_version']}")
     shutil.rmtree(freeze_migration_root, ignore_errors=True)
 
@@ -648,8 +689,8 @@ def run_qc(proj: Path) -> None:
     for line in out.splitlines():
         if line.strip().startswith("[") or "pass deterministic" in line:
             print("  " + line.strip())
-    record("all deterministic figure QC checks pass", "1/1 figure(s) pass" in out,
-           "" if "1/1 figure(s) pass" in out else "see output above")
+    record("all deterministic figure QC checks pass", p.returncode == 0 and "1/1 figure(s) pass" in out,
+           "" if p.returncode == 0 else out[-2500:])
     rep = proj / "05_figures/qc/qc_report.json"
     record("qc_report.json written", rep.exists())
     if rep.exists():
@@ -856,7 +897,7 @@ def run_codex_integration() -> None:
     section("Codex integration")
     required = [
         ROOT / "AGENTS.md",
-        ROOT / ".agents/skills/medpaper-pipeline/SKILL.md",
+        ROOT / ".agents/skills/medpaper-codex-pipeline/SKILL.md",
         ROOT / ".agents/skills/medpaper-codex-pipeline/agents/openai.yaml",
         ROOT / "reference/codex-integration.md",
         ROOT / "reference/methods-structure.md",
@@ -881,7 +922,7 @@ def run_codex_integration() -> None:
     metadata = required[2].read_text(encoding="utf-8")
     pipe = tomllib.loads((ROOT / "pipeline/pipeline.toml").read_text(encoding="utf-8"))
     record("skill identity is valid",
-           (skill.startswith("---\nname: medpaper-codex-pipeline\n") or skill.startswith("---\nname: medpaper-pipeline\n")) and
+           skill.startswith("---\nname: medpaper-codex-pipeline\n") and
            "description:" in skill.split("---", 2)[1],
            "frontmatter name/description")
     record("skill launcher names the skill",
@@ -889,7 +930,23 @@ def run_codex_integration() -> None:
            "allow_implicit_invocation: false" in metadata,
            "agents/openai.yaml")
     record("pipeline and skill versions agree",
-           pipe["meta"]["version"] == "1.4.0" and 'version: "1.4.0"' in skill,
+           f'version: "{pipe["meta"]["version"]}"' in skill,
+           f'pipeline={pipe["meta"]["version"]}')
+
+    agy_required = [
+        ROOT / ".agent/rules/medpaper-pipeline.md",
+        ROOT / ".agents/skills/medpaper-pipeline/SKILL.md",
+        ROOT / "INSTALL-ANTIGRAVITY.md",
+        ROOT / "reference/antigravity-integration.md",
+    ]
+    record("Antigravity adapter and skill files exist",
+           all(p.is_file() for p in agy_required),
+           ", ".join(str(p.relative_to(ROOT)) for p in agy_required if not p.is_file()))
+    agy_skill = agy_required[1].read_text(encoding="utf-8") if agy_required[1].is_file() else ""
+    record("Antigravity skill version and uv entrypoint agree",
+           agy_skill.startswith("---\nname: medpaper-pipeline\n") and
+           f'version: "{pipe["meta"]["version"]}"' in agy_skill and
+           'entrypoint: "uv run python tools/wf.py status"' in agy_skill,
            f'pipeline={pipe["meta"]["version"]}')
     record("all 25 stage cards exist",
            len(pipe["stage"]) == 25 and
@@ -909,27 +966,32 @@ def run_codex_integration() -> None:
     package_human = next(s for s in pipe["stage"] if s["id"] == "S24_package_human_review")
     final_audit = next(s for s in pipe["stage"] if s["id"] == "S25_submission_audit")
     review_card = (ROOT / "pipeline/stages/S18_independent_review.md").read_text(encoding="utf-8")
-    package_card = (ROOT / "pipeline/stages/S23_package.md").read_text(encoding="utf-8")
+    def card_contract(name):
+        text=(ROOT/"pipeline/stages"/name).read_text(encoding="utf-8")
+        detail=ROOT/"reference/stage_details"/name
+        return text+"\n"+(detail.read_text(encoding="utf-8") if detail.is_file() else "")
+    package_card = card_contract("S23_package.md")
     package_human_card = (ROOT / "pipeline/stages/S24_package_human_review.md").read_text(encoding="utf-8")
     human_card = (ROOT / "pipeline/stages/S19_human_review.md").read_text(encoding="utf-8")
-    final_audit_card = (ROOT / "pipeline/stages/S25_submission_audit.md").read_text(encoding="utf-8")
+    final_audit_card = card_contract("S25_submission_audit.md")
     record("independent reviewer is singular, read-only, and before author intake",
            independent.get("needs_user", False) is False and human.get("needs_user") is True and
            authors.get("needs_user") is True and "exactly one independent subagent" in review_card and
-           "must not edit files" in review_card and "Do not ask for authors" in
+           "must not edit files" in review_card and "Do not ask for author administration" in
            (ROOT / "pipeline/stages/S19_human_review.md").read_text(encoding="utf-8"),
            "one frozen-package review, then user review, then authors")
     record("final package audit waits for explicit user OK and is independent",
            package_human.get("needs_user") is True and
            final_audit.get("needs_user", False) is False and
-           "是否确认 OK" in package_human_card and
+           "无需继续审阅" in package_human_card and
            "tools/package_review.py freeze" in package_human_card and
            "exactly one independent read-only subagent" in final_audit_card and
            "Freeze ID: <freeze_id>" in final_audit_card and
-           "allowed = [\"PASS\"]" in
+           "allowed = [\"PASS\", \"PASS_AUTHOR_FINAL_COPY\"]" in
            (ROOT / "pipeline/pipeline.toml").read_text(encoding="utf-8") and
-           "loop S24_package_human_review" in final_audit_card,
-           "user confirmation -> immutable freeze -> one guideline audit -> PASS or S24 loop")
+           "tools/rework.py batch" in final_audit_card and
+           "tools/wf.py loop --to" not in final_audit_card,
+           "user confirmation -> immutable freeze -> one guideline audit -> PASS or scoped source correction")
     final_headings = next(g for g in final_audit["gate"]
                           if g["check"] == "md_sections")["headings"]
     record("final independent audit includes reader and editor lenses",
@@ -939,7 +1001,7 @@ def run_codex_integration() -> None:
            "Reader comprehension" in final_headings and
            "Editorial screening and low-level errors" in final_headings and
            "objective low-level error" in final_audit_card and
-           "never edits the frozen package" in final_audit_card,
+           "never edits frozen uploads" in final_audit_card,
            "first-time comprehension + editorial error screen + journal compliance")
     human_checks = {gate["check"] for gate in human["gate"]}
     package_checks = {gate["check"] for gate in package_human["gate"]}
@@ -951,19 +1013,19 @@ def run_codex_integration() -> None:
            "revision_rounds_closed" in package_checks and
            any(gate["check"] == "revision_rounds_closed" for gate in final_audit["gate"]) and
            "08_submission/package_content_baseline.json" in package_stage["outputs"] and
-           "tools/rework.py batch" in package_human_card and
-           "tools/rework.py status" in package_human_card and
-           "Never recapture at S24" in package_human_card,
+           "rework.py batch" in package_human_card and
+           "rework.py batch --sealed" in package_human_card and
+           "legitimately rebuilt" in package_human_card,
            "persisted S19/S24 rounds + component equality + visible-text enforcement")
-    record("S19 requires a current third-party ZIP and explicit no-further-review decision",
-           "manuscript_review_package_current" in human_checks and
-           "s19_review_release_explicit" in human_checks and
-           "tools/manuscript/review_package.py build" in human_card and
-           "无需继续审核，可以进入下一步" in human_card and
-           "05_figures/out/" in human_card and "exact ZIP" in human_card and
-           '"s19_review_release_explicit"' in
+    record("S19 requires independent review rounds and explicit no-further-review decision without ZIP",
+           "review_round_approved" in human_checks and
+           "manuscript_review_package_current" not in human_checks and
+           "review_round.py" in human_card and
+           "无需继续审阅" in human_card and
+           "No review ZIP" in human_card and
+           '"review_round_approved"' in
            (ROOT / "tools/wfcore/cli.py").read_text(encoding="utf-8"),
-           "versioned review ZIP + exact paths + package-bound non-overridable stop")
+           "actual report + round-bound non-overridable stop; no review ZIP")
     journal = next(s for s in pipe["stage"] if s["id"] == "S20_journal")
     late_stages = [next(s for s in pipe["stage"] if s["id"] == stage_id) for stage_id in
                    ("S20_journal", "S21_authors", "S22_polish", "S23_package",
@@ -982,7 +1044,7 @@ def run_codex_integration() -> None:
                 "journal_workspace_ready")) and
            "tools/manuscript/scientific_freeze.py freeze" in human_card and
            "tools/manuscript/journal_workspace.py init" in
-           (ROOT / "pipeline/stages/S20_journal.md").read_text(encoding="utf-8"),
+           card_contract("S20_journal.md"),
            "S19 hash freeze -> immutable master -> per-journal integration sources")
     record("Word package contract covers reported defects",
            all(term in package_card for term in ("all text black", "external hyperlinks",
@@ -1112,9 +1174,9 @@ def run_codex_integration() -> None:
          "--project", str(route_project)], capture_output=True, text=True, env=route_env,
         encoding="utf-8", errors="replace")
     routed_state = State(route_project, ".wf").load()
-    record("revision router rewinds state and invalidates downstream approval",
-           routed.returncode == 0 and routed_state.current == "S16_discussion" and
-           routed_state.decision("submission_package_user_confirmed") is None,
+    record("revision router refuses unscoped legacy rewind without a plan",
+           routed.returncode != 0 and routed_state.current == "S24_package_human_review" and
+           routed_state.decision("submission_package_user_confirmed") is not None,
            ((routed.stdout or "") + (routed.stderr or "")).strip()[:140])
     shutil.rmtree(route_root, ignore_errors=True)
 
@@ -1159,14 +1221,14 @@ def run_codex_integration() -> None:
     batch_env = {**os.environ, "MEDPAPER_PROJECT": str(batch_project),
                  "MEDPAPER_ROOT": str(ROOT), "PYTHONIOENCODING": "utf-8"}
     opened = subprocess.run(
-        [sys.executable, str(ROOT / "tools/rework.py"), "batch", "--plan", str(plan_path),
+        [sys.executable, str(ROOT / "tools/rework.py"), "batch", "--sealed", "--confirm-scientific-route", "--plan", str(plan_path),
          "--project", str(batch_project)], capture_output=True, text=True, env=batch_env,
         encoding="utf-8", errors="replace")
     batch_state = State(batch_project, ".wf").load()
     round_path = batch_project / ".wf/revisions/R001.json"
     round_payload = json.loads(round_path.read_text(encoding="utf-8")) if round_path.exists() else {}
-    record("multi-item revision persists interpretation and rewinds once to earliest owner",
-           opened.returncode == 0 and batch_state.current == "S08_methods" and
+    record("multi-item scientific revision anchors S19 without replaying owners",
+           opened.returncode == 0 and batch_state.current == "S19_human_review" and
            batch_state.data.get("active_revision_round") == "R001" and
            round_payload.get("earliest_stage") == "S08_methods" and
            len(round_payload.get("items", [])) == 2 and
@@ -1191,9 +1253,6 @@ def run_codex_integration() -> None:
     (manuscript / "methods.md").write_text("# Methods\n\nConcise revised methods source.\n", encoding="utf-8")
     (manuscript / "discussion.md").write_text("# Discussion\n\nRevised interpretation within the design.\n", encoding="utf-8")
     batch_state = State(batch_project, ".wf").load()
-    batch_state.data["current"] = "S24_package_human_review"
-    batch_state.stage_info("S24_package_human_review")["status"] = "active"
-    batch_state.save()
     mark_outputs = []
     for item_id, rel, summary in [
         ("R001-01", "07_manuscript/methods.md",
@@ -1213,17 +1272,25 @@ def run_codex_integration() -> None:
         encoding="utf-8", errors="replace")
     batch_state = State(batch_project, ".wf").load()
     closed_gate = revision_gate(Ctx(route_pipe, batch_state, batch_project, review_stage, {}))
-    record("completed revision round closes only at its review node with evidence",
-           all(proc.returncode == 0 for proc in mark_outputs) and closed.returncode == 0 and
-           batch_state.data.get("active_revision_round") is None and closed_gate.ok,
+    record("typed validation labels cannot close a new round without actual scoped checks",
+           all(proc.returncode == 0 for proc in mark_outputs) and closed.returncode != 0 and
+           batch_state.data.get("active_revision_round") == "R001" and not closed_gate.ok,
            ((closed.stdout or "") + (closed.stderr or "") + " " + closed_gate.detail).strip()[:180])
     (manuscript / "methods.md").write_text("# Methods\n\nUntracked post-close drift.\n", encoding="utf-8")
     drift_gate = revision_gate(Ctx(route_pipe, batch_state, batch_project, review_stage, {}))
     record("closed-round hash detects untracked source drift", not drift_gate.ok, drift_gate.detail[:150])
 
-    # A later completed round may legitimately supersede an older receipt for the same path.
+    # Historical schema-1 receipts remain readable after upgrade. This is a compatibility
+    # fixture, not permission to relabel a new real revision as an old one.
     import hashlib
+    legacy = json.loads(round_path.read_text(encoding="utf-8"))
+    legacy["schema_version"] = 1
+    legacy["status"] = "complete"
+    round_path.write_text(json.dumps(legacy), encoding="utf-8")
+    batch_state.data.pop("active_revision_round")
+    batch_state.save()
     newer = dict(round_payload)
+    newer["schema_version"] = 1
     newer["round_id"] = "R002"
     newer["status"] = "complete"
     newer["completed_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1268,8 +1335,10 @@ def run_fulltext_registration(proj: Path) -> None:
     selected = []
     registrations_ok = True
     for i, entry in enumerate(entries, 1):
-        source = proj / "temp" / f"fixture{i}.pdf"
-        source.write_bytes(b"%PDF-1.4\n" + bytes([64 + i]) * 1800)
+        source = proj / "temp" / f"fixture{i}.xml"
+        source.write_text(f'<article><front><article-meta><article-id pub-id-type="doi">{entry["doi"]}</article-id>'
+                          f'<title-group><article-title>{entry["title"]}</article-title></title-group></article-meta></front>'
+                          '<body><p>' + 'Synthetic test full text. ' * 100 + '</p></body></article>',encoding="utf-8")
         p = subprocess.run(
             [sys.executable, str(tool), "register", "--citekey", entry["citekey"],
              "--file", str(source), "--access", "oa",
@@ -1285,7 +1354,7 @@ def run_fulltext_registration(proj: Path) -> None:
         selected.append({
             "citekey": entry["citekey"], "pmid": entry["pmid"],
             "reason": "Needed to benchmark the primary finding against a comparable design.",
-            "access": "oa", "fulltext": f'06_refs/fulltext/{entry["citekey"]}.pdf',
+            "access": "oa", "fulltext": f'06_refs/fulltext/{entry["citekey"]}.xml',
             "notes": f'06_refs/deepread/{entry["citekey"]}.md',
         })
     record("four legal local full texts register", registrations_ok)
@@ -1314,13 +1383,14 @@ def run_fulltext_registration(proj: Path) -> None:
     outcome = check_deepread()
     record("registered local full texts satisfy deep-read gate", outcome.ok, outcome.detail)
 
-    changed = refs / "fulltext/fixture1.pdf"
+    changed = refs / "fulltext/fixture1.xml"
     changed.write_bytes(changed.read_bytes() + b"changed")
     outcome = check_deepread()
     record("post-registration file mutation is rejected", not outcome.ok, outcome.detail[:100])
 
-    replacement = proj / "temp/replacement.pdf"
-    replacement.write_bytes(b"%PDF-1.4\n" + b"Z" * 1800)
+    replacement = proj / "temp/replacement.xml"
+    replacement.write_text('<article><front><article-meta><article-id pub-id-type="doi">10.0000/fixture.2</article-id>'
+                           '</article-meta></front><body><p>' + 'Different replacement text. ' * 100 + '</p></body></article>',encoding="utf-8")
     p = subprocess.run(
         [sys.executable, str(tool), "register", "--citekey", "fixture2",
          "--file", str(replacement), "--access", "oa",
@@ -1330,7 +1400,7 @@ def run_fulltext_registration(proj: Path) -> None:
            p.returncode != 0 and "already exists" in ((p.stdout or "") + (p.stderr or "")))
 
     shutil.rmtree(refs, ignore_errors=True)
-    for source in (proj / "temp").glob("fixture*.pdf"):
+    for source in (proj / "temp").glob("fixture*.xml"):
         source.unlink(missing_ok=True)
     replacement.unlink(missing_ok=True)
 
@@ -1472,7 +1542,7 @@ def run_manuscript_docx(proj: Path) -> None:
     state.save()
     review_tool = ROOT / "tools/manuscript/review_package.py"
     first_review_zip = subprocess.run(
-        [sys.executable, str(review_tool), "build", "--project", str(proj)],
+        [sys.executable, str(review_tool), "build", "--legacy", "--project", str(proj)],
         capture_output=True, text=True, env=env, encoding="utf-8", errors="replace")
     review_manifest_path = manuscript / "review_packages/latest_review_package.json"
     review_manifest = (json.loads(review_manifest_path.read_text(encoding="utf-8"))
@@ -1483,7 +1553,7 @@ def run_manuscript_docx(proj: Path) -> None:
         with zipfile.ZipFile(review_archive) as zf:
             members = set(zf.namelist())
     outcome = gate("manuscript_review_package_current", "S19_human_review")
-    record("S19 builds a verified third-party review ZIP with exact review materials",
+    record("legacy review archives remain verifiable with exact historic materials",
            first_review_zip.returncode == 0 and outcome.ok and
            review_manifest.get("package_revision") == 1 and
            {"07_manuscript/full_manuscript.md",
@@ -1499,7 +1569,7 @@ def run_manuscript_docx(proj: Path) -> None:
            ((first_review_zip.stdout or "") + (first_review_zip.stderr or "") +
             outcome.detail).strip()[:180])
     unchanged_review_zip = subprocess.run(
-        [sys.executable, str(review_tool), "build", "--project", str(proj)],
+        [sys.executable, str(review_tool), "build", "--legacy", "--project", str(proj)],
         capture_output=True, text=True, env=env, encoding="utf-8", errors="replace")
     unchanged_manifest = json.loads(review_manifest_path.read_text(encoding="utf-8"))
     record("unchanged S19 sources reuse the verified ZIP without duplicate versions",
@@ -1528,7 +1598,7 @@ def run_manuscript_docx(proj: Path) -> None:
     )
     stale_review = gate("manuscript_review_package_current", "S19_human_review")
     rebuilt_review_zip = subprocess.run(
-        [sys.executable, str(review_tool), "build", "--project", str(proj)],
+        [sys.executable, str(review_tool), "build", "--legacy", "--project", str(proj)],
         capture_output=True, text=True, env=env, encoding="utf-8", errors="replace")
     revised_manifest = json.loads(review_manifest_path.read_text(encoding="utf-8"))
     revised_review = gate("manuscript_review_package_current", "S19_human_review")
@@ -1604,7 +1674,7 @@ def run_manuscript_docx(proj: Path) -> None:
 
     outcome = gate("abbreviations_centralized", "S21_authors")
     record("short display abbreviation lists may remain local", outcome.ok, outcome.detail)
-    captions = proj / "04_tables/table_captions.md"
+    captions = proj / "08_submission/integration/table_captions.md"
     captions_good = captions.read_text(encoding="utf-8")
     captions.write_text(captions_good +
                         "\nAbbreviations: BMI, body mass index; eGFR, estimated glomerular "
@@ -1927,7 +1997,7 @@ def run_manuscript_docx(proj: Path) -> None:
         [sys.executable, str(baseline_cli), "capture", "--replace", "--project", str(proj)],
         capture_output=True, text=True, env=env, encoding="utf-8", errors="replace")
     record("content baseline cannot be recaptured outside S23",
-           blocked_capture.returncode != 0 and "allowed only at S23_package" in
+           blocked_capture.returncode != 0 and "capture needs an S23 build" in
            (blocked_capture.stderr or ""), (blocked_capture.stderr or "").strip()[:110])
 
     format_only_doc = Document(title_page_docx)
@@ -1977,6 +2047,23 @@ def run_manuscript_docx(proj: Path) -> None:
     (submission / "cache").mkdir(exist_ok=True)
     (submission / "cache/guidelines.html").write_text("<html>fixture</html>", encoding="utf-8")
     freezer = ROOT / "tools/package_review.py"
+    state.data["current"] = "S24_package_human_review"
+    state.save()
+    # Controlled synthetic reviewer response exercises the new lifecycle; it is not
+    # claimed as an actual independent scientific review of a real study.
+    from wfcore import reviewrounds
+    test_round = reviewrounds.start(proj, "package")
+    fixture_report = proj / "temp/synthetic_package_review.md"
+    fixture_report.parent.mkdir(parents=True, exist_ok=True)
+    fixture_report.write_text("# Synthetic lifecycle review fixture\n\n" + "\n\n".join(
+        f"## {heading}\n\n" + "Controlled synthetic reviewer response for lifecycle regression testing only. " * 3
+        for heading in ("Reader comprehension", "Medical presentation", "Editorial screening and low-level errors", "Guideline compliance")) +
+        "\n\n```json\n" + json.dumps({"reviewed_artifacts": test_round["reviewed_artifacts"],"finding_inventory_complete":True,"findings":[],
+                                      "section_verdicts":{h:"no_actionable_findings" for h in ("Reader comprehension","Medical presentation","Editorial screening and low-level errors","Guideline compliance")}}) + "\n```\n", encoding="utf-8")
+    reviewrounds.attach(proj, "package", fixture_report)
+    reviewrounds.close(proj, "package", [], [])
+    reviewrounds.decide(proj, "package", "no_further_review", "我确认这一版")
+    state.load()
     frozen = subprocess.run(
         [sys.executable, str(freezer), "freeze", "--project", str(proj)],
         capture_output=True, text=True, env=env, encoding="utf-8", errors="replace")
@@ -2001,18 +2088,23 @@ def run_manuscript_docx(proj: Path) -> None:
     record("restoring the approved package clears freeze gate", verified.returncode == 0,
            ((verified.stdout or "") + (verified.stderr or "")).strip()[:120])
     freeze_payload = json.loads((submission / "package_review_freeze.json").read_text(encoding="utf-8"))
-    record("final freeze includes the S23 content baseline",
-           any(item.get("path") == "08_submission/package_content_baseline.json"
-               for item in freeze_payload.get("files", [])))
+    record("upload freeze excludes backstage baseline while evidence retains it",
+           not any(item.get("path") == "08_submission/package_content_baseline.json"
+                   for item in freeze_payload.get("files", [])) and
+           "08_submission/package_content_baseline.json" in
+           (submission / "evidence/evidence_manifest.json").read_text(encoding="utf-8"))
     audit_path = submission / "independent_submission_audit.md"
     audit_path.write_text("# Verdict\n\nPASS\n", encoding="utf-8")
     outcome = gate("submission_audit_matches_freeze", "S25_submission_audit")
     record("stale or unbound independent audit is rejected", not outcome.ok, outcome.detail[:120])
     audit_path.write_text(
         "# Verdict\n\nPASS\n\nFreeze ID: " + freeze_payload["freeze_id"] +
+        "\nAudit context ID: " + json.loads((submission / "evidence/evidence_manifest.json").read_text(encoding="utf-8"))["audit_context_id"] +
         "\n\n# Guideline compliance\n\nPass.\n\n# Required files and omissions\n\nNone.\n"
         "\n# Cross-file consistency\n\nPass.\n\n# Formatting and technical checks\n\nPass.\n"
-        "\n# Issues requiring correction\n\nNone.\n\n# Final recommendation\n\nReady.\n",
+        "\n# Issues requiring correction\n\nNone.\n\n# Final recommendation\n\nReady.\n" +
+        "\n\n".join("# "+heading+"\n\n"+"Synthetic lifecycle test only: the supplied clinical question, table population and figure interval are described without relying on internal processing labels."
+                      for heading in ("Reader comprehension","Medical presentation","Editorial screening and low-level errors")),
         encoding="utf-8")
     outcome = gate("submission_audit_matches_freeze", "S25_submission_audit")
     record("independent audit binds to the exact approved freeze", outcome.ok, outcome.detail)
@@ -2096,8 +2188,8 @@ def run_polish(proj: Path) -> None:
     out = p.stdout or ""
     counts = json.loads((integration / "polish_report.json").read_text(encoding="utf-8"))["counts"]
     record("tier-A AI phrases detected", counts["ai_tier_a"] >= 10, f"{counts['ai_tier_a']} found")
-    record("structural tells detected", counts["structure_blocking"] >= 1,
-           f"{counts['structure_blocking']} blocking")
+    record("contextual structure prompts detected", counts["structure_advisory"] >= 1,
+           f"{counts['structure_advisory']} advisory")
     record("house-style defects detected", counts["style_blocking"] >= 4,
            f"{counts['style_blocking']} blocking")
     for want, label in [("utilize", "inflated verb"), ("range_dash", "hyphen numeric range"),
@@ -2107,7 +2199,7 @@ def run_polish(proj: Path) -> None:
         record(f"caught: {label}", want in out, "" if want in out else f"{want!r} absent from report")
 
     r = gate("ai_tells_clean")
-    record("ai_tells_clean rejects the slop", not r.ok, r.detail[:100])
+    record("wording prompts do not mechanically block prose", r.ok, r.detail[:100])
     r = gate("style_consistent")
     record("style_consistent rejects the slop", not r.ok, r.detail[:100])
 
@@ -2140,26 +2232,34 @@ def run_polish(proj: Path) -> None:
     record("restoring the text clears diff", polish("diff").returncode == 0)
 
     section("polish: journal limits")
+    disc.write_text("# Abstract\n\nA retrospective test abstract.\n\n# Introduction\n\nClinical context.\n\n"
+                    "# Methods\n\nRetrospective test methods.\n\n# Results\n\nTest findings.\n\n"+CLEAN,encoding="utf-8")
+    requirements={"article_type":"Original research","word_count":{"include_sections":["Introduction","Methods","Results","Discussion"],
+                   "limit":3500,"abstract_limit":250,"reference_limit":50,"source":"https://journal.example/original-research"}}
+    rules_path=proj/"08_submission/submission_requirements.json"
+    rules_path.write_text(json.dumps(requirements),encoding="utf-8")
     (proj / "08_submission").mkdir(parents=True, exist_ok=True)
     gx = proj / "08_submission/guidelines_extract.md"
     gx.write_text("# Guidelines\n\n## Word limits\nAbstract: 250 words. Main text: 3500 words "
                   "excluding references. References: maximum 50.\n", encoding="utf-8")
     polish("lint")
     r = gate("journal_limits_met")
-    record("journal_limits_met parses the quoted caps and passes", r.ok, r.detail[:110])
+    record("journal_limits_met uses structured article-specific caps and passes", r.ok, r.detail[:110])
     gx.write_text("# Guidelines\n\n## Word limits\nAbstract: 250 words. Main text: 100 words "
                   "excluding references. References: maximum 50.\n", encoding="utf-8")
+    requirements["word_count"]["limit"]=100;rules_path.write_text(json.dumps(requirements),encoding="utf-8")
     r = gate("journal_limits_met")
     record("journal_limits_met rejects an over-limit manuscript", not r.ok, r.detail[:110])
     gx.write_text("# Guidelines\n\n## Word limits\nSee the website.\n", encoding="utf-8")
+    requirements["word_count"]["source"]="";rules_path.write_text(json.dumps(requirements),encoding="utf-8")
     r = gate("journal_limits_met")
-    record("journal_limits_met rejects unquoted limits", not r.ok, r.detail[:110])
+    record("journal_limits_met rejects unsourced structured limits", not r.ok, r.detail[:110])
 
     section("polish: allowlist escape hatch")
     disc.write_text(CLEAN + "\nThe guideline states that screening plays a crucial role.\n",
                     encoding="utf-8")
     polish("lint")
-    record("allowlist absent -> phrase blocks", not gate("ai_tells_clean").ok)
+    record("a conventional phrase needs judgment, not an allowlist", gate("ai_tells_clean").ok)
     (integration / "polish_allowlist.tsv").write_text(
         "plays a crucial role\tquoted verbatim from the 2023 guideline\n", encoding="utf-8")
     polish("lint")
@@ -2167,6 +2267,7 @@ def run_polish(proj: Path) -> None:
 
     for f in (disc, gx, integration / "polish_allowlist.tsv"):
         f.unlink(missing_ok=True)
+    rules_path.unlink(missing_ok=True)
     shutil.rmtree(integration / "prepolish", ignore_errors=True)
     (integration / "polish_report.json").unlink(missing_ok=True)
 
@@ -2222,7 +2323,7 @@ def main() -> int:
             __import__(mod)
         except ImportError:
             print(f"cannot run: {mod} is required for {why}.\n"
-                  f"  uv pip install --python uv run python {mod}")
+                  f"  uv pip install --python .venv/Scripts/python.exe {mod}")
             return 1
 
     if args.workdir:
@@ -2255,13 +2356,93 @@ def main() -> int:
         run_journal_eligibility(proj)
         run_manuscript_docx(proj)
         run_polish(proj)
+        optimized = subprocess.run([sys.executable, str(ROOT / "tools/test_optimization.py")],
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+        record("optimization behavioral regression suite", optimized.returncode == 0,
+               (optimized.stdout + optimized.stderr)[-1200:].strip())
+        scoped = subprocess.run([sys.executable, str(ROOT / "tools/test_scoped_revision.py")],
+                                capture_output=True, text=True, encoding="utf-8", errors="replace")
+        record("scoped revision behavioral regression suite", scoped.returncode == 0,
+               (scoped.stdout + scoped.stderr)[-1800:].strip())
+        incremental = subprocess.run([sys.executable, str(ROOT / "tools/test_incremental_quality.py")],
+                                     capture_output=True, text=True, encoding="utf-8", errors="replace")
+        record("incremental quality behavioral regression suite", incremental.returncode == 0,
+               (incremental.stdout + incremental.stderr)[-1800:].strip())
+        r_figures = subprocess.run([sys.executable, str(ROOT / "tools/test_r_figures.py")],
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+        record("R figure renderer behavioral regression suite", r_figures.returncode == 0,
+               (r_figures.stdout + r_figures.stderr)[-1800:].strip())
+        transfer = subprocess.run([sys.executable, str(ROOT / "tools/test_kiro_adoption.py")],
+                                  capture_output=True, text=True, encoding="utf-8", errors="replace")
+        record("cross-workflow adoption regression suite", transfer.returncode == 0,
+               (transfer.stdout + transfer.stderr)[-1800:].strip())
+        reporting = subprocess.run([sys.executable, str(ROOT / "tools/test_reporting_deferral.py")],
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+        record("registration/reporting deferral regression suite", reporting.returncode == 0,
+               (reporting.stdout + reporting.stderr)[-1800:].strip())
+        aligned = subprocess.run([sys.executable, str(ROOT / "tools/test_source_aligned.py")],
+                                 capture_output=True,text=True,encoding="utf-8",errors="replace")
+        record("source aligned validation regression suite",aligned.returncode==0,
+               (aligned.stdout+aligned.stderr)[-1800:].strip())
+        benchmarked = subprocess.run([sys.executable, str(ROOT / "tools/test_benchmark_acceptance.py")],
+                                    capture_output=True, text=True, encoding="utf-8", errors="replace")
+        record("benchmarked professional acceptance regression suite", benchmarked.returncode == 0,
+               (benchmarked.stdout + benchmarked.stderr)[-1800:].strip())
+        rounds = subprocess.run([sys.executable, str(ROOT / "tools/test_review_rounds.py")],
+                                capture_output=True, text=True, encoding="utf-8", errors="replace")
+        record("independent review rounds and native Word tables regression suite", rounds.returncode == 0,
+               (rounds.stdout + rounds.stderr)[-1800:].strip())
+        migration = subprocess.run([sys.executable, str(ROOT / "tools/test_kiro_v190.py")],
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+        record("content-aware Kiro 1.9 migration regressions", migration.returncode == 0,
+               (migration.stdout + migration.stderr)[-1800:].strip())
         if args.online:
             run_online(proj)
+        quality = subprocess.run([sys.executable, str(ROOT / "tools/test_quality_114.py")],
+                                  capture_output=True,text=True,encoding="utf-8",errors="replace")
+        record("source-first quality and explicit-version acceptance regressions",quality.returncode==0,
+               (quality.stdout+quality.stderr)[-1500:].strip())
+        medical = subprocess.run([sys.executable,str(ROOT/"tools/test_medical_presentation.py")],
+                                 capture_output=True,text=True,encoding="utf-8",errors="replace")
+        record("medical-reader prose tables figures and layout regressions",medical.returncode==0,
+               (medical.stdout+medical.stderr)[-1500:].strip())
+        structural = subprocess.run([sys.executable,str(ROOT/"tools/test_structural_quality_116.py")],
+                                    capture_output=True,text=True,encoding="utf-8",errors="replace")
+        record("clinical-label review-closure numbering and percentage regressions",structural.returncode==0,
+               (structural.stdout+structural.stderr)[-1500:].strip())
+        runtime = subprocess.run([sys.executable,str(ROOT/"tools/test_runtime_quality_117.py")],
+                                 capture_output=True,text=True,encoding="utf-8",errors="replace")
+        record("runtime retrospective Unicode IO stacks job-safety and compact-resume regressions",runtime.returncode==0,
+               (runtime.stdout+runtime.stderr)[-1800:].strip())
+        isolation = subprocess.run([sys.executable,str(ROOT/"tools/test_isolation_118.py")],
+                                   capture_output=True,text=True,encoding="utf-8",errors="replace")
+        record("isolated data references exact replay engine drift and review-decision regressions",isolation.returncode==0,
+               (isolation.stdout+isolation.stderr)[-1800:].strip())
+        for script,label in (("test_reader_review_119.py","medical independent-review coverage and authentic finding locations"),
+                             ("test_revision_efficiency_119.py","incremental validation identity reuse and changed-evidence handling"),
+                             ("test_scientific_decisions_120.py","scientific decisions bind the evidence at judgment time"),
+                             ("test_source_access_120.py","authentic sources distinguish abstract availability from full-text access"),
+                             ("test_kiro_121.py","KIRO migration: review isolation, fail-fast incremental builds and actual upload rules"),
+                             ("test_medical_displays_122.py","medical display story, actual rendered review, table hierarchy and independent R panel tags"),
+                             ("test_medical_production_123.py","contextual medical wording, current lint evidence and numerical forest columns"),
+                             ("test_journal_context_124.py","official guide acquisition, exact current target and actual-file transfer compliance"),
+                             ("test_medical_authoring_125.py","clinical drafting context, source-preserving R recipes and measured legacy forest layout"),
+                             ("test_context_bindings_126.py","current scientific context and per-occurrence result attribution"),
+                             ("test_design_data_126.py","design-specific contracts and actual complex-join unit reconciliation"),
+                             ("test_table_proportions_126.py","actual table percentage denominators and non-count percentage scope"),
+                             ("test_runtime_km_126.py","unified real R environments and source-bound uncensored KM applicability")):
+            current = subprocess.run([sys.executable,str(ROOT/"tools"/script)],
+                                     capture_output=True,text=True,encoding="utf-8",errors="replace")
+            record(label,current.returncode==0,(current.stdout+current.stderr)[-1800:].strip())
     finally:
         if args.keep or args.workdir:
             print(f"\nkept: {tmp}")
         else:
-            shutil.rmtree(tmp, ignore_errors=True)
+            def remove_readonly(function, path, _exc):
+                import stat
+                Path(path).chmod(stat.S_IWRITE | stat.S_IREAD)
+                function(path)
+            shutil.rmtree(tmp, onexc=remove_readonly)
 
     failed = [r for r in results if r[1] == FAIL]
     print("\n" + "=" * 70)
@@ -2276,4 +2457,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

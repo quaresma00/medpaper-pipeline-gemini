@@ -1,86 +1,79 @@
 ---
 name: medpaper-pipeline
-description: Drives a gated, resumable medical/clinical research paper pipeline from a research idea through feasibility, data acquisition, exploratory analysis, figure and table production, IMRAD writing, independent review, frozen scientific master, journal selection, integration workspace, submission package and triple-perspective audit. Use whenever the task involves a medical research idea, a clinical manuscript, a research protocol, literature retrieval via PubMed, publication-grade figures or three-line tables, journal selection, or a submission package. Do not follow the workflow from memory - run `uv run python tools/wf.py status` and obey the stage card it prints.
-compatibility: Requires Python 3.11+ for the driver. Figure and table production additionally need matplotlib, numpy, openpyxl, and python-docx. Network access is required for PubMed, Crossref and Unpaywall. Set NCBI_API_KEY to raise the E-utilities rate limit.
+description: Drives a gated, resumable 25-stage medical/clinical research paper pipeline from research intake through full-census data acquisition, R-first figures and three-line tables, context-bound IMRAD writing, version-bound independent subagent review, frozen scientific master, journal-isolated adaptation, native Word packaging, and final reader/editor/compliance audit. Use whenever the task involves a medical research idea, clinical manuscript, research protocol, PubMed literature retrieval, medical figures/tables, journal selection, user revisions, or a submission package. Never follow the workflow from memory — run `uv run python tools/wf.py status` and obey the active stage card.
+compatibility: Requires Windows pwsh, uv, and Python 3.12+ (3.13 recommended) for pinned science/PDF dependencies (matplotlib, numpy, openpyxl, pandas, scipy, python-docx, pypdf). R (Rscript) is the default renderer for new medical figures; Pandoc and Microsoft Word support final DOCX assembly and visual QA. Network access is required for PubMed, Crossref, Unpaywall, and official journal guidelines.
 metadata:
-  version: "1.4.0"
+  version: "1.26.0"
   entrypoint: "uv run python tools/wf.py status"
 ---
 
-# medpaper pipeline
+# medpaper pipeline (Antigravity / Gemini v1.26.0)
 
 ## Master Template & Dispatch Rule
 
-The official and authoritative master template of this pipeline is strictly anchored at:
+The sole authoritative master template of this pipeline is anchored at:
 `F:\workspace\medpapaer\gemini`
 
-When this skill is invoked:
-1. **Existing paper project**: If the current workspace already contains `pipeline/` and `tools/wf.py`, resume the pipeline immediately by running:
-   ```bash
-   uv run python tools/wf.py status
-   ```
-2. **New / Empty project**: If the current workspace lacks the pipeline files, do NOT fail or invent files. Automatically copy the complete purified engine structure (`pipeline/`, `tools/`, `project/`, `reference/`, `.agent/`, `.agents/`, `requirements.txt`, `.gitignore`) directly from the master template at `F:\workspace\medpapaer\gemini` into the current workspace, run:
-   ```bash
-   uv run python tools/wf.py init
-   ```
-   and proceed to Stage S01.
+When this skill is invoked (always execute terminal commands via `pwsh` and `uv run python`, never bare global `python` or `pip`):
 
-This repository holds a 25-stage research pipeline. The workflow is **not** in this file
-and must not be reconstructed from memory. It lives in `pipeline/pipeline.toml` and
-`pipeline/stages/*.md`, and a CLI hands you exactly one stage at a time.
+1. **Existing paper project** (`pipeline/pipeline.toml` and `tools/wf.py` already exist in the workspace):
+   - Resume immediately with the compact, zero-network status and stage card:
+     ```powershell
+     uv run python tools/wf.py status
+     uv run python tools/wf.py card
+     ```
+   - After context compaction, run `uv run python tools/wf.py handoff` to restore bounded resumption state without reloading history.
+   - If the user explicitly asks to upgrade an older workspace engine from `F:\workspace\medpapaer\gemini`, sync **only** engine paths (`pipeline/`, `tools/`, `reference/`, `.agent/`, `.agents/`, `AGENTS.md`, `bootstrap.py`, `requirements.txt`, `requirements-guides.txt`) while strictly preserving `project/` and `.venv/`, install any new pinned packages into `.venv`, and keep `engine_pin` intact so completed historical stages are never silently rewound.
+2. **New / empty project folder** (workspace lacks `pipeline/` and `tools/wf.py`):
+   - Copy the purified engine skeleton (`pipeline/`, `tools/`, `project/`, `reference/`, `.agent/`, `.agents/`, `AGENTS.md`, `bootstrap.py`, `requirements.txt`, `requirements-guides.txt`, `.gitignore`) from `F:\workspace\medpapaer\gemini` into the current workspace (never from another study workspace).
+   - Provision `.venv` and initialize `project/.wf/state.json`:
+     ```powershell
+     uv run --python 3.13 python bootstrap.py --skip-selftest
+     uv run python tools/wf.py status
+     uv run python tools/wf.py card
+     ```
+   - Proceed from `S01_intake`.
 
-That indirection is the point. A long prompt degrades as context is compacted; a state
-file on disk does not. Anything you need to know is one command away, always current.
+## Execution Loop & Context Diet
 
-## The only loop you need
+Read the workspace's `AGENTS.md` once and use its topic router to load `reference/*.md` guides only when needed (`uv run python tools/wf.py card <STAGE> --details` only on first pass of split stages).
 
-```bash
-uv run python tools/wf.py status                 # where am I, what is blocking, full stage card
-<do the work described on the card>
-uv run python tools/wf.py check                  # run the stage's gate
-<fix what it reports>
-uv run python tools/wf.py advance --note "..."   # closes the stage; refuses on a red gate
+```powershell
+uv run python tools/wf.py status                 # compact local state (add --full to run gates)
+uv run python tools/wf.py card                   # active stage instructions
+# <complete active stage outputs; print progress during long tasks>
+uv run python tools/wf.py check                  # run deterministic + provenance gates
+uv run python tools/wf.py advance --note "..."   # advance when green; gates are not turn stops
 ```
 
-**Run `status` first, every session, before anything else.** It prints the invariants, the
-progress map, the gate state, the last handoff note, the declared outputs, and the whole
-stage card. After a context reset that single command restores everything that matters.
+Note the **table/figure-first execution sequence**: despite stable stage IDs (`S01`–`S25`), execution advances **`S08_methods` -> `S10_tables` -> `S11_figures` -> `S09_results` -> `S12_reconcile`** so approved three-line tables and R figures precede `Results` prose.
 
-Never infer the current stage from the conversation, from which files exist, or from what
-you remember doing. Ask the CLI.
+## Key Commands
 
-## Key commands
-
-| Command | Use |
+| Command | Purpose |
 |---|---|
-| `uv run python tools/wf.py status` | Where am I, what is blocking, full stage card |
-| `uv run python tools/wf.py init` | First time only: scaffold `project/` and create the run state |
-| `uv run python tools/wf.py doctor` | Environment and wiring check; run when something behaves oddly |
-| `uv run python tools/wf.py check` | Run the active stage's gates without advancing |
-| `uv run python tools/wf.py advance --note "..."` | Advance to the next stage upon green gates |
-| `uv run python tools/wf.py decide NAME VALUE --why "..."` | Record a gated decision plus its rationale |
-| `uv run python tools/wf.py loop --to STAGE --why "..."` | Deliberately reopen an earlier stage |
-| `uv run python tools/rework.py status` | Inspect active persisted revision round |
-| `uv run python tools/rework.py batch --source-stage STAGE --items-json '...'` | Route user revisions to earliest owning stages |
-| `uv run python tools/rework.py close` | Finalize revision round with verified hashes |
-| `uv run python tools/wf.py clean [--apply]` | Report scratch and undeclared files; delete scratch |
-| `uv run python tools/wf.py config set KEY VALUE` | Override a target (word counts, reference counts, caps) |
+| `uv run python tools/wf.py status [--full]` | Compact local state (or full gate evaluation) |
+| `uv run python tools/wf.py handoff` | Bounded local context recovery after compaction |
+| `uv run python tools/wf.py card [STAGE] [--details]` | Read active/named stage card (or full split procedure) |
+| `uv run python tools/wf.py check [STAGE]` | Run stage gates without advancing |
+| `uv run python tools/wf.py advance --note "..."` | Close current stage and advance on green gates |
+| `uv run python tools/wf.py decide NAME VALUE --why "..."` | Record a gated scientific/editorial decision |
+| `uv run python tools/wf.py rebuild [--dry-run]` | Dependency-aware incremental rebuild of affected outputs |
+| `uv run python tools/wf.py migrate [--dry-run]` | Inspect or adopt current engine gates on pinned legacy projects |
+| `uv run python tools/wf.py doctor` | Verify environment, `.venv` packages, Rscript, Pandoc, and wiring |
+| `uv run python tools/wf.py clean [--apply]` | Report undeclared files and clean `project/temp/` |
+| `uv run python tools/data_manifest.py init\|sync\|verify` | Full-census count, pagination, join-unit, and hash proof |
+| `uv run python tools/data_sources.py register ...` | Register external large raw datasets read-only in place |
+| `uv run python tools/figures/render_r.py --figure "..."` | Managed R-first clinical figure renderer with job lock |
+| `uv run python tools/review_round.py start\|ingest\|close\|decide` | Version-bound subagent review rounds (S18/S19/S24) |
+| `uv run python tools/rework.py batch\|status\|check\|close` | Persisted in-place scoped revisions without stage rewind |
+| `uv run python tools/journal.py begin\|guide\|seal` | Bind journal/ISSN/article-type context and archive prior attempts |
 
-## Non-negotiable rules
+## Non-Negotiable Scientific & Production Rules
 
-These are also printed by `wf status`, and several are mechanically enforced.
-
-1. **Literature comes from the API, never from memory.** Use `tools/pubmed/`. Every search
-   caches its raw payload. A reference that is not verified against raw XML caches and live PubMed EFetch does not exist. Never state a PMID, DOI, title, journal, year or finding you did not retrieve.
-2. **Full-data census coverage.** Acquire the entire S03 protocol-defined data universe before analysis. Hash all raw/acquisition files with `tools/data_manifest.py`, verify pagination exhaustion, and reconcile received records. Never use LIMIT, head(), sample(), or fixed page counts.
-3. **No number without provenance.** Every figure in the manuscript, tables and abstract
-   must already exist in `03_analysis/results/*.json`, written there by code that ran.
-4. **Canonical Assembly & Independent Scientific Review (S17-S19).** S17 assembles canonical full manuscript. S18 executes independent publication-readiness review. S19 requires user review, generates third-party review ZIP package (`tools/manuscript/review_package.py`), and freezes the journal-independent scientific master (`tools/manuscript/scientific_freeze.py`).
-5. **Journal-Specific Integration Isolation (S20-S25).** S20 establishes a derived integration sandbox (`08_submission/integration/`). The S19 scientific master is NEVER edited for journal styling. All journal tailoring lives in the integration layer.
-6. **Layout vs Content Disambiguation (S24).** DOCX files are monitored via visible text extraction (`tools/package_content.py`). Pure Word layout/typography edits are permitted when visible text hashes match baseline. Text changes require workflow rewind.
-7. **Triple-Perspective Submission Audit (S25).** Independent single-pass review from Reader, Editor, and Journal Compliance perspectives before submission readiness.
-
-## Handoff discipline
-
-Before advancing, record what a stranger would need to pick this up: what was produced,
-what was decided and why, and what is still open. `wf advance` refuses without it.
+1. **Full-data census coverage (`S04`)**: Acquire 100% of the S03 protocol-defined universe (`acquisition_manifest.json`) or register read-only originals via `data_sources.py`. Convenience `LIMIT`, `TOP`, `head()`, `sample()`, `nrows=`, or fixed page caps are blocked and non-overridable.
+2. **Fail-closed literature provenance (`S02`/`S05`/`S07`/`S13`–`S25`)**: Candidate search tools may discover papers, but only `tools/pubmed/verify.py` (fresh EFetch + raw XML/library hashes) makes a reference citable, backed by live EFetch gates at S13 and S25 (and 24h hash-bound cache in between). Register legal full texts via `tools/pubmed/fulltext.py register`. Never invent metadata or hand-write `verified.json`.
+3. **Context- and denominator-bound numbers**: Every own-study number must originate from executed `03_analysis/results/*.json` (with R/Python replay provenance) and bind to population, endpoint, contrast, scale, join unit, and `n/N (%)` denominator (`claim_bindings.json`). Prior-study numbers require exact source passages (`source_claims`).
+4. **Benchmark-driven design & R-first figures**: No universal reference/word/figure quotas — S06 freezes `analysis_contract.json` + `study_facts.json`, and S07 seals comparator full-text benchmarks (`tools/manuscript/benchmark.py`). Ordinary retrospective/database studies require no default public registration; reporting checklists are generated only after S20 if required by the target journal (`checklist_docx.py`). New statistical figures default to R (`reference/r-first.md`).
+5. **Version-bound subagent review & explicit `我确认这一版` (`S18`/`S19`/`S24`/`S25`)**: Delegate independent reviews to one read-only subagent (`invoke_subagent` with `research` + `review_round.py ingest --from-file`), fix safe defects in place via `rework.py`, report once with clickable file links, and wait for the user's explicit **`我确认这一版`** for the current version (no review ZIPs).
+6. **Frozen scientific master & isolated journal layer (`S19`–`S25`)**: After S19 approval, lock `07_manuscript/scientific_master_freeze.json`. Perform all journal styling, native portrait/landscape Word three-line tables (`wordtables.py`), flat pure-black `SectionHeading` XML cleanup (`build_docx.py`), and portal field extraction inside `08_submission/` and `08_submission/integration/`. See `reference/antigravity-integration.md`.

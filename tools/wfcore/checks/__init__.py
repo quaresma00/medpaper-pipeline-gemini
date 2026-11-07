@@ -5,7 +5,7 @@ A gate entry in pipeline.toml looks like:
     [[stage.gate]]
     check = "md_wordcount"
     path  = "07_manuscript/introduction.md"
-    min_key = "intro_words_min"
+    min = 1  # A caller's explicit structural example, not a medical quality quota.
 
 `check` selects a function registered here; every other key is passed through in
 `ctx.spec`. Add a check by writing a function and decorating it -- no engine edit.
@@ -49,6 +49,13 @@ class Ctx:
 
     # ---- convenience ---------------------------------------------------
     def p(self, rel: str) -> Path:
+        # Journal presentation is a separate namespace; scientific checks keep the master.
+        if self.stage.id.startswith(("S20_","S21_","S22_","S23_","S24_","S25_")):
+            overrides = {"01_protocol/artifact_plan.json":"08_submission/integration/artifact_plan.json",
+                         "05_figures/legends.md":"08_submission/integration/figure_legends.md",
+                         "04_tables/table_captions.md":"08_submission/integration/table_captions.md"}
+            if rel in overrides and (self.project/overrides[rel]).is_file():
+                rel = overrides[rel]
         return self.project / rel
 
     def exists(self, rel: str) -> bool:
@@ -62,7 +69,8 @@ class Ctx:
         return json.loads(self.read(rel))
 
     def glob(self, pattern: str) -> list[Path]:
-        return sorted(x for x in self.project.glob(pattern) if x.is_file())
+        return sorted(x for x in self.project.glob(pattern) if x.is_file() and not (
+            x.name.startswith("~$") and x.suffix.lower() in {".xlsx",".docx",".pptx"}))
 
     def target(self, key: str, default=None):
         return self.pipeline.targets.get(key, default)
@@ -92,7 +100,7 @@ def get(name: str):
 
 def load_all() -> None:
     """Import every check module so the registry is populated."""
-    from . import artifacts, base_freeze_check, data, data_integrity, fsx, manuscript, numbers, polish, refs, revisions, statecheck, text  # noqa: F401
+    from . import artifacts, data, fsx, manuscript, numbers, polish, refs, revisions, statecheck, text, readiness, editorial, projectquality  # noqa: F401
 
 
 def known() -> list[str]:

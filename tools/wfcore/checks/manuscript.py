@@ -1,5 +1,6 @@
 """Canonical manuscript and submission-DOCX checks (stdlib only)."""
 from __future__ import annotations
+from ..qualitylimits import check_limit
 
 import json
 import os
@@ -82,7 +83,7 @@ def _markdown_legend_problems(text: str, expected: list[str], cap: int) -> list[
         chars, words = blocks[key]
         if chars < 40:
             problems.append(f"{display} legend is only {chars} characters")
-        if words > cap:
+        if cap is not None and words > cap:
             problems.append(f"{display} legend is {words} words (maximum {cap})")
     extras = sorted(set(blocks) - set(wanted))
     if extras:
@@ -169,8 +170,12 @@ def manuscript_structure(ctx: Ctx) -> Result:
             if any(ch in payload for ch in "/;&"):
                 problems.append("Keywords must use commas only; '/', ';' and '&' are forbidden")
             terms = [x.strip() for x in payload.split(",") if x.strip()]
-            if not 3 <= len(terms) <= 6:
-                problems.append(f"Keywords must contain 3-6 terms, found {len(terms)}")
+            from ..journalspec import load
+            journal_keywords = load(ctx.project).get("keywords", {}) if rel.startswith("08_submission/") else {}
+            minimum = journal_keywords.get("min", 3) if not journal_keywords else journal_keywords.get("min") or 1
+            maximum = journal_keywords.get("max", 6) if not journal_keywords else journal_keywords.get("max")
+            if len(terms) < minimum or (maximum is not None and len(terms) > maximum):
+                problems.append(f"Keywords outside project/journal range {minimum}-{maximum}, found {len(terms)}")
             if len({x.casefold() for x in terms}) != len(terms):
                 problems.append("Keywords contain duplicates")
     if "references" in positions:
@@ -183,7 +188,7 @@ def manuscript_structure(ctx: Ctx) -> Result:
         problems.append("01_protocol/artifact_plan.json is missing or invalid")
     elif "figure legends" in positions:
         problems.extend(_markdown_legend_problems(
-            text, planned, int(ctx.target("figure_legend_words_max", 180))))
+            text, planned, check_limit(ctx)))
     if problems:
         return Result(False, "manuscript_structure", "; ".join(problems[:8]),
                       ["Rebuild with tools/manuscript/assemble.py, then apply later edits without moving protected sections."])
@@ -326,7 +331,7 @@ def _docx_legend_problems(root, expected: list[str], cap: int) -> list[str]:
         chars, words = blocks[key]
         if chars < 40:
             problems.append(f"DOCX {display} legend is only {chars} characters")
-        if words > cap:
+        if cap is not None and words > cap:
             problems.append(f"DOCX {display} legend is {words} words (maximum {cap})")
     extras = sorted(set(blocks) - set(wanted))
     if extras:
@@ -335,7 +340,7 @@ def _docx_legend_problems(root, expected: list[str], cap: int) -> list[str]:
 
 
 def _audit_docx(path: Path, style: dict, role: str,
-                planned_figures: list[str] | None = None, legend_cap: int = 180) -> list[str]:
+                planned_figures: list[str] | None = None, legend_cap: int | None = None) -> list[str]:
     problems: list[str] = []
     try:
         with zipfile.ZipFile(path) as zf:
@@ -480,6 +485,8 @@ def docx_bundle_ready(ctx: Ctx) -> Result:
     if planned is None:
         problems.append("01_protocol/artifact_plan.json is missing or invalid")
     for item in manifest.get("items", []):
+        if item.get("upload", True) is False:
+            continue
         role = str(item.get("role", "")).casefold()
         raw = str(item.get("file", ""))
         path = ctx.p(raw)
@@ -488,8 +495,9 @@ def docx_bundle_ready(ctx: Ctx) -> Result:
             problems.append(f"{role}: narrative upload must be DOCX, got {path.name}")
         if path.suffix.casefold() == ".docx":
             problems.extend(_audit_docx(path, style, role, planned,
-                                        int(ctx.target("figure_legend_words_max", 180))))
-    for role in ("manuscript", "title_page", "cover_letter"):
+                                        check_limit(ctx)))
+    requirements = ctx.read_json("08_submission/submission_requirements.json") if ctx.exists("08_submission/submission_requirements.json") else {}
+    for role in [name for name in requirements.get("required_upload_roles", ["manuscript", "title_page", "cover_letter"]) if name in TEXT_ROLES]:
         if not any(p.suffix.casefold() == ".docx" for p in roles.get(role, [])):
             problems.append(f"no DOCX for required role '{role}'")
     if ctx.p(supplementary_rel).exists():

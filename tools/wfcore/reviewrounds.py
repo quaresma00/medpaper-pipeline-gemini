@@ -1,0 +1,357 @@
+"""Version-bound, read-only independent reviews followed by scoped executor fixes.
+
+These records are workflow evidence, not a security sandbox or proof of independence.
+The executor must actually delegate; a main-agent self-review is never independent.
+"""
+from __future__ import annotations
+
+import json
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+
+from .packagefreeze import _safe_path, _sha256, expected_files
+from .readiness import atomic_json, reader_inputs
+
+SCOPES = {
+    "manuscript": ("M", "manuscript_human_reviewed", "NO_FURTHER_REVIEW", "07_manuscript/human_review.md"),
+    "package": ("P", "submission_package_user_confirmed", "OK", "08_submission/package_human_review.md"),
+}
+ROOT = ".wf/review_rounds"
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def inputs(project: Path, scope: str, *, protocol_context: bool | None = None) -> dict[str, str]:
+    if scope == "manuscript":
+        if protocol_context is None:
+            protocol_context = (latest(project, scope) or {}).get("schema_version", 1) >= 5
+        files = reader_inputs(project, protocol_context=protocol_context)
+        for rel in ("06_refs/refs.bib", "06_refs/refs.ris"):
+            if (project / rel).is_file():
+                files[rel] = _sha256(project / rel)
+        return dict(sorted(files.items()))
+    if scope != "package":
+        raise ValueError("unknown review scope")
+    files = expected_files(project)
+    for rel in ("08_submission/bundle/manifest.json", "08_submission/target_journal.json",
+                "08_submission/guidelines_extract.md", "08_submission/submission_requirements.json",
+                "08_submission/docx_style.json"):
+        path = project / rel
+        if path.is_file():
+            files[rel] = path
+    from .journalcontext import enabled,current,CONTEXT
+    if enabled(project):
+        context=current(project);files[CONTEXT]=project/CONTEXT
+        for source in context["sources"].values():
+            for field in ("raw","text"): files[source[field]]=project/source[field]
+    return {rel: _sha256(path) for rel, path in sorted(files.items())}
+
+
+def latest(project: Path, scope: str) -> dict | None:
+    path = project / ROOT / f"{scope}.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
+def save(project: Path, record: dict) -> None:
+    atomic_json(project / ROOT / f"{record['id']}.json", record)
+    atomic_json(project / ROOT / f"{record['scope']}.json", record)
+
+
+def changed(before: dict, after: dict) -> list[str]:
+    return sorted(rel for rel in set(before) | set(after) if before.get(rel) != after.get(rel))
+
+
+def input_drift(project: Path, before: dict, after: dict, containers: dict | None = None) -> list[str]:
+    from .presentationdelta import covered
+    from .determinism import content_sha256
+    result = []
+    for rel in changed(before, after):
+        if rel not in before or rel not in after:
+            result.append(rel); continue
+        if containers and rel in containers and content_sha256(project / rel) == containers[rel]: continue
+        if not covered(project, rel, before[rel], after[rel]): result.append(rel)
+    return result
+
+
+def start(project: Path, scope: str, *, delta: bool | None = None) -> dict:
+    previous = latest(project, scope)
+    from .state import State,version_tuple
+    version=str(State(project).load().data.get("pipeline_version","0"))
+    if delta is None: delta=bool(previous)
+    if previous and (not previous.get("closed_at") or not previous.get("user_decision")):
+        raise ValueError("finish this review round and obtain its user answer before starting another")
+    current = inputs(project, scope, protocol_context=version_tuple(version)>=(1,21,0))
+    selection = dict(current)
+    differences = changed(previous.get("after", {}), current) if previous else list(current)
+    mode = "full"
+    if delta and differences and previous and previous.get("report") and (previous.get("user_decision") or {}).get("value") != "abandoned":
+        # Deletions are retained explicitly. Unknown dependencies widen to a full review.
+        from .dependencies import closure
+        try:
+            affected = set(closure(project, differences)) | set(differences)
+            selection = {rel: digest for rel, digest in current.items() if rel in affected}
+            mode = "delta"
+        except (OSError, ValueError, TypeError, KeyError):
+            mode = "full (dependency uncertainty)"
+    # Journal switches remove only the active package pointer, keeping historical Pxxx
+    # records immutable. Never restart at P001 and overwrite the previous journal's review.
+    prefix=SCOPES[scope][0]
+    prior=[int(p.stem[1:]) for p in (project/ROOT).glob(prefix+"[0-9][0-9][0-9].json")]
+    number=max([int(previous["id"][1:]) if previous else 0,*prior])+1
+    record = {"schema_version": 5 if version_tuple(version)>=(1,21,0) else 4 if version_tuple(version)>=(1,19,0) else 3 if version_tuple(version)>=(1,16,0) else 2, "id": f"{SCOPES[scope][0]}{number:03d}", "scope": scope,
+              "started_at": now(), "mode": mode, "before": current,
+              "reviewed_artifacts": selection, "changed_since_previous": differences,
+              "deleted_since_previous": [rel for rel in differences if rel not in current],
+              "previous_round": previous["id"] if previous else None,
+              "report": None, "closed_at": None, "after": {}, "changes": [], "kept": [],
+              "user_decision": None}
+    record["report_destination"]=f".wf/review_inbox/{record['id']}.md"
+    if record["schema_version"] >= 5:
+        from .reviewguard import snapshot
+        record["reading_guard"] = snapshot(project)
+    save(project, record)
+    # Old approval cannot silently release a newly opened round, even with identical files.
+    from .state import State
+    if (project / ".wf/state.json").is_file():
+        state = State(project).load()
+        state.data.get("decisions", {}).pop(SCOPES[scope][1], None)
+        state.save()
+    return record
+
+
+def restart(project: Path, scope: str, why: str) -> dict:
+    record = latest(project, scope)
+    if not record or len(why.strip()) < 8:
+        raise ValueError("restart requires an existing round and a specific recovery reason")
+    record["closed_at"] = record.get("closed_at") or now()
+    record["user_decision"] = {"value": "abandoned", "words": why, "at": now()}
+    record["recovery_reason"] = why
+    save(project, record)
+    return start(project, scope)
+
+
+def prepare_revalidation(project: Path, scope: str) -> dict:
+    record = latest(project, scope)
+    if not record or record.get("closed_at") or not record.get("report"):
+        raise ValueError("Prepare revalidation only after the original report and scoped corrections")
+    from .reviewguard import snapshot
+    current = inputs(project, scope)
+    record["revalidation_request"] = {"inputs": current, "reading_guard": snapshot(project)}
+    save(project, record)
+    return record
+
+
+def attach(project: Path, scope: str, report: Path, *, revalidation: bool = False) -> dict:
+    record = latest(project, scope)
+    if not record or record.get("closed_at") or (record.get("report") and not revalidation):
+        raise ValueError("an open round without an attached report is required")
+    current = inputs(project, scope)
+    if record.get("schema_version", 1) >= 5:
+        from .reviewguard import verify
+        request = record.get("revalidation_request") if revalidation else {
+            "inputs": record["before"], "reading_guard": record.get("reading_guard")}
+        if not request or request.get("inputs") != current or not isinstance(request.get("reading_guard"), dict):
+            raise ValueError("Prepare the current independent reading inputs before attaching this report")
+        verify(project, request["reading_guard"])
+    if not revalidation and current != record["before"]:
+        raise ValueError("inputs changed while the independent reviewer was reading; restore or restart explicitly")
+    if not revalidation:
+        for copy in record.get("reader_copies", {}).values():
+            if _sha256(_safe_path(project, copy["path"])[1]) != copy["sha256"]:
+                raise ValueError("reviewer text copy changed during reading; regenerate and restart this review")
+    text = report.read_text(encoding="utf-8")
+    metadata = [json.loads(block) for block in re.findall(r"```json\s*\n(.*?)\n```", text, re.S)]
+    evidence = [item for item in metadata if isinstance(item, dict) and "reviewed_artifacts" in item]
+    selection = current if revalidation else record["reviewed_artifacts"]
+    if len(evidence) != 1 or evidence[0]["reviewed_artifacts"] != selection:
+        raise ValueError("review report must bind the exact selected input hashes")
+    headings = ("Reader comprehension", "Medical presentation") if scope == "manuscript" else (
+        "Reader comprehension", "Editorial screening and low-level errors", "Guideline compliance")
+    if scope=="package" and record.get("schema_version",1)>=4:
+        headings+=("Medical presentation",)
+    from .reviewfindings import sections
+    bodies=sections(text)
+    for heading in headings:
+        if len(bodies.get(heading, "")) < 80:
+            raise ValueError(f"review needs substantive {heading} findings")
+    if record.get("schema_version",1)>=3:
+        from .reviewfindings import catalogue
+        catalogue(text,evidence[0],headings)
+        if revalidation:
+            previous_findings={r["id"]:r for r in record.get("findings",[])}
+            for row in evidence[0].get("findings",[]):
+                if row["id"] in previous_findings and row["text"]!=previous_findings[row["id"]]["text"]:
+                    raise ValueError("A revalidation cannot reuse an old finding ID for a different issue")
+    history = record.setdefault("reports", [])
+    relative = f"{ROOT}/{record['id']}.review{len(history) + 1}.md"
+    destination = project / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(text, encoding="utf-8")
+    record["report"] = {"path": relative, "sha256": _sha256(destination), "attached_at": now()}
+    history.append(record["report"])
+    incoming=evidence[0].get("findings", [])
+    if revalidation and record.get("schema_version",1)>=3:
+        merged={r["id"]:r for r in record.get("findings",[])}
+        merged.update({r["id"]:r for r in incoming}); incoming=list(merged.values())
+    record["findings"] = incoming
+    if revalidation:
+        record["reviewed_after"] = current
+        record["reviewed_artifacts"] = selection
+        record.pop("revalidation_request", None)
+    save(project, record)
+    return record
+
+
+def close(project: Path, scope: str, changes: list, kept: list, unresolved: int = 0, author_decisions: dict | None = None, resolutions: dict | None = None) -> dict:
+    record = latest(project, scope)
+    if not record or record.get("closed_at") or not record.get("report"):
+        raise ValueError("attach the actual independent report before closing an open round")
+    report = record["report"]
+    if _sha256(project / report["path"]) != report["sha256"]:
+        raise ValueError("independent report drifted")
+    state_path = project / ".wf/state.json"
+    if state_path.is_file() and json.loads(state_path.read_text(encoding="utf-8")).get("active_revision_round"):
+        raise ValueError("complete the scoped source revision and its real checks first")
+    if unresolved < 0:
+        raise ValueError("unresolved defect count cannot be negative")
+    for entries in (changes, kept):
+        if any(len(entry) != 2 or not all(str(value).strip() for value in entry) for entry in entries):
+            raise ValueError("every change or unadopted finding needs a location/ID and concrete reason")
+    current = inputs(project, scope)
+    if record.get("schema_version",1)>=3:
+        from .reviewfindings import close as close_findings
+        resolutions=close_findings(record,current,changes,kept,resolutions,project)
+    findings={r.get("id"):r for r in record.get("findings",[])}
+    author_decisions=dict(author_decisions or {})
+    for key,reason in kept:
+        finding=findings.get(key,{})
+        # Unknown/untyped findings cannot be self-dismissed as personal preferences.
+        if finding.get("category")=="preference" and finding.get("affects_science") is False:
+            continue
+        decision=(author_decisions or {}).get(key,{})
+        if decision.get("reuse_from"):
+            from .reviewdecisions import reuse
+            decision=reuse(project,{**record,"after":current},finding,decision)
+            author_decisions[key]=decision
+        if (decision.get("report_sha256")!=report["sha256"] or decision.get("inputs")!=current
+                or len(str(decision.get("author_words","")))<8 or len(str(decision.get("rationale","")))<20):
+            raise ValueError(f"{key}: numerical/grouping/conclusion-strength or untyped findings require correction or actual version-bound author adjudication, not executor preference")
+    missing = set(changed(record["before"], current)) - {entry[0] for entry in changes}
+    if missing:
+        raise ValueError("record each changed/removed review artifact: " + ", ".join(sorted(missing)))
+    from .determinism import content_sha256
+    record.update(after=current, closed_at=now(), changes=changes, kept=kept, unresolved=unresolved, author_decisions=author_decisions or {}, finding_resolutions=resolutions or {},
+                  container_inputs={rel: content_sha256(project / rel) for rel in current})
+    save(project, record)
+    summary(project, record)
+    return record
+
+
+def decide(project: Path, scope: str, answer: str, words: str) -> dict:
+    from .argtext import intact
+    intact(words)
+    record = latest(project, scope)
+    if not record or not record.get("closed_at") or record.get("user_decision"):
+        raise ValueError("a closed round awaiting the actual user answer is required")
+    if answer not in {"another_round", "no_further_review"} or len(words.strip()) < 2:
+        raise ValueError("preserve the explicit user answer; generic continuation is not approval")
+    if answer == "no_further_review" and words.strip() != "我确认这一版":
+        raise ValueError("Ask for exactly 我确认这一版, referring to this displayed round and current files; do not infer approval from phrasing")
+    if input_drift(project, record["after"], inputs(project, scope), record.get("container_inputs")):
+        raise ValueError("review files/context changed after closure; do not reuse this approval")
+    if answer == "no_further_review" and record.get("unresolved"):
+        raise ValueError("unresolved objective defects/user-owned facts prevent approval; preferences may be kept with reasons")
+    record["user_decision"] = {"value": answer, "words": words, "at": now()}
+    save(project, record)
+    if latest(project,scope)["user_decision"]["words"] != words:
+        raise ValueError("Stored author text differs; no approval may be recorded")
+    summary(project, record)
+    if answer == "no_further_review":
+        from .state import State
+        state = State(project).load()
+        state.record_decision(SCOPES[scope][1], SCOPES[scope][2],
+                              f"{record['id']}: Actual author statement: {words}. Acceptance binds this closed review round and its exact current files; it is not inferred from continuation.")
+    return record
+
+
+def summary(project: Path, record: dict) -> None:
+    scope = record["scope"]
+    headings = ("Materials presented", "Independent verdict", "User-requested revisions", "Revalidation", "Approval to proceed") if scope == "manuscript" else (
+        "Package presented", "User modifications", "Revalidation", "User confirmation", "Frozen package")
+    lines = [f"# {scope.capitalize()} review {record['id']}", ""]
+    content = ["\n".join(f"- `{rel}`" for rel in record["after"]),
+               f"Independent report: `{record['report']['path']}`; mode: {record['mode']}",
+               "\n".join(f"- Changed {rel}: {why}" for rel, why in record["changes"]) or "No source correction required.",
+               "\n".join(f"- Not adopted {key}: {why}" for key, why in record["kept"]) or "No unadopted findings.",
+               json.dumps(record.get("user_decision"), ensure_ascii=False)]
+    if scope == "package":
+        content = [content[0], content[2] + "\n" + content[3],
+                   f"Independent report: `{record['report']['path']}`; unresolved defects: {record.get('unresolved', 0)}",
+                   content[4], "Freeze follows explicit approval; verify package_review_freeze.json before final audit."]
+    # This is the concise current handoff. Complete prior rounds remain in .wf, not chat.
+    for heading, body in zip(headings, content):
+        lines += [f"## {heading}", "", body, ""]
+    (project / SCOPES[scope][3]).write_text("\n".join(lines), encoding="utf-8")
+
+
+def approved(project: Path, scope: str) -> dict:
+    record = latest(project, scope)
+    if not record or not record.get("closed_at") or not record.get("report") or record.get("unresolved"):
+        raise ValueError("no complete independent review round")
+    if (record.get("user_decision") or {}).get("value") != "no_further_review":
+        raise ValueError("the user has not explicitly ended this review round")
+    if input_drift(project, record["after"], inputs(project, scope), record.get("container_inputs")):
+        raise ValueError("approved review inputs/context drifted")
+    if json.loads((project / ROOT / f"{record['id']}.json").read_text(encoding="utf-8")) != record:
+        raise ValueError("review index and sealed round disagree")
+    for report in record.get("reports", [record["report"]]):
+        if _sha256(_safe_path(project, report["path"])[1]) != report["sha256"]:
+            raise ValueError("review report/history drifted")
+    return record
+
+
+def reader_copies(project: Path, files: dict[str, str], folder: str) -> dict:
+    """Full local extracts, not substitutes for inspecting actual figures and page images."""
+    from .packagecontent import visible_text
+    result = {}
+    for rel, digest in files.items():
+        path = _safe_path(project, rel)[1]
+        if _sha256(path) != digest:
+            raise ValueError(f"source drifted before extraction: {rel}")
+        suffix = path.suffix.lower()
+        if suffix == ".docx":
+            content = visible_text(path)
+            import zipfile
+            from xml.etree import ElementTree as ET
+            with zipfile.ZipFile(path) as archive:
+                for name in sorted(archive.namelist()):
+                    if re.fullmatch(r"word/(header\d+|footer\d+|footnotes|endnotes)\.xml", name):
+                        root = ET.fromstring(archive.read(name))
+                        paragraphs = ["".join(node.text or "" for node in paragraph.iter(
+                            "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t")) for paragraph in root.iter(
+                            "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p")]
+                        content += "\nPart: " + name + "\n" + "\n".join(paragraphs)
+        elif suffix == ".xlsx":
+            from openpyxl import load_workbook
+            workbook = load_workbook(path, read_only=True, data_only=False)
+            try:
+                content = "\n\n".join(f"Sheet: {sheet.title}\n" + "\n".join(
+                    "\t".join("" if value is None else str(value) for value in row)
+                    for row in sheet.iter_rows(values_only=True)) for sheet in workbook)
+            finally:
+                workbook.close()
+        else:
+            continue
+        if _sha256(path) != digest:
+            raise ValueError(f"source changed during extraction: {rel}")
+        import hashlib
+        name = hashlib.sha256(rel.encode()).hexdigest()[:16] + ".txt"
+        relative = f"{folder}/{name}"
+        destination = _safe_path(project, relative)[1]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(f"Source: {rel}\nSHA-256: {digest}\n\n{content}\n", encoding="utf-8")
+        result[rel] = {"path": relative, "source_sha256": digest, "sha256": _sha256(destination)}
+    return result

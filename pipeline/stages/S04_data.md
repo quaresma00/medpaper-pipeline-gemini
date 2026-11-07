@@ -4,6 +4,12 @@
 Get the real data in place with an auditable trail, and describe it before analysing it.
 
 ## Procedure
+For an already supplied local dataset read `reference/data-and-review-isolation.md` first.
+Register the exact authorized original via `tools/data_sources.py add`; use `data:` inputs
+and hash/count them in place. No implicit copy, hard link, junction, sibling-study template
+reuse or wider-root search. The following raw/receipt paths apply to new retrievals and
+small local receipts; existing original payloads may stay in the registered source.
+
 1. Execute the full retrieval from `02_data/acquisition_plan.md`. Retrieval scripts and exact
    queries live under `project/02_data/acquisition/`; raw payloads and source count/page
    receipts land in `project/02_data/raw/` and are then treated as read-only. Never edit a
@@ -73,7 +79,13 @@ uv run python tools\wf.py decide partial_data_authorized YES --why "<what the so
    Include the study period here even if it is just calendar years: every number that
    later appears in the manuscript must exist in a results JSON, dates included.
    Reconcile its `n_rows` against records received and explicit post-acquisition exclusions
-   in `acquisition_manifest.json`. Complex joins require a substantive reconciliation note.
+   in `acquisition_manifest.json`. For actual `complex_join`, retain the explanation and
+   `analysis_dataset.join_steps` for material before/after checkpoints: existing input/output
+   files, unit/key, join keys and relationship, and planned versus final analysis unit.
+   Run `data_manifest.py audit-joins` to calculate actual rows, unique units and input units
+   absent from output, then verify. Do not type a few agreeing counts or call every unmatched
+   record a clinical exclusion. Read the complex-join section in the acquisition reference.
+   Simple one-record-per-analysis-row data keep the existing count reconciliation only.
 7. Run the standalone verifier, then delete scratch files from `project/temp/`:
 ```powershell
 uv run python tools\data_manifest.py verify

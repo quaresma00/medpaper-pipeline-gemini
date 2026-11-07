@@ -8,7 +8,30 @@ from . import Ctx, Result, check
 from ..packagecontent import verify_baseline
 from ..journalworkspace import verify as verify_journal_workspace
 from ..reviewpackage import verify as verify_review_package
+from ..evidence import renewable
 from ..scientificfreeze import verify as verify_scientific_freeze
+from ..determinism import holds
+
+
+@check("review_round_approved")
+def review_round_approved(ctx: Ctx) -> Result:
+    from ..reviewrounds import approved, SCOPES
+    scope = ctx.spec.get("scope", "manuscript")
+    try:
+        record = approved(ctx.project, scope)
+        decision = ctx.state.decision(SCOPES[scope][1]) or {}
+        if decision.get("value") != SCOPES[scope][2] or not str(decision.get("rationale", "")).startswith(record["id"] + ":"):
+            raise ValueError("user approval is not bound to this review round")
+        return Result(True, "review_round_approved", f"{record['id']}: independent review, scoped fixes and explicit user answer recorded")
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        return Result(False, "review_round_approved", str(exc), ["Use tools/review_round.py; do not generate a review ZIP or infer user approval."])
+
+
+@check("submission_measurements_current")
+def submission_measurements_current(ctx: Ctx) -> Result:
+    from ..submissionqc import verify
+    problems = verify(ctx.project)
+    return Result(not problems, "submission_measurements_current", "; ".join(problems[:6]) or "actual upload measurements match final files and rules")
 
 
 def _sha256(path) -> str:
@@ -29,7 +52,7 @@ def revision_rounds_closed(ctx: Ctx) -> Result:
             )
         except (OSError, json.JSONDecodeError) as exc:
             return Result(False, "revision_rounds_closed", f"active round {active} is unreadable: {exc}")
-        if active_payload.get("review_stage") != ctx.stage.id:
+        if active_payload.get("schema_version") == 1 and active_payload.get("review_stage") != ctx.stage.id:
             return Result(
                 True, "revision_rounds_closed",
                 f"revision round {active} is in transit to {active_payload.get('review_stage')}",
@@ -54,9 +77,17 @@ def revision_rounds_closed(ctx: Ctx) -> Result:
         except (OSError, json.JSONDecodeError) as exc:
             problems.append(f"{path.name}: unreadable ({exc})")
             continue
-        if revision.get("schema_version") != 1 or revision.get("status") != "complete":
-            problems.append(f"{path.name}: not a completed schema-1 revision round")
+        if revision.get("schema_version") not in {1, 2} or revision.get("status") != "complete":
+            problems.append(f"{path.name}: not a completed supported revision round")
             continue
+        if revision.get("schema_version") == 2:
+            proof = revision.get("validation", {})
+            if not proof.get("ok") or not proof.get("input_signature") or not proof.get("results"):
+                problems.append(f"{path.name}: no actual scoped-check evidence")
+            for rel, expected in proof.get("artifact_hashes", {}).items():
+                if not renewable(rel):
+                    latest_receipts[rel] = (path.name, "scoped validation", {"path":rel, "sha256":expected,
+                                             "content_sha256":proof.get("artifact_content", {}).get(rel)})
         items = revision.get("items")
         if not isinstance(items, list) or not items:
             problems.append(f"{path.name}: no revision items")
@@ -67,10 +98,11 @@ def revision_rounds_closed(ctx: Ctx) -> Result:
                 problems.append(f"{path.name}/{item_id}: not completed and validated")
                 continue
             changed = item.get("changed_files")
-            if not isinstance(changed, list) or not changed:
+            inspected = item.get("checked_files", [])
+            if not isinstance(changed, list) or not (changed or inspected):
                 problems.append(f"{path.name}/{item_id}: no changed-file proof")
                 continue
-            for receipt in changed:
+            for receipt in [*changed,*inspected]:
                 rel = receipt.get("path") if isinstance(receipt, dict) else None
                 expected = receipt.get("sha256") if isinstance(receipt, dict) else None
                 if not rel or not expected:
@@ -79,12 +111,16 @@ def revision_rounds_closed(ctx: Ctx) -> Result:
                 # A later completed revision may legitimately supersede the same source.
                 # Keep every old receipt as history, but compare the working tree only with
                 # the newest completed receipt for each path.
-                latest_receipts[str(rel)] = (path.name, str(item_id), str(expected))
+                if not renewable(str(rel)):
+                    latest_receipts[str(rel)] = (path.name, str(item_id), receipt)
     for rel, (round_name, item_id, expected) in latest_receipts.items():
         source = ctx.project / rel
+        if isinstance(expected, dict) and expected.get("deleted"):
+            if source.exists(): problems.append(f"{round_name}/{item_id}: deleted source reappeared ({rel})")
+            continue
         if not source.is_file():
             problems.append(f"{round_name}/{item_id}: changed source missing ({rel})")
-        elif _sha256(source) != expected:
+        elif not (holds(ctx.project, expected) if isinstance(expected,dict) else _sha256(source).casefold() == expected.casefold()):
             problems.append(f"{round_name}/{item_id}: changed source drifted after latest closure ({rel})")
     if problems:
         return Result(False, "revision_rounds_closed", "; ".join(problems[:8]))
@@ -165,7 +201,7 @@ def _scientific_freeze_result(ctx: Ctx, check_name: str) -> Result:
             ],
         )
     decision = ctx.state.decision("manuscript_human_reviewed")
-    token = str(freeze.get("review_package_id", ""))[:12]
+    token = str(freeze.get("review_round_id") or freeze.get("review_package_id", ""))[:12]
     if (not decision or decision.get("value") != "NO_FURTHER_REVIEW" or
             token not in str(decision.get("rationale", ""))):
         return Result(
@@ -177,7 +213,7 @@ def _scientific_freeze_result(ctx: Ctx, check_name: str) -> Result:
     return Result(
         True, check_name,
         f"journal-independent scientific master {str(freeze['freeze_id'])[:12]} is unchanged "
-        f"and bound to S19 review package {token}",
+        f"and bound to S19 review {token}",
     )
 
 

@@ -1,0 +1,97 @@
+# Observed provenance; source this helper from the actual R analysis producer.
+medpaper_write_results <- function(name, payload, seed, inputs) {
+  if (!requireNamespace("jsonlite", quietly=TRUE)) stop("Restore jsonlite in the study environment")
+  project <- normalizePath(Sys.getenv("MEDPAPER_PROJECT"), winslash="/", mustWork=TRUE)
+  filearg <- grep("^--file=", commandArgs(FALSE), value=TRUE)
+  if (length(filearg) != 1L) stop("Run the actual producer with Rscript --file, not an inline receipt repair")
+  script <- normalizePath(sub("^--file=", "", filearg), winslash="/", mustWork=TRUE)
+  prefix <- paste0(project, "/")
+  if (!startsWith(tolower(script), tolower(paste0(prefix, "03_analysis/code/")))) stop("Invalid producer location")
+  if (length(commandArgs(TRUE))) stop("Declare configuration as input files, not undeclared CLI arguments")
+  if (length(seed)!=1L || !is.numeric(seed) || !is.finite(seed) || seed<0 || seed!=floor(seed)) stop("Invalid seed")
+  if (basename(name)!=name || !grepl("^[^/\\\\]+\\.json$", name)) stop("Invalid result filename")
+  if (!is.list(payload) || is.null(names(payload)) || "environment" %in% names(payload)) stop("Invalid result object")
+  validate <- function(x) {
+    if (is.numeric(x) && any(!is.finite(x))) stop("Convert missing values explicitly to NULL; no NaN/Infinity")
+    if (is.list(x)) lapply(x, validate)
+    invisible(NULL)
+  }
+  validate(payload)
+  if (!length(inputs) || anyDuplicated(inputs)) stop("Declare every actual input once")
+  safe <- function(rel) {
+    if (startsWith(rel, "data:")) return(medpaper_data_path(rel))
+    normalized <- gsub("\\\\", "/", rel)
+    if (grepl("^(04_tables/|05_figures/|07_manuscript/|08_submission/|01_protocol/prototypes/)", normalized) || normalized %in% c("01_protocol/artifact_plan.json", "01_protocol/display_review.json", "01_protocol/artifact_benchmark.md")) stop("Presentation/manuscript files are not scientific analysis inputs; declare actual data/protocol inputs.")
+    if (grepl("^(/|[A-Za-z]:)|(^|[/\\\\])\\.\\.([/\\\\]|$)",rel)) stop("Unsafe relative input")
+    p <- normalizePath(file.path(project, rel), winslash="/", mustWork=TRUE)
+    if (!startsWith(tolower(p),tolower(prefix)) || dir.exists(p) || identical(p,script)) stop("Invalid input")
+    p
+  }
+  # Use the same streaming SHA-256 implementation as the Python writer; no extra R hash package.
+  python <- Sys.getenv("MEDPAPER_PYTHON")
+  if (!nzchar(python)) stop("Run R through tools/analysis/reproduce.py run so MEDPAPER_PYTHON is bound")
+  hash <- function(p) {
+    code <- "import hashlib,sys; f=open(sys.argv[1],'rb'); print(hashlib.file_digest(f,'sha256').hexdigest())"
+    answer <- system2(python, c("-c", shQuote(code), shQuote(p)), stdout=TRUE)
+    if (length(answer)!=1L || !grepl("^[0-9a-f]{64}$",answer)) stop("SHA-256 failed")
+    toupper(answer)
+  }
+  ih <- setNames(lapply(inputs,function(r) hash(safe(r))), gsub("\\\\","/",inputs))
+  packages <- setNames(lapply(loadedNamespaces(),function(n) as.character(utils::packageVersion(n))),loadedNamespaces())
+  payload$environment <- list(schema_version=1L, language="R", version=as.character(getRversion()),
+    packages=packages, seed=seed, script=substring(script,nchar(prefix)+1), script_sha256=hash(script),
+    inputs=ih, written_at=format(Sys.time(),"%Y-%m-%dT%H:%M:%OS6Z",tz="UTC"),writer="medpaper-results-v1")
+  context <- Sys.getenv("MEDPAPER_RENV_CONTEXT")
+  if (nzchar(context)) {
+    context <- jsonlite::fromJSON(context,simplifyVector=FALSE)
+    if (isTRUE(context$active)) {
+      if (!identical(Sys.getenv("MEDPAPER_RENV_ACTIVE"),"1") ||
+          !identical(hash(context$activation),context$activation_sha256) ||
+          (!is.null(context$lockfile) && !identical(hash(context$lockfile),context$lockfile_sha256)))
+        stop("Selected R environment did not activate or changed during execution; no result receipt written")
+    }
+    payload$environment$renv <- context
+  }
+  out <- file.path(project,"03_analysis/results",name)
+  if (file.exists(file.path(project,".wf/state.json"))) {
+    code <- "import pathlib,sys; from wfcore.revision import guard_outputs; guard_outputs(pathlib.Path(sys.argv[1]),[pathlib.Path(sys.argv[2])])"
+    if (system2(python,c("-c",shQuote(code),shQuote(project),shQuote(out)))!=0) stop("Result is outside approved revision scope")
+  }
+  dir.create(dirname(out),recursive=TRUE,showWarnings=FALSE)
+  temporary <- tempfile(pattern=basename(out),tmpdir=dirname(out))
+  on.exit(unlink(temporary),add=TRUE)
+  writeLines(jsonlite::toJSON(payload,auto_unbox=TRUE,null="null",digits=I(17),pretty=TRUE),temporary,useBytes=TRUE)
+  if (.Platform$OS.type=="windows") {
+    # pathlib.replace uses Windows replacement semantics without deleting the old output first.
+    code <- "import pathlib,sys; pathlib.Path(sys.argv[1]).replace(sys.argv[2])"
+    status <- system2(python,c("-c",shQuote(code),shQuote(temporary),shQuote(out)))
+    if(status!=0) stop("Atomic result replacement failed")
+  } else if (!file.rename(temporary,out)) stop("Atomic result replacement failed")
+  if (file.exists(file.path(project,".wf/state.json"))) {
+    code <- "import pathlib,sys; from wfcore.revision import record_build; from wfcore.datasources import input_path; p=pathlib.Path(sys.argv[1]); record_build(p,pathlib.Path(sys.argv[2]),[input_path(p,r) for r in sys.argv[3:]])"
+    if(system2(python,c("-c",shQuote(code),shQuote(project),shQuote(out),shQuote(substring(script,nchar(prefix)+1)),shQuote(inputs)))!=0) stop("Result build receipt failed")
+  }
+  invisible(out)
+}
+medpaper_data_path <- function(reference) {
+  python <- Sys.getenv("MEDPAPER_PYTHON")
+  if (!nzchar(python) || !startsWith(reference, "data:")) stop("Use an authorized data reference through the managed analysis runner")
+  code <- "import pathlib,sys; from wfcore.datasources import resolve; print(resolve(pathlib.Path(sys.argv[1]),sys.argv[2]).as_posix())"
+  answer <- system2(python,c("-c",shQuote(code),shQuote(Sys.getenv("MEDPAPER_PROJECT")),shQuote(reference)),stdout=TRUE)
+  if (!is.null(attr(answer,"status")) || length(answer)!=1L || !file.exists(answer)) stop("Data reference is missing or outside its authorized root")
+  answer
+}
+# Baseline output contains every level; never infer the other sex/category in prose.
+baseline_counts <- function(values, groups = NULL, levels = NULL) {
+  if (is.null(levels)) levels <- if (is.factor(values)) base::levels(values) else unique(values[!is.na(values)])
+  if (any(!values[!is.na(values)] %in% levels)) stop("Declared levels omit observed values")
+  count <- function(x) list(n_total = length(x), n_nonmissing = sum(!is.na(x)), missing = sum(is.na(x)),
+    counts = as.list(stats::setNames(vapply(levels, function(level) sum(x == level, na.rm = TRUE), integer(1)), as.character(levels))))
+  out <- list(levels = as.character(levels), overall = count(values), groups = list())
+  if (!is.null(groups)) {
+    if (length(groups) != length(values)) stop("Groups must align with every observation")
+    out$groups <- lapply(unique(groups[!is.na(groups)]), function(group) c(list(group = as.character(group)), count(values[!is.na(groups) & groups == group])))
+    out$missing_group <- count(values[is.na(groups)])
+  }
+  out
+}

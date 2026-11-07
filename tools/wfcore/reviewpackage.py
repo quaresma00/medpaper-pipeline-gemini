@@ -218,3 +218,4 @@ def build(project: Path, pipeline_version: str) -> tuple[Path, dict, bool]:
     if not ok or verified is None:
         raise ValueError("new review ZIP did not verify: " + "; ".join(details))
     return archive, verified, True
+

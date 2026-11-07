@@ -1,54 +1,50 @@
-# medpaper pipeline - repository instructions
+# medpaper pipeline — Antigravity workspace rule (v1.26.0)
 
-This repository is a **gated medical research paper pipeline**. Do not work from memory and
-do not treat this file as the workflow.
+This repository is a **gated 25-stage medical research paper pipeline**. Do not follow the
+workflow from memory; `pipeline/pipeline.toml`, `AGENTS.md`, and the active stage card own all
+sequencing, outputs, and checks.
 
-## Start here, every session
+## Start, resume, and context diet
 
-```
-python tools/wf.py status
-```
+Run via `pwsh` (never bare global `python` or `pip`):
 
-That prints the current stage, the non-negotiable invariants, the gate state, the last
-handoff note, the outputs this stage may create, and the full stage card. Do what the card
-says, then:
-
-```
-python tools/wf.py check
-python tools/wf.py advance --note "what was produced, what was decided, what is open"
+```powershell
+uv run python tools/wf.py status
+uv run python tools/wf.py card
 ```
 
-If you have lost track of anything, run `status` again. Never guess the stage.
+- If `.venv` is absent, run `uv run --python 3.13 python bootstrap.py`.
+- After context compaction, run `uv run python tools/wf.py handoff` and read only the active card
+  and topic references routed by `AGENTS.md` (`--details` only when first needed).
+- Note the table/figure-first execution order: `S08_methods` -> `S10_tables` -> `S11_figures` ->
+  `S09_results` -> `S12_reconcile`.
+- Complete active work, run `uv run python tools/wf.py check`, then
+  `uv run python tools/wf.py advance --note "..."`. Gates are checkpoints, not turn boundaries.
 
-## Absolute rules
+## Non-negotiable integrity rules
 
-1. Literature only through `tools/pubmed/`. A reference absent from
-   `project/06_refs/verified.json` with `verified: true` does not exist. Never write a
-   PMID, DOI, title, journal or year from memory.
-2. Every number in the manuscript must already be in `project/03_analysis/results/*.json`,
-   written by code that ran. Never compute a statistic in prose.
-3. One manuscript section file per stage.
-4. Create only the outputs `wf status` declares. Scratch goes in `project/temp/` and is
-   deleted before advancing.
-5. Figures are verified by loading the rendered PNG and looking at it, after
-   `python tools/figures/qc.py --all` passes. Reading the plotting code is not verification.
-6. No explanatory text inside figure panels; it belongs in the legend.
-7. Language polishing changes wording only, never a number, a citation or a figure/table
-   reference. Snapshot first: `python tools/text/polish.py snapshot`.
-8. A red gate means fix it, not `--force`.
+1. **Full-census data acquisition**: Acquire the entire S03 protocol-defined universe (`tools/data_manifest.py`,
+   or register large local originals in place via `tools/data_sources.py`). Never add convenience
+   `LIMIT`, `TOP`, `head()`, `sample()`, `nrows=`, or page caps.
+2. **Verified PubMed provenance**: Only `tools/pubmed/verify.py` (fresh EFetch + raw XML/library
+   SHA-256) creates citable references. Register legal full texts with `tools/pubmed/fulltext.py register`.
+   Never fabricate DOIs/PMIDs or hand-edit `verified.json`.
+3. **Context-bound numeric provenance**: Own-study numbers must exist in executed
+   `03_analysis/results/*.json` and bind to the exact population, endpoint, contrast, scale, join unit,
+   and `n/N (%)` denominator (`claim_bindings.json`). Prior-study numbers require exact source passages.
+4. **R-first medical figures & visual QA**: New statistical plots at S11 default to the managed R
+   pipeline (`tools/figures/render_r.py`) using approved results without refitting. Always inspect
+   actual rendered PNG/PDF/XLSX/DOCX files before recording visual QA.
+5. **Version-bound subagent reviews & explicit approval**: Use one independent read-only subagent
+   (`invoke_subagent` + `tools/review_round.py`) at S18/S19/S24/S25; no review ZIPs. Wait at S19/S24
+   for the explicit version-bound statement **`我确认这一版`**.
+6. **Scoped in-place rework & frozen scientific master**: Persist revisions via `tools/rework.py batch`
+   at S19/S24, run affected owner checks in place, and rebuild true dependants (`wf rebuild`) without
+   rewinding completed stages. Lock S19 with `scientific_master_freeze.json`; isolate all S20–S25
+   journal adaptations under `08_submission/integration/` (`tools/journal.py`).
+7. **Clean Word XML & user-owned disclosures**: Final DOCX outputs use native three-line tables and
+   flat `SectionHeading` paragraphs stripped of `outlineLvl`, `keepNext`, `keepLines`,
+   `pageBreakBefore`, borders, hyperlinks, and non-black text. Never draft an AI-use disclosure
+   unless explicitly requested by the user.
 
-## Skill arbitration
-
-If a general medical-research skill suite is also installed, do not let it replace a stage.
-Skills that produce an artifact a stage declares (`write-paper`, `make-figures`, `search-lit`,
-`manage-refs`, `polish-language`, `find-journal`, `write-protocol`, `analyze-stats`,
-`orchestrate`, `manage-project`) write to different paths and carry no gate, so using one
-leaves the gate red with no way to satisfy it. The pipeline's own tools are the only route.
-
-Skills that produce analysis or review rather than a declared artifact are fine, and some are
-genuinely useful inside a stage: `check-reporting` for guideline item-by-item compliance,
-`self-review` / `peer-review` / `revise` for post-submission work, `deidentify` /
-`generate-codebook` at S04, `calc-sample-size` / `design-study` at S03.
-
-Full detail: `.agents/skills/medpaper-pipeline/SKILL.md`, `pipeline/pipeline.toml`,
-`pipeline/stages/`.
+See `AGENTS.md` and `reference/antigravity-integration.md` for capability and subagent routing.

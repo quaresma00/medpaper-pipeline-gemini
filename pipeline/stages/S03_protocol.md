@@ -1,22 +1,44 @@
 # S03 - Protocol v1 + data acquisition plan
 
+Read `reference/r-first.md` when choosing implementation: processing may use Python; use
+R where its established package better fits the method. Record this in the existing protocol,
+without another approval stop or duplicate analysis.
+
 ## Purpose
-Commit to a design before seeing the data, so that later choices are visibly
-pre-specified rather than fitted to whatever happened to be significant.
+Document the research question, analysis intentions and complete acquisition plan locally.
+Distinguish genuinely prospective plans from exploratory or already-inspected-data choices;
+a local protocol does not imply public preregistration.
 
 ## Procedure
-1. Pick the reporting guideline that governs this design (STROBE, CONSORT, STARD,
-   TRIPOD+AI, PRISMA, CARE...). State it explicitly; it dictates what the Methods must
-   contain and what the artifact plan must include (e.g. a flow diagram).
+1. Fix the actual study design and analysis scope, not a reporting-checklist label.
+   Before expensive analysis, check close published design/method precedents for control
+   selection, unit/denominator, endpoint definitions and key model assumptions. Record the
+   concrete source and project-specific rationale in the relevant protocol sections; explain
+   mismatches rather than copying a design label. This is methodological grounding, not a
+   new reporting checklist, citation quota or separate dossier. Reuse the evidence at S07.
+   Ordinary data mining, secondary analysis and retrospective centre data need no default
+   public registration, platform search, registration number or registration deliverable.
+   For a systematic review/meta-analysis or actual prospective interventional trial only,
+   check applicable registration requirements and timing from current primary sources.
+   Distinguish required from recommended and record the real situation briefly in this
+   protocol. Do not register externally, invent a registration or backdate completed work.
 2. Write `project/01_protocol/protocol_v1.md` with exactly these headings:
    `Objective`, `Design`, `Population and eligibility`, `Variables`,
-   `Statistical analysis plan`, `Sample size / power`, `Reporting guideline`, `Ethics`.
+   `Statistical analysis plan`, `Sample size / power`, `Ethics`.
    - `Variables`: for every exposure, outcome and covariate give the operational
      definition, the source field, the unit, and the handling of missing values.
      If a cutoff is used, say where the cutoff comes from (cite it).
    - `Statistical analysis plan`: name the primary model, the primary estimand, how
      confounders were chosen, how missing data is handled, what sensitivity analyses
-     will run, and what constitutes the primary result. Pre-specify it now.
+     will run, and what constitutes the primary result. State what was planned versus
+     decided after inspecting data; do not call a retrospective plan preregistered.
+     Persist these concrete choices in the existing `analysis_contract.json` now, not just
+     at S06. Under the existing fields specify the analysis unit/key and denominator;
+     actual time origin/follow-up when relevant; target question or quantity; primary
+     analysis and confounding/missing-data/sensitivity decisions. A descriptive or qualitative
+     study may explain why a model, longitudinal follow-up or sensitivity analysis is N/A.
+     Use the compact field shape in `reference/efficient-quality.md`; do not invent analyses
+     to fill a generic checklist. This is not public registration or an extra approval stop.
    - `Sample size / power`: if the dataset is fixed, state the precision it affords
      rather than pretending to a prospective calculation.
 3. Write `project/02_data/acquisition_plan.md` with exactly these headings:
@@ -47,11 +69,13 @@ uv run python tools\wf.py decide protocol_sampling_authorized YES --why "<the us
 
 ## Outputs
 - `01_protocol/protocol_v1.md`
+- `01_protocol/analysis_contract.json` (existing contract, concrete design choices)
 - `02_data/acquisition_plan.md`
 
 ## Hard rules
-- Do not look at the data before the analysis plan is written down. If data was already
-  inspected, say so in the protocol under `Deviations` at S06 rather than hiding it.
+- Record analysis intentions before the reportable analyses. If data was already inspected,
+  describe that honestly in the protocol and the S06 deviations, rather than demanding a
+  retrospective registration or pretending the decisions were prospective.
 - The acquisition target is the entire protocol-defined universe. A small schema/connectivity
   pilot may be planned, but it is never an analysis dataset and must be followed by full
   acquisition before S04 can close.
@@ -63,6 +87,6 @@ uv run python tools\wf.py decide protocol_sampling_authorized YES --why "<the us
 ## Close
 ```
 uv run python tools/wf.py check
-uv run python tools/wf.py advance --note "protocol v1 fixed; guideline=<x>; primary model=<y>; data route=<z>"
+uv run python tools/wf.py advance --note "local analysis plan fixed; primary model=<y>; data route=<z>"
 ```
 

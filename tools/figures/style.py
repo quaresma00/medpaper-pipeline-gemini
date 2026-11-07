@@ -66,7 +66,7 @@ LIGHT_GREY = "#BFBFBF"
 FONT_STACK = ["Arial", "Helvetica", "Liberation Sans", "DejaVu Sans"]
 
 
-def apply_style(base_pt: float = 7.0, palette: str = "okabe_ito") -> list[str]:
+def apply_style(base_pt: float = 8.0, palette: str = "okabe_ito") -> list[str]:
     """Call once at the top of every plotting script.
 
     `palette`: okabe_ito (default, colour-blind safe) | nejm | lancet | jama | jco | nature.
@@ -212,16 +212,29 @@ def significance(ax, x1: float, x2: float, y: float, text: str = "*",
 
 
 def save(fig, stem: str | Path, width: str = "single", dpi: int = 600,
-         tiff: bool = True, audit: bool = True, archetype: str | None = None) -> dict:
-    """Write the PNG preview and the TIFF print master, then audit the artists.
+         tiff: bool = False, audit: bool = True, archetype: str | None = None) -> dict:
+    """Write the PDF master and PNG preview, optionally TIFF, then audit the artists.
 
     `stem` has no extension: save(fig, "project/05_figures/out/Figure1").
     `archetype` is recorded in the sidecar so qc.py can check the archetype's mandatory
     elements; if omitted it is read from artifact_plan.json by qc.py instead.
     """
     stem = Path(stem)
+    from wfcore.dependencies import guard_build
+    from wfcore.revision import guard_outputs
+    for parent in stem.resolve().parents:
+        if (parent / ".wf/state.json").exists():
+            guard_build(parent)
+            outputs = [stem.with_suffix(s) for s in [".pdf", ".png"] + ([".tiff"] if tiff else [])]
+            if audit:
+                outputs.append(stem.parent.parent / "qc" / f"{stem.name}.artist.json")
+            guard_outputs(parent, outputs)
+            break
     stem.parent.mkdir(parents=True, exist_ok=True)
     written = {}
+    pdf = stem.with_suffix(".pdf")
+    fig.savefig(pdf, format="pdf")
+    written["pdf"] = str(pdf)
 
     png = stem.with_suffix(".png")
     fig.savefig(png, dpi=dpi, format="png")

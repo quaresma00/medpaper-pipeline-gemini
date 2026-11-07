@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Literature search CLI. Every call caches its payload and logs to scan_manifest.json.
 
-    python tools/pubmed/client.py search --query "..." --retmax 100
-    python tools/pubmed/client.py search --query "..." --years 5 --journals
-    python tools/pubmed/client.py fetch  --ids 12345678,23456789 --with-abstract
-    python tools/pubmed/client.py show   --pmid 12345678
+    uv run python tools/pubmed/client.py search --query "..." --retmax 100
+    uv run python tools/pubmed/client.py search --query "..." --years 5 --journals
+    uv run python tools/pubmed/client.py fetch  --ids 12345678,23456789 --with-abstract
+    uv run python tools/pubmed/client.py show   --pmid 12345678
 """
 from __future__ import annotations
 
@@ -47,14 +47,14 @@ def cmd_search(args) -> int:
               + ("  [no abstract]" if not r["abstract"] else ""))
 
     if args.journals:
-        print("\njournal distribution (acceptance-probability signal for S18):")
+        print("\njournal distribution (acceptance-probability signal for S20):")
         counter = Counter((r["journal"] or "?") for r in recs)
         for name, n in counter.most_common(25):
             print(f"  {n:>3}  {name}")
 
     no_abs = sum(1 for r in recs if not r["abstract"])
     print(f"\n{len(recs)} record(s) parsed; {no_abs} without an abstract "
-          f"(those are ineligible for the reference library).")
+          f"(register identity-checked full text before using those as formal citations).")
     return 0
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """medpaper workflow driver.
 
-    python tools/wf.py status
+    uv run python tools/wf.py status
 
 Stdlib only, so the gate engine keeps working even when the science
 virtualenv is missing or broken.

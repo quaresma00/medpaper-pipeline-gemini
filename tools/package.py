@@ -1,206 +1,127 @@
 #!/usr/bin/env python3
-"""Build a self-contained, transferable bundle per agent IDE.
-
-    python tools/package.py                 # all targets -> dist/
-    python tools/package.py --target codex
-    python tools/package.py --no-zip        # directories only
-
-Each bundle carries the whole workflow (pipeline/, tools/, reference/) plus only the
-adapter files that IDE reads, plus an install guide written for that IDE. Nothing is
-shared between bundles at runtime, so a bundle can be dropped into any machine and run.
-
-Deliberately excluded: .venv (platform-specific), project/ (run data), dist/, git
-metadata, caches, and the other IDEs' adapter files - a Codex bundle containing .kiro/
-only invites confusion.
-"""
+"""Build a verified, credential-free Codex bundle from this repository."""
 from __future__ import annotations
 
 import argparse
-import shutil
+import hashlib
+import json
+import re
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DIST = ROOT / "dist"
-
-# Carried by every bundle.
-CORE_DIRS = ["pipeline", "reference", "tools"]
-CORE_FILES = ["README.md", "requirements.txt", "bootstrap.py", "workflow.md", "LICENSE"]
-
-# Adapter paths per target. `.agents/skills` is the skill source of truth and is shared by
-# Codex and the Antigravity CLI, so both bundles carry it.
-TARGETS: dict[str, dict] = {
-    "codex": {
-        "label": "OpenAI Codex",
-        "paths": ["AGENTS.md", ".agents/AGENTS.md", ".agents/skills"],
-        "guide": "INSTALL-CODEX.md",
-    },
-    "antigravity": {
-        "label": "Google Antigravity",
-        "paths": ["AGENTS.md", ".agents/AGENTS.md", ".agents/skills",
-                  ".agent/rules", ".agent/workflows"],
-        "guide": "INSTALL-ANTIGRAVITY.md",
-    },
-    "kiro": {
-        "label": "Kiro",
-        "paths": [".kiro/steering", ".kiro/skills", ".kiro/hooks", ".agents/skills"],
-        "guide": "INSTALL-KIRO.md",
-    },
-    "claude": {
-        "label": "Claude Code",
-        "paths": ["CLAUDE.md", ".claude/skills", ".agents/skills"],
-        "guide": "INSTALL-CLAUDE.md",
-    },
+TEXT_SUFFIXES = {".md", ".toml", ".yaml", ".yml", ".json", ".py", ".txt", ".ps1", ".r"}
+EXCLUDED_DIRS = {".git", ".venv", "dist", "scratch", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".log", ".tmp"}
+REQUIRED = {
+    "AGENTS.md",
+    "INSTALL-ANTIGRAVITY.md",
+    ".agent/rules/medpaper-pipeline.md",
+    ".agents/skills/medpaper-pipeline/SKILL.md",
+    "reference/antigravity-integration.md",
+    "INSTALL-CODEX.md",
+    ".agents/skills/medpaper-codex-pipeline/SKILL.md",
+    ".agents/skills/medpaper-codex-pipeline/agents/openai.yaml",
+    "pipeline/pipeline.toml",
+    "tools/wf.py",
+    "reference/codex-integration.md",
+    "reference/methods-structure.md",
 }
-
-EXCLUDE_NAMES = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-                 ".git", ".venv", "dist", "project", "node_modules", ".DS_Store"}
-EXCLUDE_SUFFIXES = {".pyc", ".pyo", ".log", ".tmp"}
-
-
-def keep(path: Path) -> bool:
-    if any(part in EXCLUDE_NAMES for part in path.parts):
-        return False
-    return path.suffix not in EXCLUDE_SUFFIXES
+SECRET_RE = re.compile(
+    r"(?i)\b((?:[A-Z0-9]+_)*(?:API_KEY|TOKEN|ACCESS_TOKEN|AUTH_TOKEN|CLIENT_SECRET|"
+    r"PRIVATE_KEY|PASSWORD|SECRET))\s*=\s*[\"']([^\"']+)[\"']"
+)
+EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b")
 
 
-def copy_tree(src: Path, dst: Path) -> int:
-    n = 0
-    for p in sorted(src.rglob("*")):
-        if not p.is_file() or not keep(p.relative_to(ROOT)):
+def included_files(output: Path) -> list[Path]:
+    files = []
+    for p in sorted(ROOT.rglob("*")):
+        if not p.is_file() or p.resolve() == output.resolve():
             continue
-        target = dst / p.relative_to(ROOT)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(p, target)
-        n += 1
-    return n
+        if p.name==".medpaper-engine.json": continue  # Regenerated from the actual package bytes.
+        rel = p.relative_to(ROOT)
+        if any(part in EXCLUDED_DIRS for part in rel.parts) or p.suffix in EXCLUDED_SUFFIXES:
+            continue
+        if rel.parts and rel.parts[0] == "project" and rel.as_posix() != "project/.gitkeep":
+            continue
+        files.append(p)
+    return files
 
 
-def copy_path(rel: str, dst: Path) -> int:
-    src = ROOT / rel
-    if not src.exists():
-        print(f"    !! missing, skipped: {rel}")
-        return 0
-    if src.is_dir():
-        return copy_tree(src, dst)
-    if not keep(Path(rel)):
-        return 0
-    target = dst / rel
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, target)
-    return 1
+def placeholder(value: str) -> bool:
+    low = value.strip().lower()
+    return any(mark in low for mark in ("<", ">", "...", "your ", "example", "change_me"))
 
 
-def build(name: str, make_zip: bool) -> Path:
-    spec = TARGETS[name]
-    out = DIST / f"medpaper-{name}"
-    if out.exists():
-        shutil.rmtree(out)
-    out.mkdir(parents=True)
-
-    total = 0
-    for rel in CORE_DIRS:
-        total += copy_path(rel, out)
-    for rel in CORE_FILES:
-        total += copy_path(rel, out)
-    for rel in spec["paths"]:
-        total += copy_path(rel, out)
-
-    guide = ROOT / "docs" / spec["guide"]
-    if guide.exists():
-        shutil.copy2(guide, out / spec["guide"])
-        total += 1
-    else:
-        print(f"    !! install guide missing: docs/{spec['guide']}")
-
-    # A project skeleton so the first `wf init` has somewhere to land, without shipping
-    # anyone's run data.
-    (out / "project").mkdir(exist_ok=True)
-    (out / "project" / ".gitkeep").touch()
-
-    # Marks which IDE this bundle is for, so install_adapters.py syncs only that target and
-    # does not litter a Codex bundle with .kiro/ and .claude/.
-    (out / ".medpaper-target").write_text(name + "\n", encoding="utf-8")
-    total += 1
-
-    print(f"  {name:<12} {total:>4} files -> {out.relative_to(ROOT).as_posix()}/")
-
-    if make_zip:
-        zpath = DIST / f"medpaper-{name}.zip"
-        if zpath.exists():
-            zpath.unlink()
-        with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-            for p in sorted(out.rglob("*")):
-                if p.is_file():
-                    zf.write(p, Path(f"medpaper-{name}") / p.relative_to(out))
-        size = zpath.stat().st_size / 1024
-        print(f"  {'':<12} {'':>4}    {zpath.name}  ({size:,.0f} KB)")
-    return out
-
-
-def verify(out: Path, name: str) -> bool:
-    """A bundle is only useful if its driver runs from inside it."""
-    import subprocess
+def scan(files: list[Path]) -> list[str]:
     problems = []
-    for must in ("pipeline/pipeline.toml", "tools/wf.py", "reference/archetypes.toml",
-                 "requirements.txt", "bootstrap.py"):
-        if not (out / must).exists():
-            problems.append(f"missing {must}")
-    cards = len(list((out / "pipeline" / "stages").glob("*.md"))) if (out / "pipeline" / "stages").exists() else 0
-    if cards < 20:
-        problems.append(f"only {cards} stage cards")
+    for p in files:
+        if p.suffix.lower() not in TEXT_SUFFIXES:
+            continue
+        text = p.read_text(encoding="utf-8", errors="replace")
+        rel = p.relative_to(ROOT).as_posix()
+        for m in SECRET_RE.finditer(text):
+            if not placeholder(m.group(2)):
+                problems.append(f"{rel}: non-placeholder value assigned to {m.group(1)}")
+        for m in EMAIL_RE.finditer(text):
+            if m.group(1).lower() not in {"example.org", "example.com", "example.net"}:
+                problems.append(f"{rel}: personal email address present")
+    return sorted(set(problems))
 
-    # Run the driver from inside the bundle with the environment cleared of any
-    # MEDPAPER_* overrides, so this proves the bundle is genuinely self-locating.
-    import os
-    import re
-    env = {k: v for k, v in os.environ.items() if not k.startswith("MEDPAPER_")}
-    proc = subprocess.run([sys.executable, "tools/wf.py", "doctor"], cwd=out, env=env,
-                          capture_output=True, text=True, encoding="utf-8", errors="replace")
-    out_txt = (proc.stdout or "") + (proc.stderr or "")
-    if not re.search(r"stage cards\s+ok\s+(\d+)/\1", out_txt):
-        problems.append("driver could not resolve the stage cards inside the bundle")
-    if not re.search(r"gate checks\s+ok", out_txt):
-        problems.append("gate checks did not resolve inside the bundle")
-    m = re.search(r"stage cards\s+ok\s+(\d+)/(\d+)", out_txt)
-    if m:
-        cards = int(m.group(1))
 
-    for rel in TARGETS[name]["paths"]:
-        if not (out / rel).exists():
-            problems.append(f"adapter missing: {rel}")
-
-    if problems:
-        print(f"    VERIFY FAILED: {'; '.join(problems)}")
-        return False
-    print(f"    verified: {cards} stage cards, driver runs standalone, adapters present")
-    return True
+def run_check(cmd: list[str], label: str) -> None:
+    print(f">>> {label}")
+    proc = subprocess.run(cmd, cwd=ROOT)
+    if proc.returncode:
+        raise SystemExit(f"{label} failed with exit code {proc.returncode}")
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="build transferable bundles")
-    ap.add_argument("--target", action="append", default=[], choices=sorted(TARGETS))
-    ap.add_argument("--no-zip", action="store_true")
-    ap.add_argument("--clean", action="store_true", help="remove dist/ first")
+    ap = argparse.ArgumentParser(description="package a verified medpaper-codex ZIP")
+    ap.add_argument("--output", type=Path, default=ROOT.parent / "medpaper-codex-ready.zip")
+    ap.add_argument("--skip-selftest", action="store_true")
     args = ap.parse_args()
+    output = args.output.expanduser()
+    if not output.is_absolute():
+        output = (ROOT / output).resolve()
 
-    if args.clean and DIST.exists():
-        shutil.rmtree(DIST)
-    DIST.mkdir(exist_ok=True)
+    py = ROOT / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    if not py.exists():
+        raise SystemExit(".venv is missing; run bootstrap.py before packaging")
+    run_check([str(py), "tools/wf.py", "doctor"], "workflow doctor")
+    if not args.skip_selftest:
+        run_check([str(py), "tools/selftest.py"], "offline regression suite")
 
-    names = args.target or sorted(TARGETS)
-    print(f"building {len(names)} bundle(s) into {DIST.relative_to(ROOT).as_posix()}/\n")
-    bad = 0
-    for name in names:
-        out = build(name, not args.no_zip)
-        if not verify(out, name):
-            bad += 1
-    print()
-    if bad:
-        print(f"{bad} bundle(s) failed verification")
-        return 2
-    print("all bundles verified. Each one is standalone: unzip, run bootstrap.py, done.")
+    files = included_files(output)
+    rels = {p.relative_to(ROOT).as_posix() for p in files}
+    missing = sorted(REQUIRED - rels)
+    if missing:
+        raise SystemExit("required package files missing: " + ", ".join(missing))
+    problems = scan(files)
+    if problems:
+        raise SystemExit("credential/privacy scan failed:\n  " + "\n  ".join(problems))
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.unlink(missing_ok=True)
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        for p in files:
+            rel = p.relative_to(ROOT)
+            zf.write(p, Path("medpaper-codex") / rel)
+        from wfcore.engineintegrity import engine_member,BASELINE
+        baseline={"schema_version":1,"files":{p.relative_to(ROOT).as_posix():hashlib.sha256(p.read_bytes()).hexdigest()
+                  for p in files if engine_member(p.relative_to(ROOT).as_posix())}}
+        zf.writestr("medpaper-codex/"+BASELINE,json.dumps(baseline,sort_keys=True,indent=2))
+
+    with zipfile.ZipFile(output) as zf:
+        bad = zf.testzip()
+        if bad:
+            output.unlink(missing_ok=True)
+            raise SystemExit(f"ZIP integrity check failed at {bad}")
+        count = len(zf.infolist())
+    print(f"packaged {count} files -> {output} ({output.stat().st_size / 1024:.0f} KiB)")
     return 0
 
 

@@ -14,13 +14,14 @@ pillow==12.3.0          # TIFF print masters (matplotlib reads PNG without it)
 # tables
 openpyxl==3.1.5
 python-docx==1.2.0
+pypdf==6.20.0           # registered PDF comparator text extraction, never abstract substitution
 
 # analysis
 pandas==3.0.5
 scipy==1.18.1           # also used by figure QC for grey-region labelling
 statsmodels==0.15.0
 
-# survival: required by the km_survival recipe. Do not hand-roll a product-limit estimator.
+# survival analysis / legacy helper compatibility; production plots consume approved results.
 lifelines==0.30.0
 
 # optional: force-directed label repulsion for volcano plots

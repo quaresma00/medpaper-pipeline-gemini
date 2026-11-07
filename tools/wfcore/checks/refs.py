@@ -262,9 +262,9 @@ def citation_count(ctx: Ctx) -> Result:
     n = len(set(citekeys(ctx.read(rel))))
     lo, hi = ctx.spec_bound("min"), ctx.spec_bound("max")
     if lo is not None and n < lo:
-        return Result(False, "citation_count", f"{rel}: {n} distinct references, target >= {lo}")
+        return Result(False, "citation_count", f"{rel}: {n} distinct references, advisory >= {lo}; judge coverage, never pad",severity="warn")
     if hi is not None and n > hi:
-        return Result(False, "citation_count", f"{rel}: {n} distinct references, target <= {hi}")
+        return Result(False, "citation_count", f"{rel}: {n} distinct references, advisory <= {hi}; only official journal caps are mandatory",severity="warn")
     return Result(True, "citation_count", f"{rel}: {n} distinct references (target {lo}-{hi})")
 
 
@@ -277,8 +277,9 @@ def refs_library(ctx: Ctx) -> Result:
     except json.JSONDecodeError as exc:
         return Result(False, "refs_library", f"{LIB} invalid JSON: {exc}")
     entries = lib.get("entries", [])
-    lo = ctx.spec.get("min_entries", ctx.target("reflib_min", 45))
-    hi = ctx.spec.get("max_entries", ctx.target("reflib_max", 60))
+    # Legacy project numeric targets no longer stand in for evidence coverage.
+    lo = ctx.spec.get("min_entries", 1)
+    hi = ctx.spec.get("max_entries")
 
     problems = []
     if len(entries) < lo:
@@ -286,12 +287,17 @@ def refs_library(ctx: Ctx) -> Result:
     if hi and len(entries) > hi:
         problems.append(f"{len(entries)} entries, allowed <= {hi}")
 
-    if ctx.spec.get("require_abstract", True):
+    if "require_abstract" in ctx.spec and "require_readable_source" in ctx.spec:
+        return Result(False,"refs_library","require_abstract and require_readable_source cannot both be specified; adopt one explicit source-access policy")
+    if ctx.spec.get("require_abstract", False):
         no_abs = [e.get("citekey", "?") for e in entries if not (e.get("abstract") or "").strip()]
         if no_abs:
             problems.append(
-                f"{len(no_abs)} entry/entries without an abstract (must be removed): " + ", ".join(no_abs[:6])
+                f"{len(no_abs)} entry/entries without an abstract under the explicit legacy abstract-only policy: " + ", ".join(no_abs[:6])
             )
+    elif ctx.spec.get("require_readable_source", True):
+        for entry in entries:
+            problems.extend(f"{entry.get('citekey','?')}: {issue}" for issue in refproof.readable_source_errors(ctx.project,entry))
     missing_id = [e.get("citekey", "?") for e in entries if not (e.get("pmid") or e.get("doi"))]
     if missing_id:
         problems.append(f"{len(missing_id)} entry/entries with neither PMID nor DOI: " + ", ".join(missing_id[:6]))
@@ -314,14 +320,14 @@ def refs_library(ctx: Ctx) -> Result:
             "refs_library",
             "; ".join(problems),
             [
-                "Rebuild with: uv run python tools/pubmed/build_library.py --topic \"...\" --target 50",
-                "Entries without abstracts must be dropped, not padded with a summary you wrote.",
+                "Add genuinely needed verified sources with tools/pubmed/build_library.py --add-ids <PMIDs>; inspect benchmark argument coverage.",
+                "Keep a missing abstract empty; register an identity-checked actual full text before citation, or leave the source pending.",
             ],
         )
     return Result(
         True,
         "refs_library",
-        f"{len(entries)} PubMed-proven entries, all with abstracts and an ID",
+        f"{len(entries)} PubMed-proven entries with actual abstract/full-text evidence and an ID",
     )
 
 
@@ -344,6 +350,13 @@ def reference_provenance(ctx: Ctx) -> Result:
     try:
         library = ctx.read_json(LIB)
         entries = library.get("entries", [])
+        from ..liverefs import cached_sources, store_sources
+        cached = (None if ctx.stage.id in {"S13_reflib", "S25_submission_audit"} else
+                  cached_sources(ctx.project, entries,
+                                 float(ctx.target("live_reference_age_hours_max", 24))))
+        if cached is not None:
+            return Result(True, "reference_provenance",
+                          f"{len(entries)} unchanged records match hashed independent live XML within the freshness window")
         pmids = [str(item.get("pmid", "")) for item in entries]
         if not pmids or any(not re.fullmatch(r"\d+", pmid) for pmid in pmids):
             raise ValueError("every entry must have a numeric PMID")
@@ -374,6 +387,7 @@ def reference_provenance(ctx: Ctx) -> Result:
     if live_problems:
         return Result(False, "reference_provenance", "; ".join(live_problems[:8]),
                       ["Rebuild the affected entry from the returned PubMed record; never edit the proof to match."])
+    store_sources(ctx.project, live_records)
     return Result(True, "reference_provenance",
                   f"{len(entries)} record(s) independently re-fetched and matched against live PubMed")
 
@@ -392,6 +406,12 @@ def bib_ris_match_library(ctx: Ctx) -> Result:
         only_lib = sorted(lib_keys - bkeys)[:5]
         only_bib = sorted(bkeys - lib_keys)[:5]
         problems.append(f"library/bib mismatch (library-only: {only_lib}, bib-only: {only_bib})")
+    from pubmed.build_library import to_bibtex, to_ris
+    entries = sorted(lib.get("entries", []), key=lambda entry: entry["citekey"])
+    if ctx.read(BIB).strip() != to_bibtex(entries).strip():
+        problems.append("BibTeX content/author rendering differs from verified library export")
+    if ctx.read(RIS).strip() != to_ris(entries).strip():
+        problems.append("RIS content/author rendering differs from verified library export")
     if n_ris != len(lib_keys):
         problems.append(f"RIS has {n_ris} records vs {len(lib_keys)} library entries")
     if problems:
@@ -458,15 +478,16 @@ def deepread_complete(ctx: Ctx) -> Result:
     except json.JSONDecodeError as exc:
         return Result(False, "deepread_complete", f"{rel} invalid JSON: {exc}")
     sel = idx.get("selected", [])
-    want = ctx.target("deepread_count", 5)
     problems = []
-    if len(sel) < max(3, want - 1):
-        problems.append(f"{len(sel)} paper(s) selected, target ~{want}")
+    if not sel:
+        problems.append("no argument-bearing full text selected; quantity is not a substitute for coverage")
 
     lib_keys = set()
+    lib_entries = {}
     if ctx.p(LIB).exists():
         try:
-            lib_keys = {e.get("citekey") for e in ctx.read_json(LIB).get("entries", [])}
+            lib_entries = {e.get("citekey"): e for e in ctx.read_json(LIB).get("entries", [])}
+            lib_keys = set(lib_entries)
         except Exception:  # noqa: BLE001
             pass
 
@@ -506,6 +527,9 @@ def deepread_complete(ctx: Ctx) -> Result:
                 digest = _file_sha256(local)
                 if digest != record.get("sha256"):
                     problems.append(f"{ck}: registered full text changed after acquisition")
+                if ck in lib_entries:
+                    from pubmed.identity import errors
+                    problems.extend(f"{ck}: {error}" for error in errors(lib_entries[ck], local, record))
         notes = item.get("notes")
         if not notes:
             problems.append(f"{ck}: no notes file")
@@ -616,4 +640,3 @@ def _dupes(items) -> list[str]:
             out.append(x)
         seen.add(x)
     return out
-

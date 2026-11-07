@@ -44,7 +44,7 @@ def no_future_artifacts(ctx: Ctx) -> Result:
     """Enforce 'one thing at a time': later stages' outputs must not exist yet."""
     offenders = []
     for st in ctx.pipeline.stages_after(ctx.stage.id):
-        if ctx.state.is_done(st.id):
+        if ctx.state.is_done(st.id) or ctx.state.stage_info(st.id).get("completed_at"):
             continue
         for rel in st.outputs:
             if ctx.p(rel).exists():
@@ -62,13 +62,16 @@ def no_future_artifacts(ctx: Ctx) -> Result:
 @check("single_section_written")
 def single_section_written(ctx: Ctx) -> Result:
     """A manuscript stage may add only its own declared manuscript file(s)."""
+    if ctx.stage.id != ctx.state.current and (ctx.state.is_done(ctx.stage.id) or ctx.state.stage_info(ctx.stage.id).get("completed_at")):
+        return Result(True,"single_section_written","historical completed stage: later manuscript files are legitimate; owner content checks still execute")
     manuscript_stages = [
         s for s in ctx.pipeline.stages
         if any(o.startswith("07_manuscript/") and o.endswith(".md") for o in s.outputs)
     ]
     unexpected = []
     for st in manuscript_stages:
-        if st.index <= ctx.stage.index or ctx.state.is_done(st.id):
+        if (st.index <= ctx.stage.index or ctx.state.is_done(st.id) or
+                ctx.state.stage_info(st.id).get("completed_at")):
             continue
         for rel in st.outputs:
             if rel.startswith("07_manuscript/") and ctx.p(rel).exists():
@@ -89,6 +92,9 @@ def file_count(ctx: Ctx) -> Result:
     lo = ctx.spec.get("min")
     hi = ctx.spec.get("max")
     n = len(ctx.glob(pattern))
+    if ctx.spec.get("include_data_sources"):
+        from ..datasources import files
+        n+=sum(1 for _ in files(ctx.project))
     if lo is not None and n < lo:
         return Result(False, "file_count", f"{pattern}: found {n}, need >= {lo}")
     if hi is not None and n > hi:
@@ -155,7 +161,9 @@ def json_keys(ctx: Ctx) -> Result:
         return Result(False, "json_keys", f"{rel} must be a JSON object")
     required = ctx.spec.get("keys", [])
     missing = [k for k in required if k not in data]
-    blank = [k for k in required if k in data and data[k] in (None, "", [], {})]
+    empty_lists_allowed = set(ctx.spec.get("empty_lists_allowed", []))
+    blank = [k for k in required if k in data and data[k] in (None, "", [], {})
+             and not (k in empty_lists_allowed and data[k] == [])]
     if missing or blank:
         bits = []
         if missing:
@@ -164,4 +172,3 @@ def json_keys(ctx: Ctx) -> Result:
             bits.append("empty: " + ", ".join(blank))
         return Result(False, "json_keys", f"{rel} -> " + "; ".join(bits))
     return Result(True, "json_keys", f"{rel}: {len(required)} required key(s) populated")
-

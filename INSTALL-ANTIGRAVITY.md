@@ -1,130 +1,78 @@
-# medpaper on Google Antigravity
+# Install and operate medpaper on Google Antigravity / Gemini (v1.26.0)
 
-A 20-stage medical research paper pipeline with enforced gates. The workflow is not a
-prompt: it lives in `pipeline/` and a CLI hands the agent one stage at a time, so it does
-not decay as the context window compacts.
+## Requirements
 
-## Install
+- Windows PowerShell 7 (`pwsh`)
+- `uv`
+- Python 3.13 (installed or provisionable by `uv`; pinned science/PDF dependencies require Python 3.12+)
+- Network access for live PubMed EFetch, Crossref, Unpaywall, indexing, and official journal guides
+- R (`Rscript`) as the default renderer for new medical figures (with `renv` support), plus Pandoc and Microsoft Word for deterministic DOCX builds and visual QA
 
-```bash
-unzip medpaper-antigravity.zip
-cd medpaper-antigravity
-python bootstrap.py
+## Bootstrap
+
+From the repository root (`F:\workspace\medpapaer\gemini` or any derived workspace):
+
+```powershell
+uv run --python 3.13 python bootstrap.py
 ```
 
-`bootstrap.py` creates `.venv`, installs the pinned dependencies, wires the adapters,
-scaffolds `project/`, then runs `doctor` and the self test. Python 3.11+ is required for the
-driver (`tomllib`); the driver itself has no third-party dependencies.
+`bootstrap.py` creates `.venv`, installs the pinned packages (`requirements.txt`, including `pypdf`), initializes `project/`, runs `wf doctor`, and executes the offline regression suite.
 
-Open the folder as the workspace in Antigravity. Set these before running searches:
+Set credentials in the user or process environment, never inside repository files:
 
-```bash
-export NCBI_API_KEY=...                  # raises PubMed from 3 to 10 requests/second
-export NCBI_API_EMAIL=you@example.org    # required by Unpaywall for full-text retrieval
+```powershell
+$env:NCBI_API_KEY = "<your NCBI API key>"
+$env:NCBI_API_EMAIL = "you@example.org"
 ```
 
-On Windows PowerShell use `$env:NCBI_API_KEY = "..."`.
-
-## What Antigravity reads
-
-The bundle covers both the IDE and the CLI, because they look in different places.
+## What Antigravity and `agy` read
 
 | File | Read by | Role |
 |---|---|---|
-| `.agent/rules/medpaper-pipeline.md` | IDE | Workspace rule, injected as passive context |
-| `.agent/workflows/medpaper-resume.md` | IDE | Slash command: `/medpaper-resume` |
-| `.agents/AGENTS.md` | CLI (`agy`) | Project rules, merged at session start |
-| `.agents/skills/medpaper-pipeline/SKILL.md` | CLI + IDE | The skill, loaded on demand |
-| `AGENTS.md` | both, as a fallback | Same content at the repo root |
+| `.agent/rules/medpaper-pipeline.md` | Antigravity IDE | Workspace passive rule |
+| `.agents/skills/medpaper-pipeline/SKILL.md` | Antigravity IDE + `agy` CLI | Workspace skill (`v1.26.0`) |
+| `AGENTS.md` | Antigravity + cross-IDE | Primary execution policy and topic router |
+| `reference/antigravity-integration.md` | On-demand router | Subagent (`invoke_subagent`), Science plugin, and tool arbitration |
+| `~/.gemini/config/skills/medpaper-pipeline/SKILL.md` | Global IDE + CLI | Global dispatcher anchored to the master template |
 
-Rules are passive constraints; workflows are procedures you trigger. Both are wired, so you
-can either let the rule guide the agent or invoke `/medpaper-resume` explicitly.
+## Start, resume, and context recovery
 
-To make the rule and skill available in every workspace rather than just this one, copy
-them to the global locations: `~/.gemini/config/` for the CLI, or use the `+Global` option
-in the IDE's rules panel. Keep the pipeline itself in the project - it is per-paper state,
-not a global preference.
+Place your research idea in `project/00_input/idea.md` and ask Antigravity to start or resume the `medpaper-pipeline` skill, or run directly via `pwsh`:
 
-All adapter files are short and say the same thing: run `python tools/wf.py status` and obey
-the stage card. None contains the workflow, so editing a stage never means editing an
-adapter.
-
-## Use
-
-Put your research idea file in `project/00_input/`, then in Antigravity:
-
-```
-/medpaper-resume
+```powershell
+uv run python tools/wf.py status
+uv run python tools/wf.py card
+uv run python tools/wf.py check
+uv run python tools/wf.py advance --note "specific handoff note"
 ```
 
-or, in plain chat:
+- `wf status` is fast, local, and network-free; pass `--full` to run gates inline.
+- After context compaction, run `uv run python tools/wf.py handoff` to restore bounded resumption state without reloading conversation history.
+- Use `uv run python tools/wf.py card <STAGE> --details` only when reading a split stage procedure (`S07`, `S20`, `S23`, `S25`) for the first time.
+- Despite stable stage IDs (`S01`–`S25`), execution advances **`S08_methods` -> `S10_tables` -> `S11_figures` -> `S09_results` -> `S12_reconcile`** so verified tables and R figures precede `Results` drafting.
 
-```
-Run python tools/wf.py status and start the pipeline.
-My research idea is in project/00_input/idea.md
-```
+## Core integrity and revision workflows
 
-From then on the loop is always the same:
+1. **Full-census acquisition (`S04`)**:
+   ```powershell
+   uv run python tools/data_manifest.py init
+   uv run python tools/data_manifest.py sync
+   uv run python tools/data_manifest.py verify
+   ```
+   Large local datasets can be registered read-only in place via `uv run python tools/data_sources.py register ...`. Convenience `LIMIT`, `TOP`, `head()`, `sample()`, `nrows=`, and page caps are blocked and cannot be waived with `--force`.
+2. **Fail-closed PubMed provenance (`S13`–`S25`)**:
+   Only `uv run python tools/pubmed/verify.py` (fresh EFetch + raw XML/library hashes) makes a reference citable, backed by live EFetch gates at S13 and S25. Register legal full texts via `uv run python tools/pubmed/fulltext.py register ...`.
+3. **R-first figures & benchmark-driven scope (`S06`–`S11`)**:
+   S06 freezes `analysis_contract.json` and `study_facts.json`; S07 benchmarks registered close comparator PDFs (`tools/manuscript/benchmark.py`) instead of imposing universal reference/word/figure quotas. S11 renders figures via `uv run python tools/figures/render_r.py` from approved results without refitting models.
+4. **Version-bound subagent reviews & explicit `我确认这一版` (`S18`, `S19`, `S24`, `S25`)**:
+   No review ZIPs are created. Independent reviews run in one read-only subagent (`invoke_subagent(TypeName="research", ...)`), attached via `uv run python tools/review_round.py ingest --from-file ...`. Safe fixes are applied in place via `tools/rework.py batch`, reported once with clickable paths, and gated on the user's explicit **`我确认这一版`** for the current version.
+5. **Frozen scientific master, journal switching, and native Word tables (`S20`–`S25`)**:
+   `scientific_master_freeze.json` locks S19 scientific sources. All journal adaptations live in `08_submission/integration/` (`tools/journal.py`), archiving prior journal attempts cleanly when switching targets. `uv run python tools/wf.py rebuild` and `build_docx.py` produce native portrait/landscape three-line Word tables and flat, pure-black `SectionHeading` XML free of `outlineLvl`, `keepNext`, `keepLines`, `pageBreakBefore`, borders, and hyperlinks.
 
-```bash
-python tools/wf.py status                     # where am I, what is blocking, full stage card
-#   ... do the work the card describes ...
-python tools/wf.py check                      # run the stage's gate
-python tools/wf.py advance --note "..."       # close the stage
-```
+## Verify or package
 
-`status` prints the invariants, the progress map, the gate state, the last handoff note, the
-outputs this stage may create, and the whole stage card. After a context compaction that one
-command restores everything. The agent should never infer the current stage from the
-conversation.
-
-## Commands
-
-| Command | Purpose |
-|---|---|
-| `wf tree -v` | Whole pipeline with outputs and gates |
-| `wf card S11` | Read any stage card |
-| `wf check S09` | Run any gate without advancing |
-| `wf decide NAME VALUE --why "..."` | Record a gated decision (rationale >= 40 chars) |
-| `wf loop --to S05_analysis --why "..."` | Reopen an earlier stage |
-| `wf clean [--apply]` | Report scratch and undeclared files |
-| `wf config set intro_words_max 600` | Override a target for this project |
-| `wf doctor` | Environment and wiring check |
-
-Prefix each with `python tools/wf.py`.
-
-## What the gates stop
-
-- **Fabricated references.** Every search caches its raw API payload; a citekey absent from
-  `project/06_refs/verified.json` with `verified: true` fails the gate.
-- **Fabricated statistics.** Every number in the manuscript must already exist in
-  `project/03_analysis/results/*.json`, written by code that ran.
-- **Running ahead.** Later stages' outputs cannot exist yet; one manuscript section per stage.
-- **Unverified figures.** Deterministic QC plus a recorded decision that the PNG was opened
-  and looked at. Reading the plotting code does not count.
-- **Corrupted polishing.** S19 snapshots the manuscript, then requires the multiset of
-  numbers, the set of citekeys and the set of figure/table references to be unchanged.
-
-## Notes for Antigravity specifically
-
-- **Browser and artifact features are not needed.** Everything runs through the terminal and
-  the filesystem. If the agent proposes browsing for a citation, redirect it to
-  `tools/pubmed/client.py` - only the cached API payload satisfies the gate.
-- **Command approval.** The agent will run `python tools/wf.py ...` frequently. Allow-listing
-  `python tools/wf.py` and `python tools/figures/qc.py` removes most approval prompts without
-  granting anything broad.
-- **Network access is required** for PubMed, Crossref, Unpaywall and the S18 guideline fetch.
-  Without it, stages S02, S05, S07, S13, S15 and S18 fail at the gate rather than inventing
-  data, which is the intended behaviour.
-- **Looking at figures.** S11 requires the agent to load the rendered PNG as an image. If the
-  model cannot take image input in your setup, `python tools/figures/qc.py --crop "Figure 1"
-  --cols 2 --cell B` writes a cropped panel you can inspect yourself; the gate then needs
-  your confirmation via `wf decide figures_visually_confirmed YES --why "..."`.
-
-## Verify the install
-
-```bash
-python tools/wf.py doctor              # expect: 20/20 stage cards, 36/36 gate checks
-.venv/bin/python tools/selftest.py     # expect: 78/78  (Windows: .venv\Scripts\python.exe)
-.venv/bin/python tools/selftest.py --online   # 81/81, exercises the live APIs
+```powershell
+uv run python tools/wf.py doctor
+uv run python tools/selftest.py
+uv run python tools/package.py --output ..\medpaper-gemini-ready.zip
 ```

@@ -13,6 +13,7 @@ from .scientificfreeze import verify as verify_scientific_freeze
 SCHEMA_VERSION = 1
 MANIFEST_REL = "08_submission/integration/journal_workspace.json"
 SOURCE_MAP = {
+    "01_protocol/artifact_plan.json": "08_submission/integration/artifact_plan.json",
     "07_manuscript/full_manuscript.md": "08_submission/integration/full_manuscript.md",
     "07_manuscript/supplementary_methods.md": "08_submission/integration/supplementary_methods.md",
     "07_manuscript/statements.md": "08_submission/integration/statements.md",
@@ -49,12 +50,15 @@ def _target(project: Path) -> tuple[dict, str]:
         raise ValueError("08_submission/target_journal.json is missing") from exc
     except json.JSONDecodeError as exc:
         raise ValueError(f"target_journal.json is invalid: {exc}") from exc
-    canonical = json.dumps(target, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    identity = {key: target.get(key) for key in ("journal", "issn")}
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return target, hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def initialise(project: Path, *, replace: bool = False) -> tuple[Path, dict, bool]:
     project = project.resolve()
+    from .journalcontext import guard,enabled,current
+    guard(project)
     ok, problems, freeze = verify_scientific_freeze(project)
     if not ok or freeze is None:
         raise ValueError("scientific master is not frozen: " + "; ".join(problems[:8]))
@@ -66,7 +70,7 @@ def initialise(project: Path, *, replace: bool = False) -> tuple[Path, dict, boo
         except json.JSONDecodeError:
             previous = {}
         same = (previous.get("scientific_freeze_id") == freeze.get("freeze_id") and
-                previous.get("target_journal_sha256") == target_hash)
+                previous.get("journal") == target.get("journal") and previous.get("issn") == target.get("issn"))
         if same:
             verified, verify_problems, current = verify(project, require_pristine=False)
             if verified and current is not None:
@@ -76,20 +80,7 @@ def initialise(project: Path, *, replace: bool = False) -> tuple[Path, dict, boo
                 "an integration workspace for another master/journal already exists; "
                 "use --replace only after preserving any submission attempt that still has value"
             )
-        archive_root = project / "08_submission/journal_archives"
-        archive_root.mkdir(parents=True, exist_ok=True)
-        journal = str(previous.get("journal", "previous-journal"))
-        slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in journal).strip("-")[:48]
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        archive = archive_root / f"{slug or 'previous-journal'}-{stamp}"
-        archive.mkdir(parents=True, exist_ok=False)
-        integration = project / "08_submission/integration"
-        if integration.is_dir():
-            shutil.move(str(integration), str(archive / "integration"))
-        bundle = project / "08_submission/bundle"
-        if bundle.is_dir() and any(bundle.iterdir()):
-            shutil.move(str(bundle), str(archive / "bundle"))
-            bundle.mkdir(parents=True, exist_ok=True)
+        raise ValueError("A new journal/article/stage requires tools/journal.py begin --target-file, fresh guide capture and seal; --replace cannot retain the previous guide/style. For a renewed scientific freeze use rebase after merging its approved delta.")
 
     records_by_path = {item["path"]: item for item in freeze["files"]}
     copies = []
@@ -98,14 +89,15 @@ def initialise(project: Path, *, replace: bool = False) -> tuple[Path, dict, boo
         if not source.is_file():
             continue
         frozen = records_by_path.get(source_rel)
-        if not frozen or frozen.get("sha256") != _sha256(source):
+        from .presentationdelta import covered
+        if not frozen or not covered(project, source_rel, frozen.get("sha256", ""), _sha256(source)):
             raise ValueError(f"source is not part of the current scientific freeze: {source_rel}")
         destination = project / destination_rel
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
         copies.append({
             "source": source_rel,
-            "source_sha256": frozen["sha256"],
+            "source_sha256": _sha256(source),
             "destination": destination_rel,
             "initial_destination_sha256": _sha256(destination),
         })
@@ -115,15 +107,18 @@ def initialise(project: Path, *, replace: bool = False) -> tuple[Path, dict, boo
         "schema_version": SCHEMA_VERSION,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "scientific_freeze_id": freeze["freeze_id"],
-        "review_package_id": freeze["review_package_id"],
+        "review_package_id": freeze.get("review_package_id") or freeze.get("review_round_id"),
         "journal": target.get("journal"),
         "issn": target.get("issn"),
         "target_journal_sha256": target_hash,
         "files": copies,
         "boundary": "journal-specific copies only; frozen 07_manuscript sources remain unchanged",
     }
+    if enabled(project): payload["journal_context_id"]=current(project)["context_id"]
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    from .claims import copy_for_journal
+    copy_for_journal(project)
     return manifest_path, payload, True
 
 
@@ -137,6 +132,11 @@ def verify(project: Path, *, require_pristine: bool = False) -> tuple[bool, list
     except json.JSONDecodeError as exc:
         return False, [f"{MANIFEST_REL} is invalid JSON: {exc}"], None
     problems: list[str] = []
+    from .journalcontext import enabled,problems as context_problems,current
+    if enabled(project):
+        problems.extend(context_problems(project))
+        if not problems and payload.get("journal_context_id")!=current(project)["context_id"]:
+            problems.append("Integration workspace belongs to a different journal/article/submission attempt")
     if payload.get("schema_version") != SCHEMA_VERSION:
         problems.append("journal workspace schema is invalid")
     ok, freeze_problems, freeze = verify_scientific_freeze(project)
@@ -149,8 +149,8 @@ def verify(project: Path, *, require_pristine: bool = False) -> tuple[bool, list
         target, target_hash = _target(project)
     except ValueError as exc:
         return False, problems + [str(exc)], payload
-    if payload.get("target_journal_sha256") != target_hash:
-        problems.append("target journal metadata changed after the integration workspace was created")
+    # Guide dates and indexing receipts may be refreshed without replacing the journal copy.
+    # Journal identity and frozen scientific source remain the binding boundary below.
     if payload.get("journal") != target.get("journal") or payload.get("issn") != target.get("issn"):
         problems.append("journal identity does not match target_journal.json")
     frozen = {item["path"]: item for item in freeze.get("files", [])}
@@ -169,7 +169,8 @@ def verify(project: Path, *, require_pristine: bool = False) -> tuple[bool, list
             continue
         seen.add((source_rel, destination_rel))
         source_record = frozen.get(source_rel)
-        if not source_record or source_record.get("sha256") != item.get("source_sha256"):
+        from .presentationdelta import covered
+        if not source_record or not covered(project, source_rel, source_record.get("sha256", ""), item.get("source_sha256", "")):
             problems.append(f"workspace origin is not in the current freeze: {source_rel}")
             continue
         try:
@@ -184,3 +185,50 @@ def verify(project: Path, *, require_pristine: bool = False) -> tuple[bool, list
         elif require_pristine and _sha256(destination) != item.get("initial_destination_sha256"):
             problems.append(f"journal integration copy changed before S20 closed: {destination_rel}")
     return not problems, problems, payload
+
+
+def rebase(project: Path, why: str) -> Path:
+    """Bind a manually merged scientific delta; never overwrite the journal's edited copies."""
+    from .revision import active, guard_outputs
+    from .readiness import atomic_json
+    revision = active(project)
+    if not revision or not revision.get("resume_from_science") or revision.get("status") != "active":
+        raise ValueError("rebase requires the package round resumed after renewed S19 approval")
+    if len(why.strip()) < 30:
+        raise ValueError("describe how the approved scientific delta was merged without losing journal edits")
+    ok, problems, freeze = verify_scientific_freeze(project)
+    if not ok or freeze is None:
+        raise ValueError("new scientific freeze is invalid: " + "; ".join(problems))
+    output = project / MANIFEST_REL
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    target, target_hash = _target(project)
+    if any(payload.get(k) != target.get(k) for k in ("journal", "issn")):
+        raise ValueError("rebase preserves the same journal; changing journals requires an explicit new integration workspace")
+    frozen = {r["path"]: r for r in freeze["files"]}
+    previous = {r["source"]: r for r in payload["files"]}
+    records = []
+    for source, destination in SOURCE_MAP.items():
+        if source not in frozen:
+            if source in previous:
+                raise ValueError(f"removed scientific source needs explicit package-plan reconciliation: {source}")
+            continue
+        dest = project / destination
+        if not dest.is_file():
+            raise ValueError(f"merge missing journal source first: {destination}")
+        old = previous.get(source, {})
+        if old.get("source_sha256") != frozen[source]["sha256"]:
+            if revision["baseline"].get(destination, "").casefold() == _sha256(dest).casefold():
+                raise ValueError(f"scientific source changed but journal copy was not merged: {destination}")
+        records.append({"source": source, "source_sha256": frozen[source]["sha256"],
+                        "destination": destination, "initial_destination_sha256": _sha256(dest)})
+    guard_outputs(project, [output])
+    payload.update({"scientific_freeze_id": freeze["freeze_id"], "review_package_id": freeze.get("review_package_id") or freeze.get("review_round_id"),
+                    "target_journal_sha256": target_hash, "files": records,
+                    "rebase": {"round": revision["round_id"], "why": why,
+                               "at": datetime.now(timezone.utc).isoformat()}})
+    atomic_json(output, payload)
+    from .journalcontext import enabled,current,CONTEXT
+    if enabled(project):
+        context=current(project);context["scientific_freeze_id"]=freeze["freeze_id"]
+        atomic_json(project/CONTEXT,context)
+    return output

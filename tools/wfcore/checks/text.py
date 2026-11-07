@@ -95,16 +95,18 @@ def md_wordcount(ctx: Ctx) -> Result:
     if not ctx.p(rel).exists():
         return Result(False, "md_wordcount", f"{rel} missing")
     n = _wordcount(ctx.read(rel))
+    soft = not ctx.stage.id.startswith(("S20_","S21_","S22_","S23_","S24_","S25_"))
     lo = ctx.spec_bound("min")
     hi = ctx.spec_bound("max")
     if lo is not None and n < lo:
-        return Result(False, "md_wordcount", f"{rel}: {n} words, target >= {lo}")
+        return Result(False, "md_wordcount", f"{rel}: {n} words, target >= {lo}",severity="warn" if soft else "fail")
     if hi is not None and n > hi:
         return Result(
             False,
             "md_wordcount",
             f"{rel}: {n} words, target <= {hi}",
             ["Cut, do not compress into denser jargon. Adjust the target with `wf config set` if the journal differs."],
+            severity="warn" if soft else "fail",
         )
     return Result(True, "md_wordcount", f"{rel}: {n} words (target {lo}-{hi})")
 
@@ -163,6 +165,11 @@ def no_ai_boilerplate(ctx: Ctx) -> Result:
             ["Resolve every placeholder from real data or delete the sentence."],
         )
     soft = [ph for ph in AI_TELLS if ph in low]
+    from ..medicalstyle import diagnose
+    risks=diagnose(raw,rel)
+    if risks:
+        return Result(False,"no_ai_boilerplate",f"{rel}: medical-reader review needed: "+"; ".join(sorted({r['kind'] for r in risks})),
+                      ["Review this section now, including clinical labels and real post-hoc status. These are context-sensitive prompts, not forbidden medical terms or permission to weaken science."],severity="warn")
     if soft:
         return Result(
             False,
@@ -198,4 +205,3 @@ def no_plot_calls(ctx: Ctx) -> Result:
             ["Exploratory analysis is numbers only. Figures are built in S11 from the approved artifact plan."],
         )
     return Result(True, "no_plot_calls", "exploratory code contains no plotting")
-

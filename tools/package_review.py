@@ -8,40 +8,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from wfcore.packagefreeze import FREEZE_REL, verify_freeze, write_freeze  # noqa: E402
-
-
-def get_review_prompt(project_dir: Path) -> str:
-    """Generate prompt instructions for the Triple-Perspective Submission Reviewer subagent."""
-    return f"""# Triple-Perspective Final Reviewer Subagent Prompt
-
-You are the authoritative Independent Reviewer for a medical SCI submission package.
-Your mission is to perform a comprehensive, single-pass **Triple-Perspective Final Review**:
-1. **Independent Academic Reader**: Check readability, clarity, self-explanatory figures, and identify any incomprehensible or disjointed prose.
-2. **Journal Editor & Reviewer**: Zero tolerance for low-level defects (cross-check numbers between Abstract, Results, and Tables/Figures; verify Figure/Table citation order; evaluate scientific innovation and Cover Letter persuasion).
-3. **Submission Compliance Auditor**: Execute mechanical validation (`tools/audit/audit_submission.py`) to verify physical DOCX integrity, soft line breaks (zero down-arrows ↓), outline levels (zero outlineLvl), TIFF resolutions, and target journal guidelines.
-
-## Execution Steps:
-1. Verify package freeze:
-   `uv run python tools/package_review.py verify --project {project_dir}`
-2. Run compliance audit:
-   `uv run python tools/audit/audit_submission.py --project {project_dir}`
-3. Read the manuscript files, figures, tables, and cover letter in `{project_dir}/08_submission/bundle/` and `{project_dir}/07_manuscript/`.
-4. Perform the 3-perspective review:
-   - **Perspective A (Reader)**: Can an intelligent reader outside the immediate subfield understand the narrative? Are figure panels self-explanatory? Are all abbreviations explained centrally? Are there conceptual leaps?
-   - **Perspective B (Editor)**: Are there low-level errors? Do numbers in Abstract match Results and Tables? Are Figure/Table numbers correctly referenced without mislabeling? Is the Cover Letter compelling?
-   - **Perspective C (Compliance)**: Did physical docx audit pass? Are guidelines respected?
-5. Write the final structured report to:
-   `{project_dir}/08_submission/bundle/AUDIT_REPORT.md`
-6. Verify package freeze again to prove read-only compliance:
-   `uv run python tools/package_review.py verify --project {project_dir}`
-"""
+from wfcore.packagefreeze import FREEZE_REL, verify_freeze, write_freeze, sync_evidence  # noqa: E402
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="freeze, verify, or generate prompt for final submission review")
+    parser = argparse.ArgumentParser(description="freeze and verify final submission-review inputs")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("freeze", "verify", "prompt"):
+    for name in ("freeze", "verify", "sync-evidence"):
         command = sub.add_parser(name)
         command.add_argument("--project", type=Path, default=Path("project"))
         command.add_argument("--freeze", type=Path)
@@ -49,10 +22,22 @@ def main() -> int:
     project = args.project.resolve()
     freeze = args.freeze.resolve() if args.freeze else project / Path(FREEZE_REL)
     try:
-        if args.command == "prompt":
-            print(get_review_prompt(project))
+        if args.command == "sync-evidence":
+            payload = sync_evidence(project)
+            print(f"evidence refreshed; audit context {payload['audit_context_id']}; upload approval unchanged")
             return 0
         if args.command == "freeze":
+            from wfcore.state import State
+            state = State(project).load()
+            if state.current != "S24_package_human_review":
+                raise ValueError("release creation belongs to S24")
+            decision = state.decision("submission_package_user_confirmed") or {}
+            if decision.get("value") != "OK":
+                raise ValueError("the user's explicit S24 confirmation is required")
+            from wfcore.reviewrounds import approved
+            record = approved(project, "package")
+            if not str(decision.get("rationale", "")).startswith(record["id"] + ":"):
+                raise ValueError("package approval must bind the current independent review round")
             output = write_freeze(project, freeze)
             ok, problems, count = verify_freeze(project, output)
             if not ok:

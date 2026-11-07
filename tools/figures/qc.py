@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Deterministic figure QC. Run this before spending a look at the figure.
 
-    python tools/figures/qc.py --all
-    python tools/figures/qc.py --figure "Figure 1"
-    python tools/figures/qc.py --crop "Figure 1" --cols 2 --rows 1 --cell B
+    uv run python tools/figures/qc.py --all
+    uv run python tools/figures/qc.py --figure "Figure 1"
+    uv run python tools/figures/qc.py --crop "Figure 1" --cols 2 --rows 1 --cell B
 
 Reads PNGs with matplotlib.image (no Pillow needed) and merges the artist-level
 sidecars that style.save() writes. Results go to 05_figures/qc/qc_report.json, which
@@ -19,6 +19,8 @@ import json
 import os
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import matplotlib
 matplotlib.use("Agg")
@@ -130,7 +132,23 @@ def grey_regions(rgb: np.ndarray, lo: int = 100, hi: int = 200,
 
 
 # ---------------------------------------------------------------------------
-def qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None) -> dict:
+def qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Path | None = None) -> dict:
+    from wfcore.figurejobs import job,FigureBusy
+    project=project or project_root()
+    try:
+        with job(project,str(entry.get("id","?")),"QC"):
+            return _qc_figure(entry,tgt,arch_reg,project)
+    except FigureBusy as exc:
+        return {"id":str(entry.get("id","?")),"pending":True,"ok":False,"visual_reviewed":False,
+                "checks":[{"name":"figure_job_pending","ok":False,"severity":"fail","detail":str(exc)}]}
+
+
+def _qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Path | None = None) -> dict:
+    project = project or project_root()
+    from wfcore.clinicalpresentation import profile
+    journal=str(entry.get("file","")).startswith("08_submission/")
+    production=profile(project,journal)
+    tgt={**tgt,**{k:v for k,v in production.items() if k not in {"basis","number_format"}}}
     fid = str(entry.get("id", "?"))
     checks: list[dict] = []
 
@@ -138,7 +156,7 @@ def qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None) -> dict:
         checks.append({"name": name, "ok": bool(ok), "detail": detail, "severity": severity})
 
     png_rel = entry.get("file", "")
-    png = project_root() / png_rel if png_rel else None
+    png = project / png_rel if png_rel else None
     if not png or not png.exists():
         add("png_exists", False, f"{png_rel or '(no file in plan)'} not rendered")
         return {"id": fid, "png": png_rel, "checks": checks, "ok": False, "visual_reviewed": False}
@@ -148,7 +166,7 @@ def qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None) -> dict:
     h_px, w_px = rgb.shape[:2]
 
     width_class = entry.get("width", "single")
-    target_mm = WIDTHS_MM.get(width_class, 90.0)
+    target_mm = float(tgt.get("column_width_mm_"+width_class,WIDTHS_MM.get(width_class,90.0)))
     eff_dpi = w_px / (target_mm / MM_PER_IN)
     dpi_min = float(tgt.get("figure_dpi_min", 300))
     add("effective_dpi", eff_dpi >= dpi_min,
@@ -192,22 +210,82 @@ def qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None) -> dict:
         if textish else "no text-shaped mid-grey regions",
         severity="warn")
 
-    tiff_rel = entry.get("tiff", "")
-    tiff = project_root() / tiff_rel if tiff_rel else None
-    add("tiff_master", bool(tiff and tiff.exists()),
+    tiff_rel = entry.get("pdf") or entry.get("tiff", "")
+    tiff = project / tiff_rel if tiff_rel else None
+    add("publication_master", bool(tiff and tiff.exists()),
         f"{tiff_rel} ({tiff.stat().st_size // 1024} KB)" if tiff and tiff.exists()
-        else f"{tiff_rel or '(none declared)'} missing - journals want TIFF or EPS")
+        else f"{tiff_rel or '(none declared)'} missing - retain a vector PDF or existing TIFF master")
 
     archetype = entry.get("archetype")
     elements_found: dict = {}
-    sidecar = project_root() / "05_figures" / "qc" / f"{Path(png_rel).stem}.artist.json"
+    sidecar = project / "05_figures" / "qc" / f"{Path(png_rel).stem}.artist.json"
     if sidecar.exists():
         art = json.loads(sidecar.read_text(encoding="utf-8"))
+        if art.get("engine") == "R":
+            from wfcore.packagefreeze import _sha256, _safe_path
+            problems = []
+            for rel, expected in art.get("render_hashes", {}).items():
+                _, path = _safe_path(project, rel)
+                if not path.is_file() or _sha256(path) != expected:
+                    problems.append(f"render changed: {rel}")
+            if not art.get("render_hashes") or png_rel not in art["render_hashes"]:
+                problems.append("no bound PNG render receipt")
+            script = art.get("script", "")
+            if script != entry.get("script"):
+                problems.append("R plotting script differs from plan")
+            if script:
+                _, source = _safe_path(project, script)
+                if not source.is_file() or _sha256(source) != art.get("script_sha256"):
+                    problems.append("R script changed after render")
+            source_hashes = art.get("source_hashes", {})
+            if set(source_hashes) != set(entry.get("source_results", [])):
+                problems.append("R source-result identities differ from plan")
+            for rel, expected in source_hashes.items():
+                _, source = _safe_path(project, rel)
+                if not source.is_file() or _sha256(source) != expected:
+                    problems.append(f"result changed: {rel}")
+            if "renv" in art:
+                from analysis.reproduce import renv_context
+                try:
+                    if art["renv"] != renv_context(project):
+                        problems.append("R environment activation/lockfile changed after rendering")
+                except (OSError, ValueError) as exc:
+                    problems.append(str(exc))
+            add("r_render_provenance", not problems, "; ".join(problems) or "R script, result inputs and rendered outputs match")
+            mf, ml = art.get("min_font_pt"), art.get("min_line_pt")
+            add("min_font_size", mf is not None and mf >= float(tgt.get("figure_font_pt_min", 6)),
+                f"SVG measured minimum font {mf} pt")
+            if tgt.get("figure_font_pt_max") is not None:
+                maximum=art.get("max_font_pt")
+                add("max_font_size",maximum is not None and maximum<=float(tgt["figure_font_pt_max"]),f"Measured maximum font {maximum} pt")
+            add("min_line_width", ml is not None and ml >= float(tgt.get("figure_line_pt_min", .5)),
+                f"SVG measured minimum stroke {ml} pt")
+            add("r_text_canvas_bounds", not art.get("text_clipped_at_edge"),
+                f"{len(art.get('text_clipped_at_edge', []))} text boxes exceed canvas (conservative height estimate)")
+            add("r_text_box_collisions", not art.get("r_text_box_collisions"),
+                str(art.get("r_text_box_collisions", [])[:3]) or "no estimated text-box collisions")
+            add("r_visual_measurement_limits", False, "; ".join(art.get("measurement_limits", [])), severity="warn")
+            elements_found = art.get("elements", {})
+            if archetype and arch_reg:
+                not_applicable = {}
+                try:
+                    not_applicable = _km_censoring_exception(project, entry, art)
+                except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
+                    add("km_censoring_context", False, str(exc))
+                checks.extend(_archetype_checks(archetype, elements_found, arch_reg, not_applicable))
+            blocking = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
+            return {"id": fid, "png": png_rel, "engine": "R", "archetype": archetype,
+                    "width_class": width_class, "pixels": [w_px, h_px], "effective_dpi": round(eff_dpi, 1),
+                    "checks": checks, "ok": not blocking, "visual_reviewed": False,
+                    "png_sha256": _sha256(png)}
         font_min = float(tgt.get("figure_font_pt_min", 6.0))
         line_min = float(tgt.get("figure_line_pt_min", 0.5))
         mf, ml = art.get("min_font_pt"), art.get("min_line_pt")
         add("min_font_size", mf is None or mf >= font_min,
             f"smallest text {mf} pt (floor {font_min} pt)")
+        if tgt.get("figure_font_pt_max") is not None:
+            maximum=art.get("max_font_pt")
+            add("max_font_size",maximum is not None and maximum<=float(tgt["figure_font_pt_max"]),f"Measured maximum font {maximum} pt")
         add("min_line_width", ml is None or ml >= line_min,
             f"thinnest line {ml} pt (floor {line_min} pt)")
         ov = art.get("axes_tightbbox_overlaps", [])
@@ -248,7 +326,7 @@ def qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None) -> dict:
     else:
         add("artist_audit_present", False,
             f"no sidecar at 05_figures/qc/{Path(png_rel).stem}.artist.json - "
-            "render through figures.style.save() so fonts, line widths, glyphs, tick "
+            "render R through render_r.py/medpaper_save(), or Matplotlib through figures.style.save(), so fonts, line widths, glyphs, tick "
             "collisions and archetype elements can be measured")
 
     blocking = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
@@ -266,7 +344,36 @@ def qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None) -> dict:
     }
 
 
-def _archetype_checks(archetype: str, found: dict, reg: dict) -> list[dict]:
+def _km_censoring_exception(project, entry, art):
+    """Only a source-bound, genuinely uncensored KM population can omit censor ticks.
+
+    This is not a general element waiver and does not certify the estimator or population
+    interpretation. Existing result provenance and medical display review remain required.
+    """
+    ref = entry.get("censoring_not_applicable")
+    if ref is None:
+        return {}
+    if entry.get("archetype") != "km_survival" or not isinstance(ref, dict):
+        raise ValueError("Censoring N/A is a KM-only result reference, not a boolean waiver")
+    from wfcore.packagefreeze import _safe_path, _sha256
+    from wfcore.claims import pointer
+    rel, source = _safe_path(project, ref["file"])
+    if rel not in entry.get("source_results", []) or art.get("source_hashes", {}).get(rel) != _sha256(source):
+        raise ValueError("KM censoring N/A must refer to a current declared, rendered result source")
+    counts = pointer(json.loads(source.read_text(encoding="utf-8")), ref["pointer"])
+    if not isinstance(counts, dict) or not isinstance(counts.get("counting_unit"), str) or not counts["counting_unit"].strip():
+        raise ValueError("KM censoring summary needs its actual counting unit")
+    values = [counts.get(k) for k in ("observations", "events", "censored")]
+    def count(x):
+        return (type(x) is int and x >= 0) or (type(x) is float and x >= 0 and x.is_integer())
+    if any(not count(x) for x in values) or values[0] <= 0 or values[1] != values[0] or values[2] != 0:
+        raise ValueError("KM censoring N/A requires positive observations, all observed events and exactly zero censored units")
+    if art.get("elements", {}).get("censoring_marks", {}).get("found"):
+        raise ValueError("Rendered censoring marks contradict the proposed zero-censoring exception")
+    return {"censoring_marks": f"N/A: {values[0]} {counts['counting_unit']}, all events and zero censored; current source {rel}{ref['pointer']}"}
+
+
+def _archetype_checks(archetype: str, found: dict, reg: dict, not_applicable=None) -> list[dict]:
     """Mandatory-element checks for the declared chart type."""
     spec = (reg.get("archetype") or {}).get(archetype)
     if spec is None:
@@ -277,7 +384,12 @@ def _archetype_checks(archetype: str, found: dict, reg: dict) -> list[dict]:
             "detail": f"{archetype}: {spec.get('label', '')}"}]
 
     universal = (reg.get("meta") or {}).get("universal_requires", [])
+    universal=[key for key in universal if key not in spec.get("universal_exempt",[])]
     for key in list(dict.fromkeys(list(universal) + list(spec.get("requires", [])))):
+        if key in (not_applicable or {}):
+            out.append({"name": f"element:{key}", "ok": True, "severity": "fail",
+                        "detail": not_applicable[key], "not_applicable": True})
+            continue
         rec = found.get(key)
         if rec is None:
             out.append({"name": f"element:{key}", "ok": False, "severity": "warn",
@@ -368,9 +480,15 @@ def main() -> int:
     results = []
     for e in entries:
         res = qc_figure(e, tgt, arch_reg)
+        if res.get("pending"):
+            print("PENDING: "+res["checks"][0]["detail"])
+            print("Previous QC report preserved; no new validation or visual acceptance recorded.")
+            return 3
         # a re-render invalidates a previous visual review
         old = previous.get(res["id"])
-        if old and old.get("png_mtime") == _mtime(e.get("file", "")):
+        same_render = (old and old.get("png_sha256") == res.get("png_sha256")) if res.get("engine") == "R" else (
+            old and old.get("png_mtime") == _mtime(e.get("file", "")))
+        if same_render:
             res["visual_reviewed"] = old.get("visual_reviewed", False)
             res["review_rounds"] = old.get("review_rounds", 0)
         res["png_mtime"] = _mtime(e.get("file", ""))

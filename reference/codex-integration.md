@@ -11,6 +11,12 @@ it remains available for explicit use and as the workspace-local operating contr
 
 ## Literature and full text
 
+For processing/statistics/graphics, read `r-first.md`: Python may process data, mature R
+methods should be evaluated deliberately, and new publication graphs default to R. R
+graphics use the managed runner plus measured/visual QA, not Matplotlib conversion or Tavotto.
+Tavotto remains available for actual Matplotlib exceptions. Reuse approved numerical results;
+do not run a second model merely because another plotting language is used.
+
 PubMed records produced by `tools/pubmed/` are the authoritative metadata trail.
 Scholarly-search skills, deep-research tools, SciSpace, Consensus, or similar services may
 surface candidates, but their titles, identifiers, abstracts, and claims are discovery input
@@ -19,8 +25,11 @@ to `library.json`, and run `tools/pubmed/verify.py` before citing it.
 
 Verification is evidence-based and fail-closed. The verifier performs a fresh PubMed EFetch,
 stores the raw XML, records its SHA-256 and the parsed record fingerprint, binds the receipt to
-the exact current `library.json`, and compares PMID, DOI, title, journal, year, first author,
-abstract availability and PubMed status. The S13 `reference_provenance` gate then makes a
+the exact current `library.json`, and compares PMID, DOI, PMCID, title, journal, year, the full
+ordered author list, actual abstract text and PubMed status. A genuine no-abstract record
+stays a candidate until readable, identity-confirmed, hash-valid full text is registered;
+register it after adding its metadata and before formal verification. Leave absent abstracts
+empty and do not treat a summary or link as source text. The S13 `reference_provenance` gate makes a
 second live EFetch and repeats those comparisons independently; the same live gate recurs at
 later manuscript, human-review, package and final-audit checkpoints so post-S13 tampering is
 also caught. `verified: true` is not
@@ -34,7 +43,7 @@ login, cookies, or institutional credentials require explicit user authorization
 be copied into logs or project files. Register an acquired local file with:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\pubmed\fulltext.py register `
+uv run python tools\pubmed\fulltext.py register `
   --citekey <verified-citekey> --file <local-pdf> --access oa `
   --source-url <source-url> --route scansci-pdf
 ```
@@ -76,25 +85,24 @@ document the resulting population/bias. See `reference/data-acquisition-integrit
   fixes in plotting code, re-render, and inspect the actual new PNG. Image-generation tools
   are never substitutes for statistical plotting or the required human-visible review.
 - S18: spawn exactly one independent subagent to audit the frozen `full_manuscript.md`,
-  optional supplementary Methods and every table. It is a read-only publication-readiness
+  optional supplementary Methods, every table and the actual rendered figures. It is a read-only publication-readiness
   reviewer, not a second orchestrator or writer. Preserve its verdict for the user's S19
   review.
 - S19 and later revisions: use S19 as the repeatable scientific-content review loop and S24
   as the repeatable journal-package review loop. Read `reference/rework-routing.md`, persist
   the verbatim feedback and one interpretation with `tools/rework.py batch`, and resume from
-  `tools/rework.py status` after context compaction. Update the earliest source-owning stage,
+  `tools/rework.py status` after context compaction. Call owner rules in place at the review checkpoint,
   rebuild only its actual dependants, and preserve unaffected hash-matched evidence. Token
   efficiency comes from scoped reads and dependency-aware rebuilds, never from dropping an
   affected request, gate, validation or review. The assembled manuscript must match its
   component Markdown at S19; do not patch it as a detached final file.
-- S19 delivery: run `tools/manuscript/review_package.py build` and `verify` for every initial
-  or scientifically changed version. Present clickable paths for the manuscript, optional
-  supplementary Methods, table workbooks, rendered PNG figures, verified BibTeX/RIS exports,
-  independent verdict and exact versioned ZIP. The ZIP is safe for third-party scientific review because it excludes raw or
-  patient-level data, credentials, full-text literature and internal analysis code. Remain at
-  S19 until the user explicitly says no further review is needed. Then run
-  `tools/manuscript/scientific_freeze.py freeze`; this hashes the accepted journal-independent
-  manuscript sources, scientific artifacts, references, review record and exact S19 ZIP.
+  Run `rework.py check` before marking/closing. Do not reset the stage tail or rely on typed
+  validation labels. Read S07's reader contracts and S18's exact input-hash/comprehension rules.
+- S19/S24 follow `reference/review-rounds-and-word-tables.md`: independent read-only subagent
+  rounds, safe main-agent scoped corrections, one report of changes/unadopted reasons and
+  one another-round question. No review ZIP. Present exact artifact/report paths; wait for
+  explicit no-further-review approval bound to the current closed round. Scientific freeze
+  hashes the accepted sources, scientific artifacts, references and actual approved round/report.
 - S20-S22: verify the scientific freeze and run
   `tools/manuscript/journal_workspace.py init` after the journal is chosen. The derived
   `08_submission/integration/` files are the only editable source for journal-specific
@@ -129,11 +137,13 @@ document the resulting population/bias. See `reference/data-acquisition-integrit
 
 ## Analytical and review helpers
 
-Reporting-guideline, study-design, sample-size, de-identification, codebook, statistical, and
+Study-design, sample-size, de-identification, codebook, statistical, and
 peer-review skills may provide advice or code during the matching stage. Their work is valid
 only when it is reproducible, stored under the stage's declared paths, and accepted by the
 pipeline gate. A helper must not start a separate project, write several manuscript sections
 at once, or create a second reference library or submission manifest.
+Reporting-form helpers are used only after S20 when the selected journal explicitly requests
+that form; do not invoke them during intake, research planning or scientific writing.
 
 ## Plugins
 

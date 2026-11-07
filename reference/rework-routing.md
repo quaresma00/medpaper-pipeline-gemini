@@ -1,7 +1,20 @@
-# User-requested revision routing
+# Scoped user revisions (v1.7)
+
+v1.13 post-freeze rule: read `content-aware-amendments.md`. Proven presentation-only
+corrections retain approval, run scoped checks and report once; no new S19 review,
+subagent round or confirmation. Initial/real scientific review still follows below.
+Use `journal-format` for same-journal presentation, `journal-switch` for a new journal
+(legacy `journal` remains accepted). S25 may open a presentation batch in place.
+
+For discovered dependencies, package-level presentation migration and the final Word chain,
+read `source-aligned-validation.md`. `rework.py depend` adds a real consumer without rewriting
+feedback. `mark --checked-file` records an unchanged inspected source separately; never touch
+a correct file to manufacture a change. A repeated unchanged check reuses its exact evidence.
 
 All revisions remain inside the medpaper state machine. Reading or editing files directly is
 an implementation step, not permission to bypass the owning stage, source of truth or gates.
+An owning stage supplies rules, not a navigation target. New revision rounds keep their
+review checkpoint and all completed-stage history. Never use `wf loop` for a local edit.
 
 ## Where repeated feedback belongs
 
@@ -16,8 +29,8 @@ an implementation step, not permission to bypass the owning stage, source of tru
   A genuine scientific change still routes back to its pre-S19 source and requires renewed
   S19 review. Do not freeze or start S25 until the user approves the actual package.
 
-Feedback can also arrive at any other stage. Record it immediately and route it to the
-earliest owner; the review loop to return to is the active S19 or S24 round.
+Feedback before either review checkpoint is handled inside the current stage and its owning
+sources. Do not manufacture an S19/S24 approval or silently invalidate a prior science freeze.
 
 ## Multi-item revision rounds
 
@@ -31,15 +44,17 @@ command. Interpret the feedback once and write `project/temp/revision_plan.json`
   "ambiguous_or_requires_user_decision": [],
   "items": [
     {
-      "kind": "methods",
+      "kind": "methods-wording",
+      "change_type": "wording",
       "request": "Shorten the main Methods while retaining the reproducible detail in supplementary Methods.",
       "affected_sources": ["07_manuscript/methods.md", "07_manuscript/supplementary_methods.md"],
       "acceptance_criteria": ["Main Methods retains every design-critical fact", "Supplement contains no tables"]
     },
     {
-      "kind": "figures",
+      "kind": "figure-layout",
+      "change_type": "layout",
       "request": "Increase label legibility in Figure 2 without changing data geometry.",
-      "affected_sources": ["05_figures/code/fig2.py", "05_figures/out/Figure2.png"],
+      "affected_sources": ["05_figures/out/Figure2.py"],
       "acceptance_criteria": ["Deterministic figure QC passes", "Fresh render is visually inspected"]
     }
   ]
@@ -47,45 +62,73 @@ command. Interpret the feedback once and write `project/temp/revision_plan.json`
 ```
 
 If `ambiguous_or_requires_user_decision` is non-empty, ask one concise question and do not
-guess. Otherwise start or extend the current round:
+guess. Otherwise start or extend the current round. The four change types are `layout`,
+meaning-preserving `wording`, `administrative`, and `scientific`. Changed data, denominator,
+outcome, model, comparison, interpretation or claim is scientific even if only one line.
+Do not downgrade it to avoid checks. Declare every edited source, including supplementary
+Methods when moving text there:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\rework.py batch --plan project\temp\revision_plan.json
-.\.venv\Scripts\python.exe tools\rework.py status
+uv run python tools\rework.py batch --plan project\temp\revision_plan.json
+uv run python tools\rework.py status
 ```
 
 The batch command stores the verbatim feedback, its SHA-256, the interpretation, atomic
 items, acceptance criteria and earliest owning stage under `.wf/revisions/RNNN.json`. It
-invalidates only decisions whose evidence can change and preserves unrelated approvals. If
+initially remains `collecting`, without invalidation or expensive construction. When the
+user finishes the batch, run `tools/rework.py seal --why "<user end/apply instruction>"`.
+An explicit request to implement a complete set of feedback permits `batch --sealed` directly.
+Sealing invalidates only decisions whose evidence can change and preserves unrelated approvals. If
 new feedback arrives before the round finishes, create another small plan containing only the
-new items and run `batch` again; it is appended to the same active round and rewinds farther
-only when necessary.
+new items and run `batch` again; it extends the scope without resetting stage completion.
+Identical feedback is deduplicated. `rebuild_files` identifies affected sources and candidate dependants;
+`validation_stages` identifies rules to recheck in place; `reuse_files` identifies files to
+preserve. Owner rules do not authorize rerunning every subsequent stage. Read `reference/efficient-quality.md` for
+build scope, risk-proportionate QA and backstage control maintenance.
 
-After all affected sources and true dependants have been rebuilt and the workflow has
-returned to S19 or S24, record the final files and completed checks for each item:
+The candidate closure does not mean every file must be rewritten. After changing only entries
+in `artifact_plan.json`, run `rework.py refresh` before rendering: observed entry differences
+can narrow the display outputs while preserving unchanged displays. Shared edits and missing
+baseline evidence remain conservative. This invalidates prior validation, not stage history.
+Do not manually trim check lists or assert independent fields without machine-bound evidence.
+`status` omits completed feedback items; `status --full` shows the complete saved round.
+
+After affected sources and true dependants have been rebuilt, still at S19 or S24, run
+the actual scoped checks and record final files and visual inspections for each item:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\rework.py mark --item R001-01 `
+uv run python tools\rework.py check
+uv run python tools\rework.py mark --item R001-01 `
   --changed-file 07_manuscript/methods.md `
   --changed-file 07_manuscript/supplementary_methods.md `
   --validated-by "S08 gates" --validated-by "assembly and citation checks" `
   --summary "Implemented the requested Methods restructuring and preserved all design-critical facts."
 
-.\.venv\Scripts\python.exe tools\rework.py close `
+uv run python tools\rework.py close `
   --summary "All requested items were rebuilt from their owning sources and passed the applicable gates."
 ```
 
 `revision_rounds_closed` blocks S19/S24 approval and S25 audit when an item is pending, a
 changed source is missing, or its final hash drifted after the round was closed.
+Typed `validated-by` labels alone cannot close a round. The actual check is bound to current
+authored files, decisions, engine rules and project configuration. Drift or an age of 24 hours requires
+another check. `wf check` dispatches to it while the round is active; `wf advance` and `wf loop`
+cannot escape an active round. Builders reject outputs outside its scope; the final check
+also detects unrelated file changes by other scripts. This is an accidental-drift guard, not
+a security sandbox against a same-privilege agent. Large raw/cache files use file metadata
+for scope drift; independent data/reference provenance gates remain unchanged.
+Known renewable reference/guideline evidence is not permanently frozen by a closed round.
+If it changes before closure, rerun its applicable real evidence gates; do not force a whole
+manuscript revalidation solely because a fresh receipt has a different timestamp.
 
 Before changing an artifact after it has been presented for review, run:
 
 ```powershell
-.\.venv\Scripts\python.exe tools/rework.py plan --kind <kind> --why "<requested change>"
-.\.venv\Scripts\python.exe tools/rework.py start --kind <kind> --why "<requested change>"
+uv run python tools/rework.py plan --kind <kind> --why "<requested change>"
+uv run python tools/rework.py start --plan project/temp/revision_plan.json
 ```
 
-Use the earliest stage that owns the changed fact or artifact:
+`start` is now a sealed-batch alias and requires a plan. Use the owning stage's rules:
 
 | Revision kind | Owning stage |
 |---|---|
@@ -98,14 +141,19 @@ Use the earliest stage that owns the changed fact or artifact:
 | Results wording with unchanged analysis | `results-wording` -> S09 |
 | table content | `tables` -> S10 |
 | figure content or rendering | `figures` -> S11 |
+| meaning-preserving Methods wording | `methods-wording` -> S08 |
+| figure/table layout with unchanged data and meaning | `figure-layout` / `table-layout` -> S11 / S10 |
 | reference selection, citation or verified metadata | `references` -> S13 |
 | Introduction | `introduction` -> S14 |
 | Discussion | `discussion` -> S16 |
 | title, abstract, keywords or initial assembly | `title-abstract-keywords` -> S17 |
 | meaning-preserving copyedit | `manuscript-copyedit` -> S19 before freeze; at S24, S22 integration copy only |
 | target journal or its rules | `journal` -> S20 |
+| new journal identity | `journal-switch` -> S20; derived journal layer only |
+| same-journal display/CSL/heading/spelling | `journal-format` -> S23; integration only |
 | title page or declarations | `title-page-or-statements` -> S21 |
 | cover letter, filename, upload list or package composition | `cover-letter-or-package-structure` -> S23 |
+| journal-only figure/table layout | `journal-figure-layout` / `journal-table-layout` -> S23 integration only |
 | Word layout with absolutely no visible-text change | `word-format-only` -> S23/S24 |
 
 For S19 copyedits, update the owning component Markdown and rerun
@@ -119,19 +167,54 @@ must verify it unchanged. The active target journal works only on files derived 
 Changing target journals creates a new integration copy from the same freeze; it does not
 rewrite the accepted master. If a user requests a real scientific correction from S24, do
 not retain the old `manuscript_human_reviewed` decision: route to the scientific owner,
-rebuild, generate a new S19 review ZIP, obtain explicit approval again and replace the freeze.
+rebuild, complete a new S19 subagent review round, obtain explicit approval again and replace the freeze.
+Package-only items in a mixed batch are retained for later. After the new approval/freeze,
+`wf advance` resumes a scoped package round at S24, without replaying S20-S23. Merge only
+the changed science into existing journal copies, preserving unrelated user edits, then use
+`tools/manuscript/journal_workspace.py rebase --why "<what was merged and preserved>"`.
+It rebinds origin hashes but never copies over the journal text. Changed scientific text with
+an unchanged journal copy is refused. Review semantic correctness and journal fit separately.
+Removed supplements or a different journal require explicit inventory reconciliation;
+do not delete user material or silently bless the old package.
 
 At S23, capture `package_content_baseline.json` after all DOCX files and `manifest.json` are
 final. S24 may preserve manual Word formatting only while the visible-text hash is unchanged.
 If Word text changes, reconcile the requested wording to its Markdown/data/table/figure source,
-run the owning route, rebuild the true dependants and capture a new baseline at S23. Never
-recapture a baseline at S24 merely to bless an edited DOCX.
+run the owning scoped task and rebuild the true dependants. A source-based S23 build task
+may capture the baseline in-place at S24 only with matching real builder input/output
+receipts. Manual Word text edits and layout-only rounds cannot be blessed by recapture.
 
-The legacy single-kind `start` command conservatively invalidates every downstream decision;
-the preferred batch-round command invalidates only decisions whose evidence may have changed.
-After corrections, progress through the gates, present the revised artifact again, obtain the
-required user confirmation, freeze the new package and run one new independent audit.
+Existing schema-1 rounds finish through their recorded legacy gates; do not discard their
+evidence. All newly opened rounds use scoped revision. Scientific changes require the scoped
+S18 review. Cosmetic work reuses the old independent verdict plus current local content/visual
+checks, without claiming that the old reviewer saw the new version.
+After corrections, report the changed artifacts once. First approval, a new target journal
+or changed science follows its required review/confirmation path. An already approved,
+proven presentation amendment preserves its approval lineage and needs only actual scoped
+checks and changed-page inspection; do not demand another independent audit or author answer.
 Unchanged artifacts may be reused; rebuild only the changed artifact and its actual dependants.
+
+## Decide the smallest sufficient correction before rebuilding
+
+In the existing revision batch, map each genuine feedback item to its earliest source,
+actual consumers and acceptance criterion. The feedback wording is not itself a scientific
+classification: clarify a label without changing its meaning; a wrong denominator or
+overstated conclusion is a scientific correction even when it is one sentence. Preserve
+unchanged sources, analyses, accepted displays and manually edited journal material.
+
+Use `preview` before edits and `classify` on actual edited bytes before expensive builds.
+If equivalence is unclear, investigate the relevant before/after passages and their evidence;
+do not automatically rewind S19, rewrite the whole paper or declare it cosmetic. A new
+analysis proposed by a reviewer needs a scientific reason (it resolves validity, a substantive
+uncertainty or an actual author/journal request), not just its presence in the suggestion list.
+Optional stylistic preferences may be declined with a reason; objective defects may not.
+
+Revise the source, assemble only changed dependants, run the scoped check, then close once.
+Cached checks retain their original freshness and require identical actual inputs, rules,
+configuration and decisions. Closing verifies receipts and drift; changed evidence reruns
+the relevant check. Unknown/live checks stay conservative. Never manually mark a stale
+receipt passed or extend its timestamp. Two failed full rebuild cycles mean stop cascading,
+identify the unstable source and correct it locally, not reduce the requested quality.
 
 ## Context and token discipline without quality loss
 

@@ -36,4 +36,3 @@ def decision_recorded(ctx: Ctx) -> Result:
             ["Record why, in enough detail that a reviewer could challenge it. At least 40 characters."],
         )
     return Result(True, "decision_recorded", f"{name} = {value} (rationale on record)")
-
