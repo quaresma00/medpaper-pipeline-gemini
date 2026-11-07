@@ -1,6 +1,6 @@
 # MedPaper Gemini / Antigravity Workflow
 
-[中文文档 (Chinese)](README_CN.md) | [English Documentation](README.md)
+[中文说明](README.md) | [English Documentation](README_EN.md)
 
 一套面向医学与临床研究的 Gemini / Google Antigravity 门禁式工作流（同步上游 `v1.26.0` 架构）。它把“研究想法”推进为经过全量数据核验、真实文献溯源、语境绑定统计结果、R 优先临床图表、版本绑定独立子代理复核和目标期刊官方规则共同校验的投稿包，而不是让 AI 一次性凭记忆拼凑一篇看似完整的论文。
 
