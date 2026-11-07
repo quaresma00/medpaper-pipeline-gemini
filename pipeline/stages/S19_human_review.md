@@ -25,7 +25,7 @@ uv run python tools/review_round.py start --scope manuscript --delta
    Read-only is a task restriction, not a claimed tool sandbox. If delegation is unavailable,
    mark the independent review pending; never substitute the main agent as independent.
 2. Save the actual returned report. Include the exact `reviewed_artifacts` JSON selection,
-   substantive `Reader comprehension`, `Medical presentation`, and `Discussion audit` sections
+   substantive `Reader comprehension`, `Medical presentation` (including audit of clinical labels in figures/tables), and `Discussion audit` sections
    (explicitly checking Results non-restatement, literature comparison + reasons for differences,
    candidate mechanisms, and clinical implications), severity, precise locations and correctable
    versus validity/author-owned barriers. Before editing:

@@ -17,6 +17,7 @@ Write substantive legends/captions that decode the actual display without repeat
 No magic word such as "footnote" certifies notes: S10 inspects every real workbook's notes.
 Keep crowded abbreviations centralized, with necessary clinical definitions at point of use.
 Do not infer units, endpoint components or confidence level from an internal variable name.
+Establish an explicit display dictionary (internal terms -> clinical peer-reviewed display labels). Figure/table internal text must be fully readable to medical clinicians: zero snake_case variables, zero formula syntax, zero bare TRUE/FALSE, zero raw statistic column names (coef, fpr), and zero data pipeline log language.
 
 For schema, benchmark commands and prototype acceptance, use the full procedure below.
 

@@ -7,7 +7,7 @@ a new clinical reader, screens as an editor, and checks submission completeness/
 consistency. All actionable findings in every section require a disposition, not only the
 must-fix list. A truncated response or a typed PASS is not a complete independent report.
 Include substantive Medical presentation observations about actual main/supplement prose,
-table titles/cells/notes and figure labels/marks/legends, plus a dedicated `Discussion audit`
+table titles/cells/notes, figure labels/marks/axes/flowchart-boxes (strictly checking clinical readability: zero raw variables, zero code formulas, zero analytics-report jargon), plus a dedicated `Discussion audit`
 section verifying Results non-restatement, comparison with prior literature + reasons for
 differences, mechanisms, and clinical implications, as well as single-source author placement,
 default figure/table placement, and `Supplemental_File_<N>_<Description>` naming. First read without backstage context,

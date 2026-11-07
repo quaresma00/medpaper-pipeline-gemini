@@ -2481,7 +2481,8 @@ def main() -> int:
                              ("test_table_proportions_126.py","actual table percentage denominators and non-count percentage scope"),
                              ("test_runtime_km_126.py","unified real R environments and source-bound uncensored KM applicability"),
                              ("test_review_hardening_127.py","S16 Discussion bindings, S09/S10 measure & table context, S11 figure annotations, S25 force guard and cross-drive launcher"),
-                             ("test_workflow_128.py","single-source page-1 author block, default display placement, isolated Discussion workflow & audit, and Supplemental_File naming")):
+                             ("test_workflow_128.py","single-source page-1 author block, default display placement, isolated Discussion workflow & audit, and Supplemental_File naming"),
+                             ("test_clinical_display_labels_129.py","clinical reader presentation, zero code variables, display dictionary, and non-overridable display_labels_clinical gate")):
             current = subprocess.run([sys.executable,str(ROOT/"tools"/script)],
                                      capture_output=True,text=True,encoding="utf-8",errors="replace")
             record(label,current.returncode==0,(current.stdout+current.stderr)[-1800:].strip())

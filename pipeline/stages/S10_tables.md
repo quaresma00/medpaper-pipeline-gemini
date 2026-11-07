@@ -54,6 +54,10 @@ write_table(
  "tables": [{"id": "Table 1", "file": "04_tables/main/Table1.xlsx", "sheet": "Table 1",
              "n_rows": 0, "source_results": ["03_analysis/results/baseline.json"]}]}
 ```
+   - Clinical display labels: Every table title, column header, row stub, cell value and footnote
+     must be publication-ready for medical clinicians. Raw column names (e.g. `sbp`, `bmi`, `age_yrs`),
+     raw database codes, bare boolean `TRUE`/`FALSE`, and bare package columns (`coef`, `p_val`) are
+     prohibited and blocked by the `display_labels_clinical` gate.
 4. Run it, then verify the structure rather than assuming:
 ```
 uv run python project/04_tables/code/build_tables.py

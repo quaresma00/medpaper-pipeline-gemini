@@ -118,6 +118,8 @@ def diagnose(text, rel):
 
 def scan(project,layer="science",final=False):
     from .benchmark import display_source
+    from .displaylabels import collect_project_issues, figure_visible_companion_text
+    from .state import State, version_tuple
     plan=load(project,"01_protocol/artifact_plan.json" if layer=="science" else "08_submission/integration/artifact_plan.json")
     folder="07_manuscript" if layer=="science" else "08_submission/integration"
     files=set() if final else {f"{folder}/full_manuscript.md"}
@@ -126,15 +128,34 @@ def scan(project,layer="science",final=False):
     for rel in (("05_figures/legends.md","04_tables/table_captions.md") if layer=="science" else
                 (f"{folder}/figure_legends.md",f"{folder}/table_captions.md")):
         if not final and (project/rel).is_file(): files.add(rel)
+    companion_figure_texts=[]
     for group in ("main_figures","supp_figures","main_tables","supp_tables"):
-        for entry in plan.get(group,[]): files.add(display_source(project,entry,layer,final))
+        for entry in plan.get(group,[]):
+            src=display_source(project,entry,layer,final)
+            files.add(src)
+            if group in {"main_figures","supp_figures"} and Path(src).suffix.lower() not in {".svg",".pdf"}:
+                comp_rel,comp_txt=figure_visible_companion_text(project,{**entry,"file":src})
+                if comp_txt: companion_figure_texts.append((comp_rel,comp_txt))
     if final:
         for row in load(project,"08_submission/bundle/manifest.json")["items"]:
-            if row.get("upload",True) and row.get("role") in {"manuscript","tables","figure_legends","supplementary"}: files.add(row["file"])
+            if row.get("upload",True) and row.get("role") in {"manuscript","tables","figure_legends","supplementary","figure"}: files.add(row["file"])
     issues=[]
     for rel in sorted(files):
         _,file=_safe_path(project,rel)
         if file.is_file(): issues.extend(diagnose(visible(file),rel))
+    for comp_rel,comp_txt in companion_figure_texts:
+        issues.extend(diagnose(comp_txt,comp_rel))
+    state_obj=State(project)
+    if state_obj.exists():
+        st=state_obj.load()
+        owner="S17_assemble" if layer=="science" else "S23_package" if final else "S22_polish"
+        pin_ver=str(st.data.get("engine_pin",st.data.get("pipeline_version","0")))
+        if version_tuple(pin_ver)>=(1,29,0) and not st.pin_excludes(owner,"1.29.0"):
+            existing_ids={row["id"] for row in issues}
+            for item in collect_project_issues(project,"all",layer=layer,final=final):
+                if item["id"] not in existing_ids:
+                    issues.append(item)
+                    existing_ids.add(item["id"])
     return issues
 
 

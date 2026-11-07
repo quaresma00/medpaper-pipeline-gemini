@@ -143,6 +143,22 @@ def qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Pat
                 "checks":[{"name":"figure_job_pending","ok":False,"severity":"fail","detail":str(exc)}]}
 
 
+
+def _check_clinical_labels(add, project: Path, entry: dict, art: dict | None, journal: bool) -> None:
+    from wfcore.displaylabels import inspect_figure_entry
+    from wfcore.state import State, version_tuple
+    pin_ver = "0"
+    if (project / ".wf/state.json").is_file():
+        try:
+            st = State(project).load()
+            pin_ver = str(st.data.get("engine_pin", st.data.get("pipeline_version", "0")))
+        except Exception:
+            pin_ver = "0"
+    if version_tuple(pin_ver) >= (1, 29, 0):
+        label_issues = inspect_figure_entry(project, entry, layer="journal" if journal else "science", art_override=art)
+        add("clinical_labels_readable", not label_issues,
+            "; ".join(f"{iss["locator"]}: {iss["message"]}" for iss in label_issues[:3]) or "figure internal text uses reader-facing clinical labels")
+
 def _qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Path | None = None) -> dict:
     project = project or project_root()
     from wfcore.clinicalpresentation import profile
@@ -278,6 +294,7 @@ def _qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Pa
             if ann_errors or ann_fp is not None:
                 add("figure_annotation_provenance", not ann_errors,
                     "; ".join(ann_errors[:3]) or "explicit figure statistical labels match bound result fields")
+            _check_clinical_labels(add, project, entry, art, journal)
             blocking = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
             out_r = {"id": fid, "png": png_rel, "engine": "R", "archetype": archetype,
                      "width_class": width_class, "pixels": [w_px, h_px], "effective_dpi": round(eff_dpi, 1),
@@ -343,6 +360,7 @@ def _qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Pa
             "render R through render_r.py/medpaper_save(), or Matplotlib through figures.style.save(), so fonts, line widths, glyphs, tick "
             "collisions and archetype elements can be measured")
 
+    _check_clinical_labels(add, project, entry, art if sidecar.exists() else None, journal)
     from wfcore.packagefreeze import _sha256
     blocking = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
     out_py = {

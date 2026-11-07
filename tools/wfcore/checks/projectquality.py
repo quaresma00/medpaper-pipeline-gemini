@@ -153,3 +153,30 @@ def legend_length_advice(ctx):
         if count>(cap or advisory): long.append(f"{key}: {count} words")
     return Result(not long,"legend_length_advice","; ".join(long) or "Legend length checked without discarding necessary decoding",
                   severity="fail" if cap is not None else "warn")
+
+@check("display_labels_clinical")
+def display_labels_clinical(ctx: Ctx) -> Result:
+    kind = ctx.spec.get("kind", "all")
+    from ..state import version_tuple
+    pin_ver = str(ctx.state.data.get("engine_pin", ctx.state.data.get("pipeline_version", "0")))
+    since_ver = ctx.spec.get("since", "1.29.0")
+    if since_ver and version_tuple(pin_ver) < version_tuple(since_ver):
+        return Result(True, "display_labels_clinical", "pinned historical project exempt from 1.29.0 display label check")
+    if ctx.state.pin_excludes(ctx.stage.id, ctx.spec.get("since")):
+        return Result(True, "display_labels_clinical", "pinned completed stage exempt from 1.29.0 display label check")
+    from ..displaylabels import collect_project_issues
+    layer = "journal" if ctx.stage.id.startswith(("S20_", "S21_", "S22_", "S23_", "S24_", "S25_")) else "science"
+    final = bool(ctx.spec.get("final")) or ctx.stage.id in {"S23_package", "S24_package_human_review", "S25_submission_audit"}
+    issues = collect_project_issues(ctx.project, kind=kind, layer=layer, final=final)
+    if issues:
+        summary = "; ".join(f"{iss["path"]} {iss["locator"]}: {iss["message"]}" for iss in issues[:6])
+        return Result(
+            False,
+            "display_labels_clinical",
+            summary,
+            [
+                "Replace raw variable names, code identifiers, boolean/numeric codes, or statistical package dump labels with self-explanatory medical terms.",
+                "Ensure artifact_plan.json display_dictionary maps all contract variables and that table/figure titles describe clinical subjects, not analytics outputs.",
+            ],
+        )
+    return Result(True, "display_labels_clinical", f"all {kind} internal labels and display text conform to medical-reader standards")

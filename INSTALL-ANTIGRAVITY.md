@@ -1,4 +1,4 @@
-# Install and operate medpaper on Google Antigravity / Gemini (v1.28.0)
+# Install and operate medpaper on Google Antigravity / Gemini (v1.29.0)
 
 ## Requirements
 
@@ -30,7 +30,7 @@ $env:NCBI_API_EMAIL = "you@example.org"
 | File | Read by | Role |
 |---|---|---|
 | `.agent/rules/medpaper-pipeline.md` | Antigravity IDE | Workspace passive rule |
-| `.agents/skills/medpaper-pipeline/SKILL.md` | Antigravity IDE + `agy` CLI | Workspace skill (`v1.28.0`) |
+| `.agents/skills/medpaper-pipeline/SKILL.md` | Antigravity IDE + `agy` CLI | Workspace skill (`v1.29.0`) |
 | `AGENTS.md` | Antigravity + cross-IDE | Primary execution policy and topic router |
 | `reference/antigravity-integration.md` | On-demand router | Subagent (`invoke_subagent`), Science plugin, and tool arbitration |
 | `~/.gemini/config/skills/medpaper-pipeline/SKILL.md` | Global IDE + CLI | Global dispatcher (`F:\workspace\medpapaer\gemini` default, override via `MEDPAPER_MASTER_TEMPLATE` or `tools/medpaper_launcher.py --template-source`) |

@@ -14,7 +14,7 @@
 
 [meta]
 name = "medpaper"
-version = "1.28.0"
+version = "1.29.0"
 schema = 1
 description = "Medical/clinical research pipeline: idea -> feasibility -> data -> analysis -> artifacts -> manuscript -> submission package."
 
@@ -293,6 +293,11 @@ check = "display_prototypes_reviewed"
 [[stage.gate]]
 check = "legend_length_advice"
 
+[[stage.gate]]
+check = "display_labels_clinical"
+kind = "plan"
+since = "1.29.0"
+
 [[stage]]
 id = "S08_methods"
 title = "Write Methods"
@@ -365,6 +370,11 @@ allowed = ["YES"]
 [[stage.gate]]
 check = "display_prototypes_reviewed"
 
+[[stage.gate]]
+check = "display_labels_clinical"
+kind = "table"
+since = "1.29.0"
+
 [[stage]]
 id = "S11_figures"
 title = "Render figures + deterministic QC + visual verification loop"
@@ -395,6 +405,11 @@ check = "temp_clean"
 
 [[stage.gate]]
 check = "display_prototypes_reviewed"
+
+[[stage.gate]]
+check = "display_labels_clinical"
+kind = "figure"
+since = "1.29.0"
 
 [[stage]]
 id = "S09_results"
@@ -634,6 +649,11 @@ check = "legend_length_advice"
 check = "discussion_discipline"
 path = "07_manuscript/full_manuscript.md"
 since = "1.28.0"
+
+[[stage.gate]]
+check = "display_labels_clinical"
+kind = "all"
+since = "1.29.0"
 
 [[stage]]
 id = "S18_independent_review"
@@ -891,6 +911,11 @@ check = "discussion_discipline"
 path = "08_submission/integration/full_manuscript.md"
 since = "1.28.0"
 
+[[stage.gate]]
+check = "display_labels_clinical"
+kind = "all"
+since = "1.29.0"
+
 [[stage]]
 id = "S23_package"
 title = "Build and visually verify the journal-ready Word submission package"
@@ -975,6 +1000,12 @@ since = "1.28.0"
 check = "discussion_discipline"
 path = "08_submission/integration/full_manuscript.md"
 since = "1.28.0"
+
+[[stage.gate]]
+check = "display_labels_clinical"
+kind = "all"
+final = true
+since = "1.29.0"
 
 [[stage]]
 id = "S24_package_human_review"

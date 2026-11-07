@@ -74,7 +74,7 @@ uv run python tools/pubmed/client.py fetch --ids <...> --with-abstract
    not replace it. A genuinely absent selection process may be marked inapplicable with its
    scientific basis. Do not impose a fixed total figure count or an early reporting checklist.
    Specific journal reporting/display requirements are handled later in the integration copy.
-   Add `reader_contract` to every display: `population`, `comparison`, `measure`,
+   Add `display_dictionary` mapping every internal feature, covariate, and model term to clinical publication labels and units. Figure/table internal text (axes, tick marks, legends, flowchart boxes, table headers/cells) must completely avoid code variables, script syntax, bare boolean values, and analytics-report jargon. Add `reader_contract` to every display: `population`, `comparison`, `measure`,
    `denominator_and_units`, `interpretation_limit`, plus distinct `question`,
    `placement_reason`, `nonredundancy`, `misinterpretation_risk`. Use short factual sentences; explain
    inapplicability rather than inserting a fictional comparison. This internal contract

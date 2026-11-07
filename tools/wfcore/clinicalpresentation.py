@@ -46,7 +46,38 @@ def profile(project,journal=False):
 def verify_plan(project,journal=False):
     from .state import State,version_tuple
     vocabulary(project,journal); value=profile(project,journal)
-    if version_tuple(str(State(project).load().data.get("pipeline_version","0")))>=(1,16,0):
+    problems = []
+    st = State(project).load() if (project / ".wf/state.json").is_file() else None
+    ver = str(st.data.get("pipeline_version","0")) if st else "0"
+    if version_tuple(ver)>=(1,16,0):
         if not value or (value.get("figure_font_pt_min",0)<8 and not journal):
-            return ["Set reversible S07 presentation_profile with at least 8 pt at final size and its basis; use sourced journal overrides only in integration"]
-    return []
+            problems.append("Set reversible S07 presentation_profile with at least 8 pt at final size and its basis; use sourced journal overrides only in integration")
+    if version_tuple(ver)>=(1,29,0):
+        from .displaylabels import verify_plan_labels
+        issues = verify_plan_labels(project, journal=journal)
+        for iss in issues:
+            problems.append(f"{iss["path"]} {iss["locator"]}: {iss["message"]}")
+    return problems
+
+def verify_plan_labels(plan_dict_or_project, journal=False):
+    if isinstance(plan_dict_or_project, dict):
+        from .displaylabels import diagnose_label_token
+        dictionary = plan_dict_or_project.get("display_dictionary", {})
+        issues = []
+        if isinstance(dictionary, dict):
+            for k, v in dictionary.items():
+                issues.extend(diagnose_label_token(v, path="plan", locator=f"display_dictionary[{k}]", surface="dictionary"))
+        elif isinstance(dictionary, list):
+            for idx, r in enumerate(dictionary):
+                if isinstance(r, dict) and "label" in r:
+                    issues.extend(diagnose_label_token(r["label"], path="plan", locator=f"display_dictionary[{idx}]", surface="dictionary"))
+        from dataclasses import dataclass
+        @dataclass
+        class PlanLabelResult:
+            passed: bool
+            issues: list
+        return PlanLabelResult(passed=len(issues) == 0, issues=issues)
+    else:
+        from .displaylabels import verify_plan_labels as _vpl
+        return _vpl(plan_dict_or_project, journal=journal)
+

@@ -56,6 +56,11 @@ uv run python tools/figures/qc.py --figure "Figure 1"
    tables, flow counts, units and essential source-bound statistics. Use the existing
    legend length as advisory unless the journal explicitly limits it; record actual moved
    material in 05_figures/moved_to_legend.md.
+   - Clinical internal labels: All text rendered inside figures (axis titles, tick labels, legend
+     keys, panel titles, annotations, and flowchart boxes) must be clinical-reader ready. Eliminate
+     analytics pipeline phrasing (e.g. 'filtered where age >= 18', 'dropna()', 'Analysis Report Figure 1'),
+     raw variables, and model code. Apply `apply_labels()` or `medpaper_label()` in R scripts. Figures are
+     strictly gated by `display_labels_clinical`.
 8. Write 05_figures/manifest.json with actual renderer, script, source_results, png/pdf,
    width/size_mm/dpi, R/package versions or the Python exception, and review_rounds.
    SVG/rmeta/artist sidecars are backstage QC, not submission uploads.

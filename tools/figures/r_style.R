@@ -131,7 +131,14 @@ medpaper_save <- function(plot, stem, width = "single", height_mm = 75, dpi = 60
                          panels = list(plot), tiff = FALSE) {
   medpaper_require(c("ggplot2", "jsonlite", "ragg", "svglite", "systemfonts"))
   apply_labels <- function(item) {
-    if (inherits(item, "ggplot")) for (name in c("title", "subtitle", "caption", "x", "y")) if (is.character(item$labels[[name]])) item$labels[[name]] <- medpaper_label(item$labels[[name]])
+    if (inherits(item, "ggplot")) {
+      for (name in c("title", "subtitle", "caption", "x", "y", "colour", "color", "fill", "shape", "linetype", "size", "alpha")) {
+        if (is.character(item$labels[[name]])) item$labels[[name]] <- medpaper_label(item$labels[[name]])
+      }
+      for (scale in item$scales$scales) {
+        if (scale$is_discrete() && inherits(scale$labels, "waiver")) scale$labels <- medpaper_label
+      }
+    }
     policy <- jsonlite::fromJSON(Sys.getenv("MEDPAPER_LABEL_POLICY", "{}"))
     if (inherits(item, "ggplot") && length(policy$number_format)) for (scale in item$scales$scales) if (!scale$is_discrete() && inherits(scale$labels, "waiver")) scale$labels <- medpaper_number
     item

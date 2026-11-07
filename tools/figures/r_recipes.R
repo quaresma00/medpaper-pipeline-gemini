@@ -11,11 +11,12 @@ medpaper_forest <- function(data, measure="Adjusted odds ratio", null=1, log_sca
   if (!"label" %in% names(data) || anyDuplicated(data$label) || any(!nzchar(data$label))) stop("Unique clinical row labels required")
   if (any(data$lower>data$estimate | data$estimate>data$upper)) stop("Invalid confidence interval")
   if (log_scale && (any(data$lower<=0) || null<=0)) stop("Logarithmic effect measures must be positive")
+  data$label <- medpaper_label(data$label)
   data$label <- factor(data$label,levels=rev(data$label))
   p <- ggplot2::ggplot(data,ggplot2::aes(x=estimate,y=label)) +
     ggplot2::geom_vline(xintercept=null,linetype="dashed",linewidth=.3) +
     ggplot2::geom_errorbar(ggplot2::aes(xmin=lower,xmax=upper),orientation="y",width=.15,linewidth=.35) +
-    ggplot2::geom_point(size=2) + ggplot2::labs(x=paste0(measure," (95% CI)"),y="Clinical group") + medpaper_theme()
+    ggplot2::geom_point(size=2) + ggplot2::labs(x=paste0(measure," (95% CI)"),y=NULL) + medpaper_theme()
   if(log_scale) p <- p + ggplot2::scale_x_log10()
   # Exact effect/CI values can be printed by a study-specific aligned statistics column.
   # This intentionally does not guess the right-hand layout or clinical wording.
@@ -37,6 +38,7 @@ medpaper_forest_table <- function(data, measure, null, log_scale, digits=2L,
   p <- medpaper_forest(data,measure=measure,null=null,log_scale=log_scale)
   format_effect <- function(x) ifelse(x!=0 & round(x,digits)==0,
                                       formatC(x,format="g",digits=2),formatC(x,format="f",digits=digits))
+  data$label <- medpaper_label(data$label)
   data$label <- factor(data$label,levels=rev(data$label))
   data$effect_text <- paste0(format_effect(data$estimate)," (",format_effect(data$lower)," to ",format_effect(data$upper),")")
   if(is.null(effect_header)) effect_header <- paste0(measure,"\n(",interval_label,")")
@@ -52,6 +54,8 @@ medpaper_roc <- function(data, legend_title=NULL) {
   medpaper_require("ggplot2")
   medpaper_check_numeric(data,c("fpr","tpr"))
   if (!"group" %in% names(data) || any(data$fpr<0 | data$fpr>1 | data$tpr<0 | data$tpr>1)) stop("Invalid approved ROC coordinates/groups")
+  data$group <- medpaper_label(data$group)
+  if (!is.null(legend_title)) legend_title <- medpaper_label(legend_title)
   ggplot2::ggplot(data,ggplot2::aes(x=fpr,y=tpr,colour=group,group=group)) +
     ggplot2::geom_abline(slope=1,intercept=0,linetype="dashed",linewidth=.3,colour="grey50") +
     ggplot2::geom_path(linewidth=.5) + ggplot2::coord_equal(xlim=c(0,1),ylim=c(0,1)) +
@@ -62,6 +66,8 @@ medpaper_calibration <- function(data, probability_label="Outcome probability") 
   medpaper_require("ggplot2")
   medpaper_check_numeric(data,c("predicted","observed"))
   if (!"group" %in% names(data) || any(data$predicted<0 | data$predicted>1 | data$observed<0 | data$observed>1)) stop("Invalid approved calibration coordinates/groups")
+  data$group <- medpaper_label(data$group)
+  probability_label <- medpaper_label(probability_label)
   ggplot2::ggplot(data,ggplot2::aes(x=predicted,y=observed,colour=group,group=group)) +
     ggplot2::geom_abline(slope=1,intercept=0,linetype="dashed",linewidth=.3,colour="grey50") +
     ggplot2::geom_line(linewidth=.5) + ggplot2::geom_point(size=1.5) +
@@ -83,6 +89,7 @@ medpaper_selection_flow <- function(nodes, edges, box_width=.36, box_height=.16,
      any(!edges$to %in% nodes$id) || any(edges$from==edges$to) || anyDuplicated(edges)) stop("Declare actual connected source/destination nodes")
   if(length(box_width)!=1L || length(box_height)!=1L || !is.finite(box_width) || !is.finite(box_height) ||
      box_width<=0 || box_height<=0) stop("Positive box dimensions required")
+  nodes$label <- medpaper_label(nodes$label)
   # Fail on cycles/unconnected nodes; do not turn a broken selection path into a tidy drawing.
   unseen <- nodes$id; roots <- setdiff(nodes$id,edges$to)
   if(length(roots)!=1L || any(!nodes$id %in% c(edges$from,edges$to))) stop("Use one source root and connect every actual node")
@@ -129,6 +136,9 @@ medpaper_dose_response <- function(data, x_label, y_label, null=NULL) {
   medpaper_check_numeric(data,c("exposure","estimate","lower","upper"))
   medpaper_plot_groups(data,"group")
   if(any(data$lower>data$estimate | data$estimate>data$upper) || anyDuplicated(data[c("group","exposure")])) stop("Complete unique dose/interval coordinates required")
+  data$group <- medpaper_label(data$group)
+  x_label <- medpaper_label(x_label)
+  y_label <- medpaper_label(y_label)
   p <- ggplot2::ggplot(data,ggplot2::aes(x=exposure,y=estimate,colour=group,fill=group,group=group)) +
     ggplot2::geom_ribbon(ggplot2::aes(ymin=lower,ymax=upper),alpha=.15,colour=NA) +
     ggplot2::geom_line(linewidth=.5) + ggplot2::labs(x=x_label,y=y_label) + medpaper_theme()
@@ -142,6 +152,8 @@ medpaper_dose_response <- function(data, x_label, y_label, null=NULL) {
 medpaper_decision_curve <- function(data, y_label="Net benefit") {
   medpaper_check_numeric(data,c("threshold","net_benefit"));medpaper_plot_groups(data,"group")
   if(any(data$threshold<=0 | data$threshold>=1) || anyDuplicated(data[c("group","threshold")])) stop("Unique source thresholds strictly between zero and one required")
+  data$group <- medpaper_label(data$group)
+  y_label <- medpaper_label(y_label)
   ggplot2::ggplot(data,ggplot2::aes(x=threshold,y=net_benefit,colour=group,group=group)) +
     ggplot2::geom_line(linewidth=.5) + ggplot2::labs(x="Threshold probability",y=y_label) + medpaper_theme()
 }
@@ -150,6 +162,8 @@ medpaper_balance <- function(data, threshold=NULL, absolute=TRUE) {
   medpaper_check_numeric(data,"smd");medpaper_plot_groups(data,c("variable","group"))
   if(length(absolute)!=1L || !is.logical(absolute) || is.na(absolute) || anyDuplicated(data[c("group","variable")])) stop("Unique source variable/sample statistics and logical scale required")
   if(absolute) data$smd <- abs(data$smd)
+  data$variable <- medpaper_label(data$variable)
+  data$group <- medpaper_label(data$group)
   data$variable <- factor(data$variable,levels=rev(unique(data$variable)))
   p <- ggplot2::ggplot(data,ggplot2::aes(x=smd,y=variable,colour=group,shape=group)) +
     ggplot2::geom_point(size=2) + ggplot2::labs(x=if(absolute) "Absolute standardized mean difference" else "Standardized mean difference",y=NULL) + medpaper_theme()

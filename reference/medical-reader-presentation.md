@@ -179,3 +179,52 @@ closure, percentage denominator-basis checks and safe trial routing, also use
 `reference/structural-quality.md`. Existing completed stages/evidence remain historical;
 new scoped work does not imply a complete analysis or manuscript rebuild.
 
+## Display internal text: clinical vs analytics-report wording
+
+Figures (axes, tick marks, legends, panel strips, annotations, flowchart boxes) and tables
+(stub headers, group spans, row labels, cell entries, footnotes) are self-contained medical
+presentations. They must never expose internal software implementation details, raw database
+column names, script execution steps, formula syntax, or technical analytics-report jargon.
+
+### 1. Common transformations: raw analytics to clinical peer-reviewed presentation
+
+| Raw Analytics / Code / Package Output | Unacceptable Presentation | Medical Peer-Reviewed Clinical Standard |
+| :--- | :--- | :--- |
+| `sbp`, `dbp`, `hr`, `rr` | SBP, DBP, hr, rr (unexpanded in key positions) | Systolic blood pressure (mmHg), Diastolic blood pressure (mmHg), Heart rate (beats/min), Respiratory rate (breaths/min) |
+| `bmi`, `egfr`, `hba1c` | bmi, eGFR_epi, hba1c_perc | Body mass index (kg/m²), Estimated glomerular filtration rate (mL/min/1.73 m²), Glycated hemoglobin (%) |
+| `group_0`, `group_1`, `trt_arm` | group_0 / group_1, treatment arm 1 | Control group (n = ...), Intervention / Study group (n = ...) |
+| `exposure_flag == 1` / `0` | exposure_flag=1 / exposure_flag=0 | Exposed cohort / Unexposed cohort (or active vs reference category) |
+| `TRUE` / `FALSE`, `1` / `0` in table cells | TRUE / FALSE, 1 / 0 | Present / Absent, Yes / No, or specific condition name |
+| `coef`, `beta`, `std_err`, `se` | coef, beta, se | Regression coefficient (β), Standard error (SE) |
+| `p_val`, `p.value`, `pval` | p_val, p.value | *P* value (italicized *P*) |
+| `hr_95ci`, `or_95ci`, `rr_95ci` | hr_95ci [1.12-1.45] | Hazard ratio (95% CI), Odds ratio (95% CI), Relative risk (95% CI) |
+| `fpr`, `tpr` (ROC curve axes) | fpr / tpr | 1 − Specificity (False positive rate), Sensitivity (True positive rate) |
+| `pred_prob`, `obs_rate` (Calibration) | pred_prob / obs_rate | Predicted event probability, Observed event proportion |
+| `time_to_event_days`, `surv_prob` | time_to_event_days / surv_prob | Follow-up duration (days), Cumulative survival probability |
+| `Analysis Report Figure 1: Output` | Analysis Report Figure 1: Logistic Regression Output | Figure 1. Multivariable Association of Clinical Biomarkers with 30-Day Mortality |
+| `EDA Plot of Risk Score Distribution` | EDA Plot: Distribution of Risk Scores | Figure 2. Distribution of Stratified Risk Scores across Study Cohorts |
+
+### 2. Patient selection flowchart boxes (PRISMA / STROBE / CONSORT)
+
+Flowchart boxes must describe human patient or biological sample cohorts and clinical eligibility,
+never script-level operations or software data pipelines:
+- **Forbidden (script / pipeline language)**:
+  - "Raw records imported from CSV file (n = 100,000)"
+  - "df.dropna() executed on covariates (n = 1,200 removed)"
+  - "Filtered where age >= 18 and flag == 1"
+  - "Merged with laboratory table using SQL inner join"
+- **Required (clinical population language)**:
+  - "Patients assessed for eligibility (n = 100,000)"
+  - "Excluded due to missing baseline clinical covariates (n = 1,200)"
+  - "Adult patients aged ≥ 18 years meeting inclusion criteria (n = 45,000)"
+  - "Patients with confirmed laboratory follow-up data (n = 43,800)"
+
+### 3. Display dictionary and enforcement
+
+In stage `S07`, the project's `project/clinical_story.md` (or `project/display_plan.md`) must
+define an explicit display dictionary mapping internal feature names, variable identifiers, and model
+terms to publication-ready clinical labels and measurement units.
+Stages `S10` (tables), `S11` (figures), `S17` (scientific acceptance), `S22`/`S23` (journal packaging),
+and independent audit (`S18`/`S25`) enforce zero raw snake_case, zero bare boolean/model syntax,
+and clinical reader clarity via the non-overridable gate `display_labels_clinical`.
+

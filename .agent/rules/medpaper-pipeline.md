@@ -1,4 +1,4 @@
-# medpaper pipeline — Antigravity workspace rule (v1.28.0)
+# medpaper pipeline — Antigravity workspace rule (v1.29.0)
 
 This repository is a **gated 25-stage medical research paper pipeline**. Do not follow the
 workflow from memory; `pipeline/pipeline.toml`, `AGENTS.md`, and the active stage card own all
@@ -42,7 +42,7 @@ uv run python tools/wf.py card
    at S19/S24, run affected owner checks in place, and rebuild true dependants (`wf rebuild`) without
    rewinding completed stages. Lock S19 with `scientific_master_freeze.json`; isolate all S20–S25
    journal adaptations under `08_submission/integration/` (`tools/journal.py`).
-7. **Discussion isolation, single-source authors, display placement & supplemental naming (`v1.28.0`)**:
+7. **Discussion isolation, single-source authors, display placement & supplemental naming (`v1.29.0`)**:
    Draft S16 from table-free/number-free `discussion_brief.md` after locking the 6-part `discussion_outline.md`;
    block Results sentence duplication and supplementary-callout overuse, and include `Discussion audit` in
    S18/S19/S24/S25 reviews. Render non-blinded authors on page 1 of `manuscript.docx` from `00_input/author_info.json`
@@ -55,3 +55,5 @@ uv run python tools/wf.py card
    unless explicitly requested by the user.
 
 See `AGENTS.md` and `reference/antigravity-integration.md` for capability and subagent routing.
+
+8. **Clinical display internal text & dictionary gate (`v1.29.0`)**: All text inside figures (axes, tick labels, legend keys, panel titles, annotations, and flowchart boxes) and tables (headers, row stubs, cell values, and notes) must be peer-reviewed medical standard. S07 defines an explicit `display_dictionary` (mapping internal features/terms to clinical publication labels and units). Raw snake_case variables, formula syntax (`y ~ x`), bare `TRUE`/`FALSE`, raw package column names (`coef`, `se`, `fpr`), analysis report titles (`Analysis Report Figure 1`), and pipeline data manipulation language in flowcharts are strictly prohibited and enforced via the non-overridable gate `display_labels_clinical` across S07, S10, S11, S17, S18, S22, S23, S25.
