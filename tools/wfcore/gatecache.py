@@ -30,7 +30,10 @@ INPUTS = {
                             "08_submission/integration/**/*", "08_submission/bundle/**/*"),
     "md_sections": (), "md_wordcount": (), "no_ai_boilerplate": (),
     "supplementary_methods_clean": ("07_manuscript/supplementary_methods.md",),
-    "numbers_have_provenance": ("06_refs/library.json", "06_refs/verified.json", "06_refs/fulltext/*", "06_refs/cache/*.xml", "01_protocol/protocol*.md", "03_analysis/results/*", "04_tables/**/*.xlsx",
+    "numbers_have_provenance": ("06_refs/library.json", "06_refs/verified.json", "06_refs/fulltext/*", "06_refs/cache/*.xml",
+                                "01_protocol/protocol*.md", "03_analysis/results/*", "04_tables/**/*.xlsx",
+                                "05_figures/out/*", "05_figures/qc/*.json",
+                                "08_submission/integration/figure_qc/*.json", "08_submission/integration/artifact_plan.json",
                                 "01_protocol/study_facts.json", "07_manuscript/claim_bindings.json",
                                 "08_submission/integration/claim_bindings.json", "00_input/author_info.json"),
     "manuscript_structure": ("01_protocol/artifact_plan.json", "07_manuscript/title.md",
@@ -84,12 +87,12 @@ class Receipts:
         # All path overrides are included, not only their default locations.
         patterns.extend(v for k, v in spec.items() if isinstance(v, str) and
                         (k == "path" or k.endswith("_path") or k in {"manifest", "style"}))
-        if spec["check"]=="numbers_have_provenance":
+        if spec["check"] == "numbers_have_provenance":
             patterns.append("01_protocol/artifact_plan.json")
-            for location in ("07_manuscript/claim_bindings.json","08_submission/integration/claim_bindings.json"):
-                path=self.project/location
+            for location in ("07_manuscript/claim_bindings.json", "08_submission/integration/claim_bindings.json"):
+                path = self.project / location
                 if path.is_file():
-                    patterns.extend(row["source_path"] for row in json.loads(path.read_text(encoding="utf-8")).get("claims",[]) if row.get("kind")=="unit_scale" and row.get("source_path"))
+                    patterns.extend(row["source_path"] for row in json.loads(path.read_text(encoding="utf-8")).get("claims", []) if row.get("kind") == "unit_scale" and row.get("source_path"))
             allowlist = self.project / "03_analysis/results/number_allowlist.tsv"
             if allowlist.is_file():
                 for line in allowlist.read_text(encoding="utf-8").splitlines():
@@ -118,7 +121,7 @@ class Receipts:
         for pattern in sorted(set(patterns)):
             _safe_path(self.project, pattern)  # Reject traversal before globbing.
             found = [p for p in self.project.glob(pattern) if p.is_file() and not (
-                p.name.startswith("~$") and p.suffix.lower() in {".xlsx",".docx",".pptx"})]
+                p.name.startswith("~$") and p.suffix.lower() in {".xlsx", ".docx", ".pptx"})]
             files[pattern] = {p.relative_to(self.project).as_posix(): _sha256(p) for p in sorted(found)}
         payload = {"stage": stage.id, "spec": spec, "files": files, "engine": self.engine,
                    "targets": self.pipeline.targets, "config": self.state.config(),

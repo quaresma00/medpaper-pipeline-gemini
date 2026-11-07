@@ -553,6 +553,12 @@ def figures_qc_pass(ctx: Ctx) -> Result:
             problems.append(f"{eid}: failing {', '.join(failed)}")
         if not f.get("visual_reviewed"):
             problems.append(f"{eid}: never visually reviewed (deterministic QC alone is not enough)")
+        from ..claims import validate_figure_entry
+        ann_errors, ann_fp = validate_figure_entry(ctx.project, e)
+        if ann_errors:
+            problems.append("; ".join(ann_errors[:2]))
+        elif ann_fp is not None and f.get("figure_annotations_sha256") != ann_fp:
+            problems.append(f"{eid}: figure annotation binding changed after QC; re-run figures/qc.py")
         if str(e.get("script", "")).casefold().endswith(".r"):
             from ..packagefreeze import _sha256, _safe_path
             _, png = _safe_path(ctx.project, e["file"])

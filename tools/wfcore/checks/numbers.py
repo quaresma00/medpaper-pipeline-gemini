@@ -32,8 +32,8 @@ P_RE = re.compile(r"\b[Pp]\s*([<>=≤≥])\s*(0?\.\d+(?:[eE][+-]?\d+)?)\b")
 
 def normalize_grouping(text):
     # Strict three-digit groups only: never merge a comma-separated list or round a value.
-    pattern=r"(?<![\w.,])([+\-−]?\d{1,3}(?:[,\u00a0\u2009\u202f]\d{3})+(?:\.\d+)?)(?![\w.,])"
-    return re.sub(pattern,lambda m:re.sub(r"[,\u00a0\u2009\u202f]","",m[0]),text)
+    pattern = r"(?<![\w.,])([+\-−]?\d{1,3}(?:[,\u00a0\u2009\u202f]\d{3})+(?:\.\d+)?)(?![\w.,])"
+    return re.sub(pattern, lambda m: re.sub(r"[,\u00a0\u2009\u202f]", "", m[0]), text)
 
 
 # ---------------------------------------------------------------------------
@@ -97,15 +97,16 @@ def _allowlist(ctx: Ctx) -> set[str]:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            columns=line.split("\t")
-            if len(columns)!=4 or columns[1]!="constant" or len(columns[3].strip())<20:
+            columns = line.split("\t")
+            if len(columns) != 4 or columns[1] != "constant" or len(columns[3].strip()) < 20:
                 continue  # old free-number allowlists cannot authorize invented evidence
             from ..packagefreeze import _safe_path
             try:
-                _,source=_safe_path(ctx.project,columns[2])
+                _, source = _safe_path(ctx.project, columns[2])
                 if source.is_file() and columns[0] in source.read_text(encoding="utf-8"):
                     allowed.add(columns[0])
-            except (OSError,ValueError): pass
+            except (OSError, ValueError):
+                pass
     return allowed
 
 
@@ -131,7 +132,7 @@ def _matches(token: str, floats: set[float], strings: set[str]) -> bool:
 
 
 def _scrub(text: str) -> str:
-    text=normalize_grouping(text)
+    text = normalize_grouping(text)
     from ..displayrefs import scrub
     text = scrub(text)
     text = FENCE_RE.sub(" ", text)
@@ -139,7 +140,7 @@ def _scrub(text: str) -> str:
     text = ARTIFACT_RE.sub(" ", text)
     text = re.sub(r"\b[A-Za-z][A-Za-z0-9]*-\d+[A-Za-z]?\b", " ", text)  # codes, not measurements
     text = re.sub(r"^\s*#{1,6}\s.*$", " ", text, flags=re.M)
-    text = re.sub(r"\b(?:90|95|99)%\s*(?:CI|confidence interval)\b", "CI", text, flags=re.I)
+    text = re.sub(r"(?<![\d.])(?:80|85|90|95|97\.5|98|99)%\s*(?:CI|confidence\s+intervals?)\b", "CI", text, flags=re.I)
     text = re.sub(r"\b(19|20)\d{2}\s*[-\u2013]\s*(19|20)?\d{2}\b", " ", text)  # not scrubbed values
     return text
 
@@ -181,7 +182,8 @@ def _offenders(text: str, floats, strings, allowed, p_values=None) -> list[tuple
 @check("numbers_have_provenance")
 def numbers_have_provenance(ctx: Ctx) -> Result:
     source = ctx.spec.get("source", "markdown")
-    if source != "tables":
+    rel = ""
+    if source not in {"tables", "figures"}:
         rel = ctx.spec["path"]
         if not ctx.p(rel).exists():
             if ctx.spec.get("optional", False):
@@ -196,23 +198,24 @@ def numbers_have_provenance(ctx: Ctx) -> Result:
             f"no result files under {RESULTS_GLOB}",
             ["Analysis code must dump every reported statistic to JSON before any prose is written."],
         )
-    allowed = _allowlist(ctx) if source != "tables" and rel.endswith(("methods.md","supplementary_methods.md")) else set()
+    allowed = _allowlist(ctx) if source not in {"tables", "figures"} and rel.endswith(("methods.md", "supplementary_methods.md")) else set()
     if source == "tables":
         offenders = []
         for p in ctx.glob("04_tables/main/*.xlsx") + ctx.glob("04_tables/supplementary/*.xlsx"):
             try:
                 cells = xlsxlite.numeric_cell_values(p)
             except PermissionError as exc:
-                return Result(False,"numbers_have_provenance",f"Workbook IO pending: {p.name}: {exc}",
+                return Result(False, "numbers_have_provenance", f"Workbook IO pending: {p.name}: {exc}",
                               ["Close or finish saving this workbook in Excel, then rerun the check; do not regenerate data or mark provenance passed."])
             except Exception as exc:  # noqa: BLE001 - report, do not crash the gate
                 return Result(False, "numbers_have_provenance", f"cannot read {p.name}: {exc}")
             for sheet, ref, val in cells:
                 from ..claims import table_unit_constants
-                try: constants=table_unit_constants(ctx.project,p,sheet,ref,val)
-                except (OSError,ValueError,KeyError,TypeError,StopIteration) as exc:
-                    return Result(False,"numbers_have_provenance",f"{p.name}[{sheet}]!{ref}: {exc}")
-                if _offenders(str(val), floats, strings, allowed|constants):
+                try:
+                    constants = table_unit_constants(ctx.project, p, sheet, ref, val)
+                except (OSError, ValueError, KeyError, TypeError, StopIteration) as exc:
+                    return Result(False, "numbers_have_provenance", f"{p.name}[{sheet}]!{ref}: {exc}")
+                if _offenders(str(val), floats, strings, allowed | constants):
                     offenders.append(f"{p.name}[{sheet}]!{ref}={val}")
         from ..claims import validate_tables
         offenders.extend(validate_tables(ctx.project, ctx.glob("04_tables/main/*.xlsx") + ctx.glob("04_tables/supplementary/*.xlsx")))
@@ -229,11 +232,29 @@ def numbers_have_provenance(ctx: Ctx) -> Result:
             )
         return Result(True, "numbers_have_provenance", f"all table values trace to {len(sources)} result file(s)")
 
+    if source == "figures":
+        from ..claims import validate_figures
+        journal = ctx.stage.id in {"S23_package", "S24_package_human_review", "S25_submission_audit"} and (
+            ctx.project / "08_submission/integration/artifact_plan.json"
+        ).is_file()
+        problems = validate_figures(ctx.project, journal=journal)
+        if problems:
+            return Result(
+                False,
+                "numbers_have_provenance",
+                f"{len(problems)} figure statistical annotation issue(s): " + "; ".join(problems[:6]),
+                [
+                    "Bind every explicit statistical label on rendered figures in claim_bindings.json figure_annotations.",
+                    "Map each displayed number (estimate, CI bounds, P, n, AUC) to its executed result JSON pointer and field.",
+                ],
+            )
+        return Result(True, "numbers_have_provenance", "explicit figure statistical annotations trace to bound result fields")
+
     from ..journalspec import admin_scrub
     from ..sourceclaims import mask
-    masked, external_problems = mask(ctx.project,rel,ctx.read(rel))
+    masked, external_problems = mask(ctx.project, rel, ctx.read(rel))
     if external_problems:
-        return Result(False,"numbers_have_provenance","; ".join(external_problems[:8]))
+        return Result(False, "numbers_have_provenance", "; ".join(external_problems[:8]))
     bad = _offenders(admin_scrub(masked, ctx.project, rel), floats, strings, allowed)
     if bad:
         shown = "; ".join(f"line {ln}: {tok}" for ln, tok in bad[:10])
@@ -248,7 +269,7 @@ def numbers_have_provenance(ctx: Ctx) -> Result:
             ],
         )
     from ..claims import validate_prose
-    problems = validate_prose(ctx.project, rel, ctx.read(rel))
+    problems = validate_prose(ctx.project, rel, masked, already_masked=True)
     return Result(not problems, "numbers_have_provenance", "; ".join(problems[:8]) or
                   f"{rel}: numeric source checks passed; clinical interpretation still requires scientific review")
 

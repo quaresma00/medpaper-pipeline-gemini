@@ -1,6 +1,6 @@
 # Source-bound reported findings
 
-Use at S05/S06 when exporting results, S09/S10/S17 when reporting them, and for affected
+Use at S05/S06 when exporting results, S09/S10/S11/S16/S17 when reporting them, and for affected
 revisions. This is backstage provenance, not a table or paragraph for the submitted paper.
 Never fabricate data or manually edit result JSON to make a claim pass. Correct and execute
 the analysis producer. Do not add analyses solely to populate metadata.
@@ -8,7 +8,8 @@ the analysis producer. Do not add analyses solely to populate metadata.
 ## One fact, one scientific context
 
 Executed analysis JSON exports a small object for each reportable finding. Its `context`
-contains `outcome`, `population`, `comparison`, `model`, `timepoint`, `unit`, `denominator`.
+contains `outcome`, `population`, `comparison`, `model`, `timepoint`, `unit`, `denominator`
+(and optional `interval_level` when an interval is not `95% CI`, e.g. `90` or `99`).
 Use exact reader-facing outcome wording and explicit reasons where a dimension does not apply.
 Its `values` contains named numerical results (for example `estimate`, `ci_low`, `ci_high`,
 `p_value`, `n`). P values use `p`, `p_value`, `pvalue`, `adjusted_p` or `q_value` as keys.
@@ -41,16 +42,23 @@ The context must exactly match the actual result object's context. `readiness.py
 resolves JSON pointers and prints only these small facts, not the full dataset/result library.
 The result object's values, not a duplicated hand-entered value in this catalog, are authoritative.
 
-## Bind the reported text/cells
+## Bind the reported text/cells/annotations
 
 At S09 create `07_manuscript/claim_bindings.json` with `schema_version: 1` and `claims: []`.
-Each reported numeric finding in Results and Abstract needs an entry with:
+Each reported own-study numeric finding in Results, Abstract, and (for 1.27+ projects) Discussion
+needs an entry with:
 
-- `path`: project-relative manuscript path.
+- `path`: project-relative manuscript path (`07_manuscript/results.md`, `07_manuscript/abstract.md`,
+  `07_manuscript/discussion.md`, or `07_manuscript/full_manuscript.md`).
 - `text`: the exact short finding sentence/clause, including its actual outcome label.
 - `fact_ids`: only the relevant identifiers in `numeric_facts`.
 
-### Current prose context, not merely matching digits
+In `discussion.md` (and `# Discussion` of `full_manuscript.md`), cited prior-study sentences
+registered in `source_claims` are verified against external literature passages and are never
+forced into own-study `numeric_facts`. Uncited own-study findings restated in Discussion follow
+the same `fact_ids` + `context_evidence` rules as Results, including same-section lead-in inheritance.
+
+### Current prose context, effect scale, and interval level
 
 For new projects pinned to 1.26+ (or an older binding explicitly opting in), add
 `context_evidence` keyed by the claim's own fact IDs. `readiness.py facts` now returns
@@ -60,16 +68,24 @@ exact current sentence. Do not derive them from guessed manuscript values or edi
 result to match the prose. Unrelated findings or export whitespace do not expire this proof.
 
 Each fact entry contains `fact_fingerprint`, `claim_fingerprint` and `observations` for
-applicable `population`, `comparison`, `model`, `timepoint`. Source-explained N/A is allowed;
-an unknown or an unsupported waiver is not N/A. This is backstage attribution: the paper
-does not repeat all context dimensions or expose these metadata fields.
+applicable `population`, `comparison`, `model`, `timepoint` (plus optional `unit` when effect
+scale/unit is inherited from an earlier sentence in the same section or explained via `read_back`).
+For 1.27+ prose claims, non-exempt `context.unit` / effect scales are checked against controlled
+clinical measure families (`hazard ratio` / case-sensitive `HR` / `aHR`, `odds ratio` / `OR` / `aOR`,
+`risk ratio` / `RR` / `aRR`, `incidence rate ratio` / `IRR`, `risk difference` / `RD`,
+`mean difference` / `MD`, `AUC` / `C-statistic`, etc.): swapping `HR`, `RR` and `OR` blocks, while
+ordinary lowercase English `"or"` is never misread as `OR`. Default `95% CI` requires no extra field;
+explicitly writing `90% CI` or `99% CI` (or exporting a non-95 `interval_level`) requires exact
+agreement between prose and source. Source-explained N/A is allowed; an unknown or an unsupported
+waiver is not N/A. This is backstage attribution: the paper does not repeat all context dimensions
+or expose these metadata fields.
 
 - A common observation is simply an exact phrase in the finding sentence. It must align
   with the actual source context value or the existing clinical display dictionary's label.
   Word boundaries distinguish `adjusted model` from `unadjusted model`.
 - Inherited context uses `{mode: "literal", scope: "section", quote: "<actual short passage>"}`.
-  The source-aligned passage must occur before/in the claim in that same Abstract or Results
-  section. An abstract's population cannot silently certify a different main Results cohort.
+  The source-aligned passage must occur before/in the claim in that same Abstract, Results, or
+  Discussion section. An abstract's population cannot silently certify a different main Results cohort.
 - Nonliteral wording uses `{mode: "read_back", reviewer: "executor", scope: "claim" or
   "section", quote, interpretation, reason}`. Record what the actual words mean and why the
   selected executed finding supports that interpretation (at least 30/60 characters respectively).
@@ -94,24 +110,31 @@ only unresolved nonliteral meaning as an actual executor observation. This does 
 automatic refresh of an old read-back after its sentence or finding has changed.
 
 Repeated text needs per-occurrence binding: use `section: ["Results", "<actual subsection>"]`
-and, only if still ambiguous inside that scope, a 1-based `occurrence`. Missing/ambiguous
-locations fail instead of letting one entry cover every identical sentence. Assembly keeps
-separate Abstract/Results bindings. Inherited context comes from the current subsection and
-its ancestor introductions, never a sibling subgroup's paragraph; a later Validation section
-cannot borrow Discovery context. If changed headings make a locator stale, repair only that
-binding and its actual context observations. No new scientific analysis is implied.
+(or `["Discussion", ...]`) and, only if still ambiguous inside that scope, a 1-based `occurrence`.
+Missing/ambiguous locations fail instead of letting one entry cover every identical sentence.
+Assembly keeps separate Abstract/Results/Discussion bindings. Inherited context comes from the
+current subsection and its ancestor introductions, never a sibling subgroup's paragraph; a later
+Validation section cannot borrow Discovery context. If changed headings make a locator stale,
+repair only that binding and its actual context observations. No new scientific analysis is implied.
 
 Do not bind a whole section or use all facts as a global whitelist. The guard verifies signed
 numbers, rounded values and P thresholds against the claim's own facts. Common CI confidence
 levels and figure/table labels are not findings; small numbers and P values are not exempt.
 Constants in Methods need the typed source-bound constant entry specified by quality-before-writing.md, not a free number allowlist or fabricated results.
 
+### S10 table cell context and denominator bindings
+
 At S10 the table builder appends cell bindings to the same file: `path`, `sheet`, `cell`,
 `text` (exact string value returned by the workbook reader), `fact_ids`, and `label_cells`
 (actual worksheet cells identifying the outcome). Keep the statistical result and the cell
 binding in the same deterministic build path. Never alter a table to match a guessed result.
+For 1.27+ projects, the validator also resolves merged column-header stacks, bold interior
+group headers, and `label_cells` against `fact["context"]`, blocking cross-group column swaps
+(e.g. `Group B` placed under `Group A`), `HR`/`RR`/`OR` column mismatches, adjusted vs
+unadjusted/crude swaps, and catalog context conflicts while exempting standalone `P value` and
+pure count headers.
 
-For v1.26-pinned tables, a reported count percentage must carry `proportions` evidence,
+For v1.26+ tables, a reported count percentage must carry `proportions` evidence,
 not merely a value present somewhere in its fact. Each entry identifies `fact_id`, the actual
 `numerator_key`, `denominator_key`, and exact displayed `reported` percentage. The executed
 fact supplies `percentage_basis` (population/available-case rule, unit and time). The check
@@ -130,10 +153,46 @@ source/value and medical interpretation checks still apply. A claim-side exempti
 replace the source type. Weighted, relative-change and probability results retain their real
 basis and statistical method; this check does not establish that the analysis is valid.
 
-At S17 bind Abstract claims. `assemble.py` carries matching Abstract/Results bindings into
-the assembled manuscript without inserting markers, identifiers or internal prose into it.
-Initial journal-workspace creation derives `integration/claim_bindings.json`; journal edits
-update only affected text bindings there. Bindings are not submission uploads or S19 ZIP items.
+### S11 figure statistical annotation bindings (1.27+)
+
+For 1.27+ projects, any explicit statistical text rendered inside a figure (`HR`/`OR`/`RR`/`IRR`,
+`CI`, `P = ...`, `n = ...`, `AUC`, etc.) must be bound under top-level `figure_annotations: []`
+in `07_manuscript/claim_bindings.json` before `qc.py` and S11's `numbers_have_provenance`
+(`source = "figures"`) gate pass:
+
+```json
+{
+  "figure_annotations": [
+    {
+      "figure_id": "Figure 2",
+      "label_id": "primary_hr",
+      "text": "HR 1.42 (95% CI, 1.10 to 1.83); P = 0.007",
+      "fact_id": "mortality_primary",
+      "source": "03_analysis/results/primary.json",
+      "pointer": "/reported/mortality_primary",
+      "fields": [
+        {"field": "estimate", "shown": "1.42", "digits": 2},
+        {"field": "ci_low", "shown": "1.10", "digits": 2},
+        {"field": "ci_high", "shown": "1.83", "digits": 2},
+        {"field": "p_value", "shown": "0.007", "digits": 3, "op": "="}
+      ]
+    }
+  ]
+}
+```
+
+Every number in the rendered statistical annotation (excluding standard CI labels like `95% CI`
+and `Figure N` identifiers) must map to a named field in the resolved result object with matching
+precision/threshold and compatible effect scale. `qc.py` hashes both the rendered PNG and bound
+annotation provenance (`figure_annotations_sha256`), and `figures_qc_pass` blocks stale reports if
+bindings or results change afterward. Axis tick labels are excluded from statistical annotation
+matching; visual inspection (`visual_reviewed`) remains mandatory.
+
+At S17 bind Abstract claims. `assemble.py` carries matching Abstract/Results/Discussion bindings
+into the assembled manuscript without inserting markers, identifiers or internal prose into it.
+Initial journal-workspace creation derives `integration/claim_bindings.json` (including
+`figure_annotations`); journal edits update only affected bindings there. Bindings are not
+submission uploads or legacy S19 archive items.
 
 The guard checks source identity, exact context, outcome labels and numerical correspondence.
 It cannot prove clinical interpretation, automatically understand every synonym, or establish
@@ -153,5 +212,3 @@ For source-scoped labels, early physical production assumptions, all-observation
 closure, percentage denominator-basis checks and safe trial routing, also use
 `reference/structural-quality.md`. Existing completed stages/evidence remain historical;
 new scoped work does not imply a complete analysis or manuscript rebuild.
-
-

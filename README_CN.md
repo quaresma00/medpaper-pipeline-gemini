@@ -2,9 +2,9 @@
 
 [中文说明](README.md) | [English Documentation](README_EN.md)
 
-一套面向医学与临床研究的 Gemini / Google Antigravity 门禁式工作流（同步上游 `v1.26.0` 架构）。它把“研究想法”推进为经过全量数据核验、真实文献溯源、语境绑定统计结果、R 优先临床图表、版本绑定独立子代理复核和目标期刊官方规则共同校验的投稿包，而不是让 AI 一次性凭记忆拼凑一篇看似完整的论文。
+一套面向医学与临床研究的 Gemini / Google Antigravity 门禁式工作流（`v1.27.0` 架构）。它把“研究想法”推进为经过全量数据核验、真实文献溯源、语境与效应尺度绑定统计结果、R 优先临床图表、版本绑定独立子代理复核和目标期刊官方规则共同校验的投稿包，而不是让 AI 一次性凭记忆拼凑一篇看似完整的论文。
 
-当前版本：`1.26.0`　｜　流程：25 个阶段（表图先行）　｜　运行环境：Windows `pwsh` + Google Antigravity / Gemini (`uv run python`)
+当前版本：`1.27.0`　｜　流程：25 个阶段（表图先行）　｜　运行环境：Windows `pwsh` + Google Antigravity / Gemini (`uv run python`)
 
 ## 当前版本的使用要点
 
@@ -55,7 +55,7 @@
 
 1. **全量数据普查（Full Census）**：默认覆盖 S03 定义的完整数据范围，逐源核对源端总数、实际接收数、末页/空游标证据、复杂连接（join）唯一分析单位及原始文件/脚本 SHA-256；严禁 `LIMIT`、`TOP`、`head()`、`sample()`、`nrows=` 或固定页数截断，不可通过 `--force` 豁免。
 2. **双保险文献真实性**：外部检索工具仅提供候选，正式引用必须由 `tools/pubmed/verify.py` 执行新鲜 EFetch 并绑定原始 XML 与文献库哈希，在 S13 和 S25 强制独立实时复核（中间关口支持 24 小时未变更哈希缓存）；无 PubMed 摘要的经典方法原始论文须凭已登记并核验身份的合法全文入库。
-3. **语境与分母级数值溯源**：本研究数字必须来自已执行的 `03_analysis/results/*.json`，并绑定对应人群、终点、对比、尺度、时间及比例表格分子/分母（`claim_bindings.json`）；引用既往文献数字必须绑定已登记原文段落（`source_claims`）。
+3. **全场景语境、效应尺度与分母级数值溯源**：本研究数字在 `Results`、`Abstract`、`Discussion`、三线表单元格及图内显式统计标注中均必须来自已执行的 `03_analysis/results/*.json`，并绑定对应人群、终点、对比、受控效应尺度（区分 `HR`/`RR`/`OR`）、置信水平、时间窗、表格行列头语境、比例分子/分母及图上统计字段（`claim_bindings.json`）；引用既往文献数字必须绑定已登记原文段落（`source_claims`）。
 4. **去 ZIP 化独立审阅与原地局部返工**：S18/S19/S24/S25 通过 Antigravity 原生只读子代理（`invoke_subagent` + `tools/review_round.py`）开展版本绑定审阅，不再生成冗余审核 ZIP；修改意见持久化为 `tools/rework.py` 批次，在 S19/S24 原地调用上游规则并按真实依赖增量重建（`wf rebuild`），不清空后续阶段历史。
 5. **科学母稿冻结与换刊隔离**：S19 收到针对当前版本的 **`我确认这一版`** 后冻结 `scientific_master_freeze.json`；S20–S25 的期刊定制全部隔离在 `08_submission/integration/`，换刊时自动归档旧尝试，绝不污染已确认的科学母稿。
 6. **隐私与披露控制权**：未经明确授权，患者级数据、私密文件与密钥严禁外发；绝不擅自起草或插入 AI 使用声明。
@@ -64,7 +64,7 @@
 
 ### 1. 通过全局技能 `medpaper-pipeline` 在任意文件夹启动（推荐）
 
-本机全局技能（`~/.gemini/config/skills/medpaper-pipeline/SKILL.md`）已锚定唯一官方纯化母版 `F:\workspace\medpapaer\gemini`：
+本机全局技能（`~/.gemini/config/skills/medpaper-pipeline/SKILL.md`）默认锚定唯一官方纯化母版 `F:\workspace\medpapaer\gemini`（外部克隆环境亦可通过环境变量 `$env:MEDPAPER_MASTER_TEMPLATE` 或 `uv run python tools/medpaper_launcher.py --template-source <目录>` 指定母版源）：
 
 - **新论文项目（空文件夹）**：在 Antigravity 打开目标工作区，告知研究想法并唤起 `medpaper-pipeline`，Agent 会自动从官方母版复制纯化引擎骨架、配置 `.venv`、初始化 `project/.wf/state.json` 并从 `S01_intake` 启动。
 - **已有论文项目**：自动执行 `uv run python tools/wf.py status`（上下文压缩后执行 `wf handoff`）恢复当前阶段。

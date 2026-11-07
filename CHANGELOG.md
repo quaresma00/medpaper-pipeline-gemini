@@ -2,6 +2,19 @@
 
 历史说明用于了解变更；执行以当前 AGENTS.md、阶段卡和程序为准。
 
+## 1.27 版：全场景数值语境闭环、图表显式标注溯源与终审不可豁免加固
+
+针对外部专家交叉评审识别出的残余结构性漏口，在不增加新阶段、不破坏 `1.14`–`1.26` 既有历史锁（`engine_pin`）的前提下补齐六项硬门禁与跨环境适配：
+
+- **Discussion 本研究数字接入绑定门禁（S16/S17）。** `discussion.md` 及组装后 `full_manuscript.md` 的 `# Discussion` 节不再沿用松散数值池匹配：本研究数字同样绑定 `fact_ids` 与 `context_evidence`（支持同小节前置引言语境继承），与 `source_claims` 协同区分本研究结果与带引文的外部文献数字，拦截错人群、错时间窗、错模型或错效应尺度的改写。
+- **正文效应尺度/单位与非 95% 区间水平核验（S09/S16/S17）。** 建立受控效应尺度词表（严格区分大小写的 `HR`/`aHR`、`OR`/`aOR`、`RR`/`aRR`、`IRR`、`RD`、`MD`、`AUC` 等及全称短语，不将英语连词 `or` 误判为 `OR`），拦截 `hazard ratio` 写成 `risk ratio`/`OR` 等尺度串用；显式写出 `90% CI`/`99% CI` 或源结果声明非 `95` `interval_level` 时严格核对一致。
+- **三线表行列语境一致性与临界 P 值可选精度（S10）。** 轻量工作簿读取器补齐 `<mergeCell>` 合并列头解析、列头栈提取与表内粗体分组行识别，核对单元格所在列头/行组/行标签与绑定 `fact.context` 的组别、调整状态（`adjusted` vs `unadjusted`/`crude`）、人群、时间窗及效应尺度一致，保留原有 `n (%)` 分母重算。`threeline.p_value()` 新增可选 `decimals` 与 `borderline_three_decimals=True`（`0.045 <= p < 0.055` 保留 3 位小数），默认行为完全兼容。
+- **统计图显式统计标注逐值溯源（S11）。** 图内渲染的显式统计文本（如 `HR`/`OR`/`RR`、`CI`、`P`、`n =`）须在 `claim_bindings.json` 的 `figure_annotations` 中逐字段绑定到 `fact_id`、结果 `source`/`pointer` 与显示精度；`qc.py` 与 `numbers_have_provenance(source="figures")` 联合阻断未登记、改数或错尺度的图内统计文字，并用 `figure_annotations_sha256` 防止事后篡改。
+- **S25 终审状态记录不可 `--force` 豁免。** 将 S25 的 `decision_recorded`（`submission_package_independent_audit`）并入不可豁免门禁，与 `independent_submission_audit` 共同确保终审报告、冻结指纹与状态机记录一致后才可推进。
+- **跨盘母版派生与离线自检解耦。** `medpaper_launcher.py` 支持 `--template-source`、`MEDPAPER_MASTER_TEMPLATE` 与仓库目录自解析（本机默认仍锚定 `F:\workspace\medpapaer\gemini`），新增强制源目录完整性校验；`selftest.py` 明确标注旧版 S19 ZIP 测试的兼容定位，并在缺少 `pandoc` 时将 DOCX 渲染断言优雅标为 `SKIP` 而不误报崩溃；`workflow.md` 增补早期构想归档说明。
+
+上述确定性门禁可拦截数值失配、已知词表内的尺度串用、行列贴错与未登记图内统计，但不能替代真实临床方法学审视、图表视觉验收与独立审稿人判断。
+
 ## 1.26 版：验证研究语境、分析单位和比例分母
 
 依据外部多角色评审先做合成反例，再修改已确认的路径。Results/Abstract 不再只核对结局词和数字：原有绑定增加源事实与当前短句的对应观察，支持自然表述、同节及祖先引言继承；同句在摘要、正文或不同人群小节重复时按真实位置分别核对。代码能检查字面对应、已知冲突和漂移，不能冒充临床语义理解。非字面解释由执行器读回，并继续交既有独立审核。

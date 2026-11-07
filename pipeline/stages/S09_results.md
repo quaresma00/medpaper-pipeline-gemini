@@ -39,9 +39,13 @@ uncertainty; a successful model run is not the result narrative.
 5. Do not restate a table row by row. The prose carries the findings the reader must not
    miss; the table carries the rest.
 6. For each reported estimate confirm the source field AND population/comparison, endpoint,
-   unit, denominator, adjustment set and time window. Equal numeric values in a JSON pool
-   are not proof that a sentence refers to the right clinical result. Keep this mapping in
-   the existing analysis notes, not as cryptic provenance tags in the published prose.
+   unit/effect scale, denominator, interval level, adjustment set and time window. Equal
+   numeric values in a JSON pool are not proof that a sentence refers to the right clinical
+   result. For 1.27+ prose bindings, the sentence or inherited same-section lead-in must carry
+   the exact source effect scale or its controlled clinical abbreviation (e.g. `hazard ratio` /
+   `HR`, never swapping `HR`, `RR` and `OR`), and any non-95% confidence interval must match
+   an explicit `interval_level` in the executed fact. Keep provenance metadata in
+   `07_manuscript/claim_bindings.json` and existing analysis notes, never in published prose.
 
 ## Outputs
 - `07_manuscript/results.md`

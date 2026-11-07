@@ -273,11 +273,19 @@ def _qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Pa
                 except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
                     add("km_censoring_context", False, str(exc))
                 checks.extend(_archetype_checks(archetype, elements_found, arch_reg, not_applicable))
+            from wfcore.claims import validate_figure_entry
+            ann_errors, ann_fp = validate_figure_entry(project, entry, art)
+            if ann_errors or ann_fp is not None:
+                add("figure_annotation_provenance", not ann_errors,
+                    "; ".join(ann_errors[:3]) or "explicit figure statistical labels match bound result fields")
             blocking = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
-            return {"id": fid, "png": png_rel, "engine": "R", "archetype": archetype,
-                    "width_class": width_class, "pixels": [w_px, h_px], "effective_dpi": round(eff_dpi, 1),
-                    "checks": checks, "ok": not blocking, "visual_reviewed": False,
-                    "png_sha256": _sha256(png)}
+            out_r = {"id": fid, "png": png_rel, "engine": "R", "archetype": archetype,
+                     "width_class": width_class, "pixels": [w_px, h_px], "effective_dpi": round(eff_dpi, 1),
+                     "checks": checks, "ok": not blocking, "visual_reviewed": False,
+                     "png_sha256": _sha256(png)}
+            if ann_fp is not None:
+                out_r["figure_annotations_sha256"] = ann_fp
+            return out_r
         font_min = float(tgt.get("figure_font_pt_min", 6.0))
         line_min = float(tgt.get("figure_line_pt_min", 0.5))
         mf, ml = art.get("min_font_pt"), art.get("min_line_pt")
@@ -323,14 +331,21 @@ def _qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Pa
 
         if archetype and arch_reg:
             checks.extend(_archetype_checks(archetype, elements_found, arch_reg))
+        from wfcore.claims import validate_figure_entry
+        ann_errors, ann_fp = validate_figure_entry(project, entry, art)
+        if ann_errors or ann_fp is not None:
+            add("figure_annotation_provenance", not ann_errors,
+                "; ".join(ann_errors[:3]) or "explicit figure statistical labels match bound result fields")
     else:
+        ann_fp = None
         add("artist_audit_present", False,
             f"no sidecar at 05_figures/qc/{Path(png_rel).stem}.artist.json - "
             "render R through render_r.py/medpaper_save(), or Matplotlib through figures.style.save(), so fonts, line widths, glyphs, tick "
             "collisions and archetype elements can be measured")
 
+    from wfcore.packagefreeze import _sha256
     blocking = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
-    return {
+    out_py = {
         "id": fid,
         "png": png_rel,
         "archetype": archetype,
@@ -341,7 +356,11 @@ def _qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Pa
         "checks": checks,
         "ok": not blocking,
         "visual_reviewed": False,
+        "png_sha256": _sha256(png),
     }
+    if ann_fp is not None:
+        out_py["figure_annotations_sha256"] = ann_fp
+    return out_py
 
 
 def _km_censoring_exception(project, entry, art):

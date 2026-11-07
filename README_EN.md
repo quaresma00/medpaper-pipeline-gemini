@@ -1,17 +1,17 @@
-# medpaper-pipeline-gemini — Gated Medical Research Paper Workflow (v1.26.0)
+# medpaper-pipeline-gemini — Gated Medical Research Paper Workflow (v1.27.0)
 
 [中文说明](README.md) | [English Documentation](README_EN.md)
 
-A 25-stage, fail-closed medical and clinical research paper workflow optimized for **Google Antigravity / Gemini** (`uv run python` + `pwsh`), synchronized with the upstream `v1.26.0` architecture. It drives a clinical research idea from feasibility and full-census data acquisition through R-first statistical graphics, context-bound IMRAD writing, version-bound read-only subagent review, frozen scientific master isolation, and journal-compliant native Word submission bundles.
+A 25-stage, fail-closed medical and clinical research paper workflow optimized for **Google Antigravity / Gemini** (`uv run python` + `pwsh`), running the `v1.27.0` verification architecture. It drives a clinical research idea from feasibility and full-census data acquisition through R-first statistical graphics, context- and scale-bound IMRAD writing, version-bound read-only subagent review, frozen scientific master isolation, and journal-compliant native Word submission bundles.
 
-## Architectural Highlights (`v1.26.0`)
+## Architectural Highlights (`v1.27.0`)
 
 | Risk / Failure Mode | Architectural Enforcement |
 |---|---|
 | Context rot & prompt bloat | Disk-backed state (`project/.wf/state.json`), zero-network compact `wf status`, bounded `wf handoff`, split `--details` cards, and on-demand `reference/*.md` topic routing. |
 | Convenience data truncation | `tools/data_manifest.py` + `dataproof.py` verify source totals, terminal pagination, join-unit counts, file/script SHA-256, and reject `LIMIT`, `TOP`, `head()`, `sample()`, and `nrows=`. Large local datasets register read-only in place via `tools/data_sources.py`. |
 | Hallucinated or spoofed references | `tools/pubmed/verify.py` binds fresh EFetch XML SHA-256 and parsed fingerprints to `library.json`, re-verified live at S13 and S25 (with 24h hash-bound cache in between). Legal full texts require `fulltext.py register` identity checks. |
-| Disembodied or misattributed numbers | `claim_bindings.json` + `proportions.py` bind every own-study number to executed `03_analysis/results/*.json` (population, endpoint, contrast, scale, join unit, and `n/N (%)` denominator) and prior-study numbers to registered source passages. |
+| Disembodied or misattributed numbers | `claim_bindings.json` + `proportions.py` bind every own-study number across `Results`, `Abstract`, `Discussion`, table cells, and explicit figure annotations (`figure_annotations`) to executed `03_analysis/results/*.json` (population, endpoint, contrast, controlled `HR`/`RR`/`OR` scale, interval level, table header/row context, join unit, and `n/N (%)` denominator) and prior-study numbers to registered source passages. |
 | Results drafted before displays settle | **Table/figure-first execution order**: `S08_methods` -> `S10_tables` -> `S11_figures` -> `S09_results` -> `S12_reconcile`, gated by `display_review.json`. |
 | Amateur plots & universal quotas | Comparator full-text PDF benchmarking at S07 (`pypdf`) replaces rigid word/reference/figure quotas. S11 defaults to managed R clinical recipes (`render_r.py`: flowcharts, aligned-column forest plots, KM, ROC, calibration, dose-response, DCA, balance) with `renv` and per-figure job locks. |
 | Destructive rewrites & journal drift | Version-bound read-only subagent reviews (`invoke_subagent` + `review_round.py`, no review ZIPs), explicit `我确认这一版` sign-off, in-place scoped `rework.py` batches + `wf rebuild`, S19 `scientific_master_freeze.json`, and isolated `08_submission/integration/` (`tools/journal.py`). |

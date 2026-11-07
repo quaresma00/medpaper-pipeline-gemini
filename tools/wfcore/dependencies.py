@@ -117,6 +117,10 @@ def closure(project: Path, changed: list[str], *, change_type: str = "scientific
     for group in ("main_tables", "supp_tables"):
         for entry in plan.get(group, []):
             link(entry.get("file"), "07_manuscript/claim_bindings.json")
+    for group in ("main_figures", "supp_figures"):
+        for entry in plan.get(group, []):
+            link(entry.get("file"), "07_manuscript/claim_bindings.json")
+            link(entry.get("file"), "05_figures/qc/qc_report.json")
     link("08_submission/integration/full_manuscript.md", "08_submission/integration/claim_bindings.json")
     link("08_submission/integration/supplementary_methods.md", "08_submission/integration/claim_bindings.json")
     link("05_figures/legends.md", "07_manuscript/full_manuscript.md")
@@ -130,9 +134,9 @@ def closure(project: Path, changed: list[str], *, change_type: str = "scientific
     link("00_input/author_info.json", "08_submission/cover_letter.md")
     link("08_submission/integration/statements.md", "08_submission/integration/full_manuscript.md")
     link("08_submission/integration/figure_legends.md", "08_submission/integration/full_manuscript.md")
-    for item in read("08_submission/bundle/manifest.json").get("items",[]):
-        link("08_submission/integration/artifact_plan.json",item.get("file"))
-        link("08_submission/integration/presentation_map.json",item.get("file"))
+    for item in read("08_submission/bundle/manifest.json").get("items", []):
+        link("08_submission/integration/artifact_plan.json", item.get("file"))
+        link("08_submission/integration/presentation_map.json", item.get("file"))
     link("06_refs/library.json", "06_refs/refs.bib")
     link("06_refs/library.json", "06_refs/refs.ris")
     link("06_refs/library.json", "06_refs/verified.json")
@@ -171,16 +175,18 @@ def closure(project: Path, changed: list[str], *, change_type: str = "scientific
     for output, receipt in build_receipts(project).items():
         for source in project_inputs(project, receipt):
             link(source, output)
-    journal_plan=read("08_submission/integration/artifact_plan.json")
+    journal_plan = read("08_submission/integration/artifact_plan.json")
     for group in groups:
-        for entry in journal_plan.get(group,[]):
-            outputs=[entry[k] for k in ("file","pdf","tiff") if entry.get(k)]
+        for entry in journal_plan.get(group, []):
+            outputs = [entry[k] for k in ("file", "pdf", "tiff") if entry.get(k)]
             if "figures" in group and entry.get("file"):
-                stem=Path(entry["file"]).stem
+                stem = Path(entry["file"]).stem
                 outputs += [f"08_submission/integration/figure_qc/{stem}{suffix}" for suffix in
-                            (".artist.json",".render.svg",".rmeta.json")]
-            for source in [entry.get("script"),*entry.get("source_results",[]),"08_submission/integration/artifact_plan.json"]:
-                for output in outputs:link(source,output)
+                            (".artist.json", ".render.svg", ".rmeta.json")]
+                link(entry.get("file"), "08_submission/integration/claim_bindings.json")
+            for source in [entry.get("script"), *entry.get("source_results", []), "08_submission/integration/artifact_plan.json"]:
+                for output in outputs:
+                    link(source, output)
     for row in extra_edges or []:
         link(row["input"], row["output"])
     # This augments safe defaults; missing metadata never narrows scientific dependencies.

@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-PASS, FAIL = "PASS", "FAIL"
+PASS, FAIL, SKIP = "PASS", "FAIL", "SKIP"
 results: list[tuple[str, str, str]] = []
 
 
@@ -33,6 +33,11 @@ def record(name: str, ok: bool, detail: str = "") -> bool:
     results.append((name, PASS if ok else FAIL, detail))
     print(f"  [{PASS if ok else FAIL}] {name}" + (f"  {detail}" if detail else ""))
     return ok
+
+
+def record_skip(name: str, detail: str = "") -> None:
+    results.append((name, SKIP, detail))
+    print(f"  [{SKIP}] {name}" + (f"  {detail}" if detail else ""))
 
 
 def section(title: str) -> None:
@@ -1540,6 +1545,8 @@ def run_manuscript_docx(proj: Path) -> None:
     state.data["current"] = "S19_human_review"
     state.stage_info("S19_human_review")["status"] = "active"
     state.save()
+    # Legacy archive compatibility only (--legacy): current S18/S19 workflow uses native
+    # read-only artifact inspection without creating review ZIPs unless legacy mode is invoked.
     review_tool = ROOT / "tools/manuscript/review_package.py"
     first_review_zip = subprocess.run(
         [sys.executable, str(review_tool), "build", "--legacy", "--project", str(proj)],
@@ -1553,7 +1560,7 @@ def run_manuscript_docx(proj: Path) -> None:
         with zipfile.ZipFile(review_archive) as zf:
             members = set(zf.namelist())
     outcome = gate("manuscript_review_package_current", "S19_human_review")
-    record("legacy review archives remain verifiable with exact historic materials",
+    record("[legacy archive compatibility] review archives remain verifiable with exact historic materials",
            first_review_zip.returncode == 0 and outcome.ok and
            review_manifest.get("package_revision") == 1 and
            {"07_manuscript/full_manuscript.md",
@@ -1572,7 +1579,7 @@ def run_manuscript_docx(proj: Path) -> None:
         [sys.executable, str(review_tool), "build", "--legacy", "--project", str(proj)],
         capture_output=True, text=True, env=env, encoding="utf-8", errors="replace")
     unchanged_manifest = json.loads(review_manifest_path.read_text(encoding="utf-8"))
-    record("unchanged S19 sources reuse the verified ZIP without duplicate versions",
+    record("[legacy archive compatibility] unchanged S19 sources reuse the verified ZIP without duplicate versions",
            unchanged_review_zip.returncode == 0 and "reused unchanged" in unchanged_review_zip.stdout and
            unchanged_manifest.get("archive_path") == review_manifest.get("archive_path") and
            unchanged_manifest.get("package_revision") == 1,
@@ -1822,6 +1829,48 @@ def run_manuscript_docx(proj: Path) -> None:
     cover.write_text("# Cover letter\n\nDear Editor,\n\nPlease consider this cohort study.\n",
                      encoding="utf-8")
     builder = ROOT / "tools/manuscript/build_docx.py"
+    pandoc_available = bool(shutil.which("pandoc")) and os.environ.get("MEDPAPER_TEST_NO_PANDOC") != "1"
+
+    if not pandoc_available:
+        from docx import Document
+        from docx.enum.text import WD_BREAK
+        from manuscript.build_docx import normalize_docx
+        supplement_source = manuscript / "supplementary_methods.md"
+        supplement_good = supplement_source.read_text(encoding="utf-8")
+        supplement_source.write_text(
+            "# Supplementary Methods\n\n| Variable | Definition |\n|---|---|\n| A | B |\n\n---\n",
+            encoding="utf-8")
+        outcome = gate("supplementary_methods_clean", "S08_methods")
+        record("supplementary Methods rejects embedded tables and Markdown rules",
+               not outcome.ok, outcome.detail[:120])
+        supplement_source.write_text(supplement_good, encoding="utf-8")
+        raw_breaks = bundle / "line_break_fixture.docx"
+        raw_doc = Document()
+        paragraph = raw_doc.add_paragraph("First address line")
+        paragraph.add_run().add_break()
+        paragraph.add_run("Second address line").italic = True
+        paragraph.add_run().add_break(WD_BREAK.PAGE)
+        paragraph.add_run("After page break")
+        cell = raw_doc.add_table(rows=1, cols=1).cell(0, 0)
+        cell.text = "First cell line\nSecond cell line"
+        raw_doc.save(raw_breaks)
+        normalize_docx(raw_breaks, style, "cover_letter")
+        normalized = Document(raw_breaks)
+        record("line-break conversion preserves paragraphs, italics and table lines",
+               normalized.paragraphs[0].text == "First address line" and
+               normalized.paragraphs[1].text.startswith("Second address line") and
+               any(run.italic for run in normalized.paragraphs[1].runs) and
+               [p.text for p in normalized.tables[0].cell(0, 0).paragraphs] ==
+               ["First cell line", "Second cell line"])
+        raw_breaks.unlink(missing_ok=True)
+        record_skip("Pandoc-rendered DOCX bundle, baseline and freeze checks",
+                    "pandoc executable not found on PATH (skipped, not certified as passed)")
+        shutil.rmtree(submission, ignore_errors=True)
+        for name in ("title.md", "abstract.md", "keywords.md", "introduction.md", "methods.md",
+                     "discussion.md", "supplementary_methods.md", "full_manuscript.md", "title_page.md"):
+            (manuscript / name).unlink(missing_ok=True)
+        bib.unlink(missing_ok=True)
+        return
 
     def build(kind: str, source: Path, name: str) -> bool:
         command = [sys.executable, str(builder), "build", "--kind", kind,
@@ -2430,7 +2479,8 @@ def main() -> int:
                              ("test_context_bindings_126.py","current scientific context and per-occurrence result attribution"),
                              ("test_design_data_126.py","design-specific contracts and actual complex-join unit reconciliation"),
                              ("test_table_proportions_126.py","actual table percentage denominators and non-count percentage scope"),
-                             ("test_runtime_km_126.py","unified real R environments and source-bound uncensored KM applicability")):
+                             ("test_runtime_km_126.py","unified real R environments and source-bound uncensored KM applicability"),
+                             ("test_review_hardening_127.py","S16 Discussion bindings, S09/S10 measure & table context, S11 figure annotations, S25 force guard and cross-drive launcher")):
             current = subprocess.run([sys.executable,str(ROOT/"tools"/script)],
                                      capture_output=True,text=True,encoding="utf-8",errors="replace")
             record(label,current.returncode==0,(current.stdout+current.stderr)[-1800:].strip())
@@ -2445,8 +2495,13 @@ def main() -> int:
             shutil.rmtree(tmp, onexc=remove_readonly)
 
     failed = [r for r in results if r[1] == FAIL]
+    skipped = [r for r in results if r[1] == SKIP]
+    passed = [r for r in results if r[1] == PASS]
     print("\n" + "=" * 70)
-    print(f"{len(results) - len(failed)}/{len(results)} checks passed")
+    summary = f"{len(passed)}/{len(results)} checks passed"
+    if skipped:
+        summary += f" ({len(skipped)} skipped)"
+    print(summary)
     if failed:
         for name, _, detail in failed:
             print(f"  FAIL  {name}  {detail}")

@@ -14,7 +14,7 @@
 
 [meta]
 name = "medpaper"
-version = "1.26.0"
+version = "1.27.0"
 schema = 1
 description = "Medical/clinical research pipeline: idea -> feasibility -> data -> analysis -> artifacts -> manuscript -> submission package."
 
@@ -374,6 +374,10 @@ check = "outputs_exist"
 check = "figures_match_plan"
 [[stage.gate]]
 check = "figures_qc_pass"
+[[stage.gate]]
+check = "numbers_have_provenance"
+source = "figures"
+since = "1.27.0"
 [[stage.gate]]
 check = "medical_display_production"
 kind = "figure"

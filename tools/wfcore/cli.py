@@ -372,8 +372,13 @@ def cmd_advance(args) -> int:
     stage = pipe.stage(st.current)
     results = gates.run_stage(pipe, st, proj, stage, reuse=True)
     ok, blocking, _ = gates.summarize(results)
-    non_overridable_failures = [r for r in results if r.blocking and
-                                r.check in NON_OVERRIDABLE_GATES]
+    non_overridable_failures = [
+        r for r in results
+        if r.blocking and (
+            r.check in NON_OVERRIDABLE_GATES
+            or (stage.id == "S25_submission_audit" and r.check == "decision_recorded")
+        )
+    ]
     if non_overridable_failures:
         print(f"refusing to advance: {len(non_overridable_failures)} non-overridable "
               f"gate(s) failed in {stage.id}")

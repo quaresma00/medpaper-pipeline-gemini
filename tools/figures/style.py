@@ -130,7 +130,7 @@ def apply_style(base_pt: float = 8.0, palette: str = "okabe_ito") -> list[str]:
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
         "svg.fonttype": "none",
-        "mathtext.fontset": "stixsans",   # match the sans body text
+        "mathtext.fontset": "stixsans",   # match the sans body text,
     })
     return colors
 
@@ -280,6 +280,11 @@ def audit_figure(fig, stem: str | Path, archetype: str | None = None) -> str:
     glyphs = el.glyph_warnings(fig)          # this performs the draw pass
     renderer = fig.canvas.get_renderer()
     phantom = _phantom_tick_labels(fig)
+    tick_ids = {
+        id(lbl)
+        for ax in fig.get_axes()
+        for lbl in (list(ax.get_xticklabels()) + list(ax.get_yticklabels()))
+    }
 
     def real_texts():
         for t in fig.findobj(match=matplotlib.text.Text):
@@ -342,6 +347,8 @@ def audit_figure(fig, stem: str | Path, archetype: str | None = None) -> str:
         "elements": el.detect_all(fig),
         "figure_text": sorted({(t.get_text() or "").strip() for t in real_texts()
                                if (t.get_text() or "").strip()}),
+        "non_tick_text": sorted({(t.get_text() or "").strip() for t in real_texts()
+                                 if id(t) not in tick_ids and (t.get_text() or "").strip()}),
     }
     out = stem.parent.parent / "qc" / f"{stem.name}.artist.json"
     out.parent.mkdir(parents=True, exist_ok=True)

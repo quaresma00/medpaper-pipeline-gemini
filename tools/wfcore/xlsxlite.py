@@ -26,6 +26,13 @@ def _col_to_index(col: str) -> int:
     return n
 
 
+def parse_cell_ref(ref: str) -> tuple[int, int] | None:
+    m = CELL_RE.match(str(ref).strip().upper())
+    if not m:
+        return None
+    return int(m.group(2)), _col_to_index(m.group(1))
+
+
 @dataclass
 class Cell:
     ref: str
@@ -47,6 +54,7 @@ class BorderSpec:
 class Sheet:
     name: str
     cells: list[Cell] = field(default_factory=list)
+    merged_ranges: list[tuple[int, int, int, int]] = field(default_factory=list)
 
     @property
     def max_row(self) -> int:
@@ -55,6 +63,23 @@ class Sheet:
     @property
     def max_col(self) -> int:
         return max((c.col for c in self.cells), default=0)
+
+    def cell_at(self, row: int, col: int) -> Cell | None:
+        for c in self.cells:
+            if c.row == row and c.col == col:
+                return c
+        return None
+
+    def cell_text(self, row: int, col: int) -> str:
+        c = self.cell_at(row, col)
+        if c is not None and c.value not in (None, ""):
+            return str(c.value)
+        for r1, c1, r2, c2 in self.merged_ranges:
+            if r1 <= row <= r2 and c1 <= col <= c2:
+                anchor = self.cell_at(r1, c1)
+                if anchor is not None and anchor.value not in (None, ""):
+                    return str(anchor.value)
+        return ""
 
     def row_cells(self, row: int) -> list[Cell]:
         return sorted((c for c in self.cells if c.row == row), key=lambda c: c.col)
@@ -72,6 +97,8 @@ class Workbook:
         self.sheets: list[Sheet] = []
         self._borders: list[BorderSpec] = []
         self._xf_border: list[int] = []
+        self._fonts_bold: list[bool] = []
+        self._xf_font: list[int] = []
         self._load()
 
     # ---- parsing -------------------------------------------------------
@@ -111,6 +138,9 @@ class Workbook:
         if "xl/styles.xml" not in zf.namelist():
             return
         root = ET.fromstring(zf.read("xl/styles.xml"))
+        for f in root.findall("m:fonts/m:font", NS):
+            b_el = f.find("m:b", NS)
+            self._fonts_bold.append(b_el is not None and b_el.get("val", "1") not in ("0", "false"))
         for b in root.findall("m:borders/m:border", NS):
             spec = BorderSpec()
             for side in ("top", "bottom", "left", "right"):
@@ -119,6 +149,7 @@ class Workbook:
             self._borders.append(spec)
         for xf in root.findall("m:cellXfs/m:xf", NS):
             self._xf_border.append(int(xf.get("borderId", "0")))
+            self._xf_font.append(int(xf.get("fontId", "0")))
 
     def _parse_sheet(self, name: str, blob: bytes, shared: list[str]) -> Sheet:
         sheet = Sheet(name=name)
@@ -142,6 +173,15 @@ class Workbook:
             sheet.cells.append(
                 Cell(ref=ref, row=int(m.group(2)), col=_col_to_index(m.group(1)), value=val, style=style)
             )
+        for mc in root.findall("m:mergeCells/m:mergeCell", NS):
+            rng = mc.get("ref", "")
+            if ":" not in rng:
+                continue
+            left, right = rng.split(":", 1)
+            p1, p2 = parse_cell_ref(left), parse_cell_ref(right)
+            if p1 and p2:
+                sheet.merged_ranges.append((min(p1[0], p2[0]), min(p1[1], p2[1]),
+                                            max(p1[0], p2[0]), max(p1[1], p2[1])))
         return sheet
 
     # ---- style access --------------------------------------------------
@@ -153,11 +193,74 @@ class Workbook:
             return BorderSpec()
         return self._borders[bid]
 
+    def is_bold(self, cell: Cell | None) -> bool:
+        if cell is None or cell.style is None or cell.style >= len(self._xf_font):
+            return False
+        fid = self._xf_font[cell.style]
+        return 0 <= fid < len(self._fonts_bold) and self._fonts_bold[fid]
+
     def sheet(self, name: str) -> Sheet | None:
         for s in self.sheets:
             if s.name == name:
                 return s
         return None
+
+    def header_rows(self, sh: Sheet) -> tuple[list[int], int]:
+        """Return (header_row_numbers, last_body_row) for three-line or plain sheets."""
+        top_rows = [c.row for c in sh.cells if self.border_of(c).top]
+        bottom_rows = [c.row for c in sh.cells if self.border_of(c).bottom]
+        if top_rows and bottom_rows:
+            first_header = min(top_rows)
+            last_body = max(bottom_rows)
+            smaller_bottoms = [r for r in bottom_rows if first_header <= r < last_body]
+            last_header = max(smaller_bottoms) if smaller_bottoms else first_header
+            return list(range(first_header, last_header + 1)), last_body
+        row1 = [t for t in sh.row_text(1) if t.strip()]
+        row2 = [t for t in sh.row_text(2) if t.strip()]
+        if len(row1) == 1 and len(row2) >= 2:
+            return [2], sh.max_row
+        return ([1] if sh.max_row >= 1 else []), sh.max_row
+
+    def column_headers(self, sheet_name: str, cell_ref: str) -> list[str]:
+        """Header stack from top to bottom for a body cell, resolving merged headers."""
+        sh = self.sheet(sheet_name)
+        pos = parse_cell_ref(cell_ref)
+        if sh is None or pos is None:
+            return []
+        row, col = pos
+        hdr_rows, last_body = self.header_rows(sh)
+        if not hdr_rows or row <= max(hdr_rows) or row > last_body:
+            return []
+        out: list[str] = []
+        for hr in hdr_rows:
+            txt = sh.cell_text(hr, col).strip()
+            if txt and txt not in out:
+                out.append(txt)
+        return out
+
+    def row_group_header(self, sheet_name: str, cell_ref: str) -> str:
+        """Nearest preceding section/subgroup banner row inside the table body, if any."""
+        sh = self.sheet(sheet_name)
+        pos = parse_cell_ref(cell_ref)
+        if sh is None or pos is None:
+            return ""
+        row, _ = pos
+        hdr_rows, last_body = self.header_rows(sh)
+        start = (max(hdr_rows) + 1) if hdr_rows else 2
+        if row <= start or row > last_body:
+            return ""
+        for r in range(row - 1, start - 1, -1):
+            c1 = sh.cell_at(r, 1)
+            label = (c1.value or "").strip() if c1 else ""
+            if not label:
+                continue
+            other_nonempty = [
+                c for c in sh.row_cells(r)
+                if c.col > 1 and (c.value or "").strip()
+            ]
+            if not other_nonempty and self.is_bold(c1):
+                return label
+        return ""
 
 
 def numeric_cell_values(path: Path) -> list[tuple[str, str, str]]:

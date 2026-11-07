@@ -46,8 +46,10 @@ certainty and clinical implications; no additional review round is introduced.
 
 ## Hard rules
 - ONE section file this stage.
-- No new own-study results. Own-study numbers come from accepted Results/source JSON;
-  numerical comparisons with prior studies require the existing exact source bindings
+- No new own-study results. For 1.27+, any own-study number restated in `discussion.md` must
+  be bound in `07_manuscript/claim_bindings.json` with `fact_ids` and `context_evidence`
+  (same-section lead-in inheritance allowed), tracing to accepted Results/source JSON;
+  numerical comparisons with prior studies (`[@key]`) require exact full-text `source_claims`
   in `reference/numeric-claims.md`, never recalled or freely invented values.
 - Do not promote an observational association to causation. Any causal interpretation
   requires an actually justified design, assumptions and evidence; wording alone cannot supply them.

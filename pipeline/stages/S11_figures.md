@@ -33,7 +33,11 @@ uv run python tools/figures/qc.py --figure "Figure 1"
    generates PNG+vector PDF; TIFF is opt-in. Render warnings fail instead of silently
    dropping observations. Staging preserves existing outputs on failed R builds.
 4. Read actual QC findings. R QC inspects SVG font/stroke/text positions and built ggplot
-   layers, PNG resolution/content and bound script/results/render identities.
+   layers, PNG resolution/content and bound script/results/render identities. For 1.27+, any
+   explicit statistical text rendered inside a figure (`HR`/`OR`/`RR`/`CI`/`P`, sample counts,
+   or effect estimates) must also be bound item-by-item under `figure_annotations` in
+   `07_manuscript/claim_bindings.json` to its exact `fact_id`, result `source`/`pointer` and
+   value fields (`qc.py` + `numbers_have_provenance source=figures`).
    Text-height/collision estimates are conservative; glyph coverage, PDF font fallback,
    clipping paths and complex layouts remain visual-review items, not fabricated PASS.
    Some specialized base/grid graphics need a measured adapter. Keep the appropriate R

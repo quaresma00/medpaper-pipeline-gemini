@@ -34,7 +34,9 @@ write_table(
    Do not add baseline P values by default or infer summary type from a column's storage type.
    Report exported n (%), mean (SD) or median (IQR), actual missing/available counts and
    denominators as appropriate. Effect labels/interval levels, reference groups, adjustment
-   sets and analysis populations must match their actual models. S10 formats; it does not
+   sets and analysis populations must match their actual models; `tables.threeline.p_value`
+   supports optional `decimals` or `borderline_three_decimals=True` when preserving borderline
+   precision near 0.05 (such as distinguishing `0.049` from `0.050`). S10 formats; it does not
    fit models, run add-on tests or calculate a missing percentage. Follow the optional R
    table route in `reference/r-first.md` only when it improves this project.
 2. Layout rules (enforced by the `tables_threeline` gate):
@@ -54,7 +56,7 @@ write_table(
 ```
 4. Run it, then verify the structure rather than assuming:
 ```
-.\.venv\Scripts\python.exe project/04_tables/code/build_tables.py
+uv run python project/04_tables/code/build_tables.py
 uv run python tools/wf.py check
 ```
    The builder must support selecting an affected workbook (for example `--only Table2`).
@@ -84,7 +86,10 @@ uv run python tools/wf.py decide tables_visually_confirmed YES --why "<workbooks
   The writer rejects body cells over 300 characters. A 1500-character footnote block is an
   advisory prompt to remove unnecessary detail, not permission to truncate essential notes.
 - Every numeric cell must trace to `03_analysis/results/*.json` (gate:
-  `numbers_have_provenance source=tables`). Do not retype from the Results prose.
+  `numbers_have_provenance source=tables`), and for 1.27+ the merged column-header stack,
+  interior bold group header, and row label must agree with the bound fact's `context`
+  (group/comparison, adjusted vs unadjusted model, population, timepoint, and effect scale).
+  Do not retype from the Results prose.
 - Titles are self-contained and short. Footnotes carry abbreviations, units and tests.
 - Follow S07's abbreviation policy on the first build. Use the central glossary when planned,
   retaining only the local decoding information needed to understand the table. S17 checks

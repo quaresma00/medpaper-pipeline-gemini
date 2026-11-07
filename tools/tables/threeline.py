@@ -52,9 +52,10 @@ def _check(spec: dict) -> None:
     ncol = len(spec["header"])
     groups, indents = spec.get("group_rows", []), spec.get("indent_rows", [])
     for indices in (groups, indents):
-        if not isinstance(indices,list) or any(type(i) is not int or not 0<=i<len(spec["rows"]) for i in indices) or len(set(indices))!=len(indices):
+        if not isinstance(indices, list) or any(type(i) is not int or not 0 <= i < len(spec["rows"]) for i in indices) or len(set(indices)) != len(indices):
             raise ValueError("group_rows/indent_rows must be unique zero-based actual data-row indices")
-    if set(groups)&set(indents): raise ValueError("A clinical section header cannot also be an indented category")
+    if set(groups) & set(indents):
+        raise ValueError("A clinical section header cannot also be an indented category")
     if any(any(v not in (None, "") for v in spec["rows"][i][1:]) for i in groups):
         raise ValueError("A group header row must not contain observations or statistics; preserve data on category rows")
     for i, row in enumerate(spec["rows"], 1):
@@ -69,7 +70,8 @@ def _check(spec: dict) -> None:
                     "place for prose - move it to the footnote or the manuscript."
                 )
     total = sum(len(str(f)) for f in spec["footnotes"])
-    if any(len(str(note))>32767 for note in spec["footnotes"]): raise ValueError("A footnote exceeds Excel's actual per-cell capacity; move technical detail without silently truncating")
+    if any(len(str(note)) > 32767 for note in spec["footnotes"]):
+        raise ValueError("A footnote exceeds Excel's actual per-cell capacity; move technical detail without silently truncating")
     if total > MAX_FOOTNOTE_CHARS:
         import warnings
         warnings.warn(
@@ -122,11 +124,11 @@ def _write_sheet(ws, spec: dict) -> None:
             cell = ws.cell(row=r, column=c, value=value)
             cell.font = Font(name=BASE_FONT, size=BODY_PT)
             cell.alignment = Alignment(horizontal=align[c - 1], vertical="top", wrap_text=False)
-        index = r-first_data
+        index = r - first_data
         if index in spec.get("group_rows", []):
-            ws.cell(r,1).font = Font(name=BASE_FONT,size=BODY_PT,bold=True)
+            ws.cell(r, 1).font = Font(name=BASE_FONT, size=BODY_PT, bold=True)
         elif index in spec.get("indent_rows", []):
-            ws.cell(r,1).alignment = Alignment(horizontal="left",vertical="top",indent=1,wrap_text=True)
+            ws.cell(r, 1).alignment = Alignment(horizontal="left", vertical="top", indent=1, wrap_text=True)
     last_data = first_data + len(rows) - 1
 
     # --- bottom rule ---------------------------------------------------
@@ -150,15 +152,15 @@ def _write_sheet(ws, spec: dict) -> None:
 
 def _fit_merged_notes(ws, spec: dict) -> None:
     """Excel does not autofit merged cells; reserve height without changing any text."""
-    width = sum(ws.column_dimensions[get_column_letter(i)].width for i in range(1,len(spec["header"])+1))
-    for row, size in [(1,TITLE_PT)]+[(3+len(spec["rows"])+i,FOOT_PT) for i in range(len(spec["footnotes"]))]:
-        capacity = max(8,int(width*BODY_PT/size*.80))
-        lines = sum(max(1,len(textwrap.wrap(part,width=capacity))) for part in str(ws.cell(row,1).value).split("\n"))
-        height = max(15,lines*(size+4)+4)
-        if height>409:
+    width = sum(ws.column_dimensions[get_column_letter(i)].width for i in range(1, len(spec["header"]) + 1))
+    for row, size in [(1, TITLE_PT)] + [(3 + len(spec["rows"]) + i, FOOT_PT) for i in range(len(spec["footnotes"]))]:
+        capacity = max(8, int(width * BODY_PT / size * .80))
+        lines = sum(max(1, len(textwrap.wrap(part, width=capacity))) for part in str(ws.cell(row, 1).value).split("\n"))
+        height = max(15, lines * (size + 4) + 4)
+        if height > 409:
             import warnings
             warnings.warn(f"'{spec['sheet']}': title/note retained in full but may exceed Excel's row height; inspect the actual render and reorganize before visual acceptance")
-        ws.row_dimensions[row].height = min(409,height)
+        ws.row_dimensions[row].height = min(409, height)
 
 
 def write_workbook(path: str | Path, tables: list[dict]) -> Path:
@@ -186,23 +188,25 @@ def write_workbook(path: str | Path, tables: list[dict]) -> Path:
     import os
     project_value = os.environ.get("MEDPAPER_PROJECT")
     if not project_value:
-        project_value=next((str(parent) for parent in Path(path).resolve().parents if (parent/".wf/state.json").is_file()),None)
+        project_value = next((str(parent) for parent in Path(path).resolve().parents if (parent / ".wf/state.json").is_file()), None)
     if project_value:
         from wfcore.journalspec import label_text
         project = Path(project_value)
         for sheet in wb:
-            spec=next(t for t in tables if t["sheet"]==sheet.title)
-            ids=spec.get("identifier_columns") or []
-            indices=set()
+            spec = next(t for t in tables if t["sheet"] == sheet.title)
+            ids = spec.get("identifier_columns") or []
+            indices = set()
             for value in ids:
-                index=value if type(value) is int else spec["header"].index(value) if value in spec["header"] else -1
-                if not 0<=index<len(spec["header"]): raise ValueError("identifier_columns uses actual header names or zero-based column indices")
-                indices.add(index+1)
+                index = value if type(value) is int else spec["header"].index(value) if value in spec["header"] else -1
+                if not 0 <= index < len(spec["header"]):
+                    raise ValueError("identifier_columns uses actual header names or zero-based column indices")
+                indices.add(index + 1)
             for row in sheet:
                 for cell in row:
-                    if isinstance(cell.value, str): cell.value = label_text(cell.value,project,format_numbers=not (cell.row>=3 and cell.row<3+len(spec["rows"]) and cell.column in indices))
-    for sheet, spec in zip(wb.worksheets,tables):
-        _fit_merged_notes(sheet,spec)
+                    if isinstance(cell.value, str):
+                        cell.value = label_text(cell.value, project, format_numbers=not (cell.row >= 3 and cell.row < 3 + len(spec["rows"]) and cell.column in indices))
+    for sheet, spec in zip(wb.worksheets, tables):
+        _fit_merged_notes(sheet, spec)
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     wb.save(p)
@@ -219,8 +223,8 @@ def write_table(path: str | Path, sheet: str, title: str, header: list,
     """One workbook holding one table. Use this for each main table."""
     return write_workbook(path, [{
         "sheet": sheet, "title": title, "header": header, "rows": rows,
-        "footnotes": footnotes, "align": align, "col_widths": col_widths,"identifier_columns":identifier_columns,
-        "group_rows":group_rows or [],"indent_rows":indent_rows or [],
+        "footnotes": footnotes, "align": align, "col_widths": col_widths, "identifier_columns": identifier_columns,
+        "group_rows": group_rows or [], "indent_rows": indent_rows or [],
     }])
 
 
@@ -235,15 +239,29 @@ def fmt(value, decimals: int = 2, pct: bool = False) -> str:
     return f"{f:.{decimals}f}%" if pct else f"{f:.{decimals}f}"
 
 
-def p_value(p) -> str:
-    """APA/medical convention: report small p as an inequality, never as 0.000."""
+def p_value(p, decimals: int | None = None, *, borderline_three_decimals: bool = False) -> str:
+    """APA/medical convention: report small p as an inequality, never as 0.000.
+
+    Optional `decimals` enforces fixed precision when a target journal requires exact P
+    values; `borderline_three_decimals=True` renders 0.045 <= p < 0.055 to 3 decimals so
+    values such as 0.049 and 0.050 are not collapsed into '.05'.
+    """
     try:
         f = float(p)
     except (TypeError, ValueError):
         return str(p)
+    if decimals is not None:
+        if isinstance(decimals, bool) or not isinstance(decimals, int) or decimals < 1 or decimals > 6:
+            raise ValueError("decimals must be an integer between 1 and 6")
+        floor = 10 ** (-decimals)
+        if f < floor:
+            return f"<{floor:.{decimals}f}"
+        return f"{f:.{decimals}f}"
     if f < 0.001:
         return "<0.001"
-    return f"{f:.3f}" if f < 0.01 else f"{f:.2f}"
+    if f < 0.01 or (borderline_three_decimals and 0.045 <= f < 0.055):
+        return f"{f:.3f}"
+    return f"{f:.2f}"
 
 
 def ci(estimate, low, high, decimals: int = 2) -> str:

@@ -13,7 +13,7 @@ pipeline's state (`project/.wf/state.json`), declared output paths, or determini
   with `uv run --python 3.13 python bootstrap.py`.
 - **Progress visibility**: Long-running acquisition, statistical replay, R rendering, and build
   scripts must emit clear step/progress output so background tasks never appear stalled.
-- **Master template dispatch (`F:\workspace\medpapaer\gemini`)**:
+- **Master template dispatch (`F:\workspace\medpapaer\gemini`, or `$env:MEDPAPER_MASTER_TEMPLATE` / `tools/medpaper_launcher.py --template-source <dir>` on external clones)**:
   1. **Existing workspace** (`pipeline/` and `tools/wf.py` present): run
      `uv run python tools/wf.py status` (or `wf handoff` after context compaction). If refreshing
      engine files from the master template onto an existing study, update only engine directories
