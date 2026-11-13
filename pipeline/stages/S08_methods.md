@@ -71,6 +71,9 @@ executed methods. Use the existing notes/acceptance; no extra report is required
   under `numbers_have_provenance`.
 - No placeholders. `TODO`, `TBD`, `xx.x` and friends fail the gate.
 - Past tense, declarative. No "we aimed to comprehensively investigate".
+- **Immediate per-section polish (mandatory)**: As soon as `methods.md` is drafted, consult
+  `reference/clinical-deai-antidefensive-writing.md` and run `polish.py section --file project/07_manuscript/methods.md --snapshot`
+  -> clinical/de-AI/anti-defensive rewrite (zero code/pipeline jargon or lab-log order) -> `--verify` BEFORE advancing (`section_polished`).
 
 ## Close
 ```

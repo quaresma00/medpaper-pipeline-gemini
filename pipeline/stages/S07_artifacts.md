@@ -1,9 +1,10 @@
 # S07 - Artifact inventory and reader-ready display plan
 
-Before writing or expensive production, read the actual full-text medical comparators and
-seal project-specific coverage/display choices with the existing benchmark. Abstract-only
-comparisons and fixed numerical quotas are insufficient. Use the source-scoped clinical
-labels and reversible physical presentation profile already in artifact_plan.json.
+Before writing or expensive production, acquire and read at least 3 close SCIE Original Article
+full-text comparators (`min_comparators = 3`). Synthesize their exact figure counts and figure
+archetypes (e.g., study flow, primary outcome plot, subgroup/forest plot, ROC/calibration/KM curve)
+so this study matches SCIE Original Article standards rather than producing 2-3 thin figures
+without substantive clinical justification. Abstract-only comparisons are insufficient.
 
 For EACH table/figure state its clinical question, population/comparison, measure/unit and
 denominator, placement, overlap with other displays and likely reader misunderstanding.

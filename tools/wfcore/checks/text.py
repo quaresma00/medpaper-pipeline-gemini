@@ -1,7 +1,9 @@
 """Markdown / source-text checks."""
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 
 from . import Ctx, Result, check
 
@@ -205,3 +207,60 @@ def no_plot_calls(ctx: Ctx) -> Result:
             ["Exploratory analysis is numbers only. Figures are built in S11 from the approved artifact plan."],
         )
     return Result(True, "no_plot_calls", "exploratory code contains no plotting")
+
+
+@check("section_polished")
+def section_polished(ctx: Ctx) -> Result:
+    """Require immediate per-section de-AI, anti-defensive, and clinical polish receipts."""
+    if ctx.state.pin_excludes(ctx.stage.id, ctx.spec.get("since")):
+        return Result(True, "section_polished", "section-level polish gate not retroactive to pinned completed stage")
+    from ..packagefreeze import _sha256
+    from ..medicalstyle import diagnose
+    from text.polish import AI_TIER_A, allowlist, facts, lint_structure
+    rel = ctx.spec.get("path", "")
+    if not rel:
+        return Result(False, "section_polished", "stage spec missing path for section_polished")
+    target = ctx.p(rel)
+    if not target.is_file():
+        return Result(False, "section_polished", f"missing section {rel}")
+    raw = target.read_text(encoding="utf-8")
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", rel.strip("/")).strip("_")
+    receipt_path = ctx.p(f".wf/section_polish/{slug}.json")
+    if not receipt_path.is_file():
+        return Result(
+            False,
+            "section_polished",
+            f"{rel} has not completed per-section de-AI & clinical polish yet",
+            [f"1. Run BEFORE polishing edits: uv run python tools/text/polish.py section --file project/{rel} --snapshot",
+             f"2. Apply reference/clinical-deai-antidefensive-writing.md rules (preserve all numbers/citekeys/displays).",
+             f"3. Verify & seal receipt: uv run python tools/text/polish.py section --file project/{rel} --verify"],
+        )
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return Result(False, "section_polished", f"corrupt polish receipt for {rel}: {exc}")
+    current_hash = _sha256(target)
+    if receipt.get("verified_sha256") != current_hash:
+        return Result(
+            False,
+            "section_polished",
+            f"{rel} changed after per-section polish verification; re-verify section polish",
+            [f"Run: uv run python tools/text/polish.py section --file project/{rel} --verify"],
+        )
+    if not receipt.get("fact_preserving") or receipt.get("blocking_total", 1) != 0:
+        return Result(
+            False,
+            "section_polished",
+            f"{rel} polish receipt failed fact-preservation or blocking style checks: {receipt.get('summary', '')}",
+        )
+    risks = [r["kind"] for r in diagnose(raw, rel) if r["kind"] in {"engineering_jargon", "lablog_chronology", "defensive_self_weakening", "assistant_voice", "workflow_metadata"}]
+    if risks:
+        return Result(
+            False,
+            "section_polished",
+            f"{rel} still contains clinical-style violations ({', '.join(sorted(set(risks)))}); polish in medical language and re-verify",
+        )
+    struct_blocking = [x for x in lint_structure(rel, raw) if x.get("severity") == "blocking"]
+    if struct_blocking:
+        return Result(False, "section_polished", f"{rel} has blocking prose structure defects: {struct_blocking[0]['kind']}")
+    return Result(True, "section_polished", f"{rel}: per-section de-AI, anti-defensive, and clinical polish verified")

@@ -157,3 +157,25 @@ def supplemental_filenames_compliant(ctx: Ctx) -> Result:
             ["Name supplemental uploads 'Supplemental_File_<N>_<Specific_Description>.<ext>' (1..K sequential, no ESM1 shorthand)."],
         )
     return Result(True, "supplemental_filenames_compliant", "all supplemental uploads use sequential Supplemental_File_<N>_<Description> naming")
+
+
+@check("prewrite_review_verified")
+def prewrite_review_verified(ctx: Ctx) -> Result:
+    """Require independent statistical, results, and display audit BEFORE drafting Results/Intro/Discussion/Abstract."""
+    if ctx.state.pin_excludes(ctx.stage.id, ctx.spec.get("since")):
+        return Result(True, "prewrite_review_verified", "pre-writing independent SCIE review not retroactive to pinned completed stage")
+    from ..reviewrounds import approved
+    try:
+        record = approved(ctx.project, "prewrite")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return Result(
+            False,
+            "prewrite_review_verified",
+            f"pre-writing independent SCIE audit incomplete: {exc}",
+            [
+                "1. Start prewrite audit: uv run python tools/review_round.py start --scope prewrite",
+                "2. Dispatch independent read-only subagent to review methods, results, and rendered figures/tables for SCIE Original Article sufficiency (must include ## Statistical methods & results rigor, ## SCIE Original Article sufficiency, ## Display clarity & medical language).",
+                "3. Ingest report, execute any user-requested revisions/revalidation, close, and get user decision (`我确认这一版`) via review_round.py decide.",
+            ],
+        )
+    return Result(True, "prewrite_review_verified", f"prewrite audit {record['id']} approved; ready to draft clinical prose")

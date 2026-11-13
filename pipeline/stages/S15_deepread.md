@@ -19,23 +19,16 @@ There is no fixed deep-read quantity; substantive coverage, source identity and 
    - the largest or most authoritative study in the area,
    - the paper a reviewer will ask "why does your result differ from this one".
    Selection is by argumentative need, not by impact factor.
-2. Fetch open-access full text. Legal open-access routes only:
+2. Fetch full text across automated routes (Europe PMC / PMC, Unpaywall, OpenAlex, plus automatic DOI-verified Sci-Hub mirror fallback). Any mirror presenting a CAPTCHA or anti-bot gate is skipped automatically without evasion:
 ```
 uv run python tools/pubmed/fulltext.py fetch --citekey smith2023 --citekey lee2021
 ```
-   It tries Europe PMC / PMC, Unpaywall and OpenAlex, saves the PDF or XML to
-   `06_refs/fulltext/`, and records the route, access basis and file hash in
-   `06_refs/fulltext/retrieval_manifest.json`.
-3. If a scholarly retrieval skill supplies an open-access file, or the user legally
-   obtains one through institutional access, register the local copy before reading it:
+   Retrieved files are saved to `06_refs/fulltext/` and recorded in `06_refs/fulltext/retrieval_manifest.json`.
+3. If `fulltext.py fetch` leaves missing items (exit code 2), STOP and show `project/.wf/pending_fulltext_requests.md` (citekey, Title, PMID, DOI link) directly to the user so they can provide the local PDF(s) to register:
 ```
-uv run python tools/pubmed/fulltext.py register --citekey smith2023 --file "C:\path\paper.pdf" --access oa --source-url "https://publisher.example/article" --route scansci-pdf
+uv run python tools/pubmed/fulltext.py register --citekey smith2023 --file "C:\path\paper.pdf" --access authorized --source-url "https://doi.org/..." --route user-provided --authorization-note "User-supplied full-text PDF"
 ```
-   For institutional access, use `--access authorized --authorization-note "<basis>"`.
-   Do not use Sci-Hub or another unauthorized source. Do not request browser login,
-   cookies or credentials unless the user explicitly authorizes that route. If only a
-   paywalled link or abstract is available, replace the paper or leave the stage blocked;
-   it does not count as a deep read.
+   Never substitute a paywalled abstract or landing link for a required deep read. Once registered, complete structured notes in `06_refs/deepread/<citekey>.md`.
 4. Read each registered local full text and write structured notes to
    `06_refs/deepread/<citekey>.md`:
 ```markdown

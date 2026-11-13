@@ -51,6 +51,7 @@ integration sources: `benchmark.py accept --layer journal --review <findings.jso
 Resolve Methods/Discussion organization, declaration order, main/supp legends and sourced
 limits before expensive Word. Use explicit prototype/source_file paths for unbuilt journal
 displays, never pretend a future output was inspected. Final-upload acceptance remains S23.
+Note: Per-section de-AI, anti-defensive, and clinical polish already runs at drafting (`S08`, `S09`, `S14`, `S16`, `S17`); `S22` performs whole-manuscript harmonization, house style, and immutable fact preservation.
 
 ```
 uv run python tools/wf.py check

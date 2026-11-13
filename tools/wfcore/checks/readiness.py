@@ -73,3 +73,105 @@ def portal_fields_current(ctx: Ctx) -> Result:
     problems = verify_portal(ctx.project)
     return Result(not problems, "portal_fields_current", "; ".join(problems[:8]) or
                   "portal fields were computed from the current final DOCX and administrative facts")
+
+
+@check("benchmark_display_sufficiency")
+def benchmark_display_sufficiency(ctx: Ctx) -> Result:
+    """Require >=3 close SCIE comparators and benchmark-aligned figure count/types (anti-thin-figure guard)."""
+    if ctx.state.pin_excludes(ctx.stage.id, ctx.spec.get("since")):
+        return Result(True, "benchmark_display_sufficiency", "comparator sufficiency gate not retroactive to pinned completed stage")
+    import statistics
+    from ..readiness import load
+    layer = ctx.spec.get("layer", "science")
+    bench_rel = "01_protocol/artifact_benchmark.json" if layer == "science" else "08_submission/integration/artifact_benchmark.json"
+    plan_rel = "01_protocol/artifact_plan.json" if layer == "science" else "08_submission/integration/artifact_plan.json"
+    try:
+        bench = load(ctx.project, bench_rel)
+        plan = load(ctx.project, plan_rel)
+    except (OSError, ValueError) as exc:
+        return Result(False, "benchmark_display_sufficiency", str(exc))
+    rows = bench.get("comparators", [])
+    min_comp = int(ctx.target("min_comparators", 3))
+    problems = []
+    if len(rows) < min_comp:
+        problems.append(f"need at least {min_comp} distinct close SCIE Original Article full-text comparators (found {len(rows)})")
+    comp_figs = []
+    for row in rows:
+        obs = row.get("observations", {})
+        mf = obs.get("main_figures")
+        if not isinstance(mf, int) or mf <= 0:
+            problems.append(f"{row.get('citekey', '?')}: record integer observations.main_figures from the real full text")
+        else:
+            comp_figs.append(mf)
+        ftypes = obs.get("figure_types") or obs.get("display_archetypes")
+        if not ftypes or (isinstance(ftypes, str) and len(ftypes.strip()) < 8):
+            problems.append(f"{row.get('citekey', '?')}: record observations.figure_types / display_archetypes used in that SCIE paper")
+    main_figs = plan.get("main_figures", [])
+    floor = int(ctx.target("min_main_figures_floor", 4))
+    ratio = float(ctx.target("min_figure_ratio_to_benchmark", 0.7))
+    expected_min = floor
+    if comp_figs:
+        expected_min = max(3, min(floor, round(statistics.median(comp_figs) * ratio)))
+        if statistics.median(comp_figs) >= 5:
+            expected_min = max(expected_min, 4)
+    rationale = str((bench.get("adaptation") or {}).get("displays", {}).get("figure_count_rationale") or plan.get("figure_count_rationale") or "").strip()
+    sparse_exc = str(plan.get("sparse_figure_justification") or (bench.get("adaptation") or {}).get("displays", {}).get("sparse_figure_justification") or "").strip()
+    if len(rationale) < 30:
+        problems.append("record adaptation.displays.figure_count_rationale (>=30 chars) synthesizing how comparator figure counts/types map to this study")
+    if len(main_figs) < expected_min and len(sparse_exc) < 50:
+        problems.append(
+            f"main_figures count ({len(main_figs)}) is thin relative to SCIE comparators (target >= {expected_min}, comparator median={statistics.median(comp_figs) if comp_figs else 'n/a'}); "
+            "expand figures with comparator-matched archetypes or provide substantive clinical sparse_figure_justification (>=50 chars)"
+        )
+    return Result(not problems, "benchmark_display_sufficiency", "; ".join(problems[:6]) or
+                  f"{len(rows)} SCIE comparators and {len(main_figs)} planned main figure(s) satisfy benchmark display sufficiency")
+
+
+@check("literature_sufficiency")
+def literature_sufficiency(ctx: Ctx) -> Result:
+    """Enforce configurable non-zero reference-pool and manuscript/section citation floors."""
+    if ctx.state.pin_excludes(ctx.stage.id, ctx.spec.get("since")):
+        return Result(True, "literature_sufficiency", "literature sufficiency gate not retroactive to pinned completed stage")
+    from ..readiness import load
+    from .refs import citekeys
+    mode = ctx.spec.get("mode", "library")
+    problems = []
+    try:
+        lib = load(ctx.project, "06_refs/library.json")
+    except (OSError, ValueError) as exc:
+        return Result(False, "literature_sufficiency", str(exc))
+    entries = {e.get("citekey"): e for e in lib.get("entries", []) if e.get("citekey")}
+
+    if mode == "library":
+        floor = int(ctx.spec.get("min_entries") or ctx.target("min_reflib_entries", 40))
+        if len(entries) < floor:
+            problems.append(f"06_refs/library.json has {len(entries)} entries, below required reference pool minimum ({floor})")
+        return Result(not problems, "literature_sufficiency", "; ".join(problems) or
+                      f"reference pool size ({len(entries)} >= {floor}) meets sufficiency floor")
+
+    rel = ctx.spec.get("path", "07_manuscript/full_manuscript.md")
+    if not ctx.p(rel).is_file():
+        return Result(False, "literature_sufficiency", f"missing {rel}")
+    used = {k for k in citekeys(ctx.read(rel)) if k in entries}
+    if mode == "section":
+        sec_key = "min_intro_refs" if "introduction" in rel else "min_discussion_refs"
+        default_val = 10 if "introduction" in rel else 18
+        floor = int(ctx.spec.get("min_refs") or ctx.target(sec_key, default_val))
+        if len(used) < floor:
+            problems.append(f"{rel} cites {len(used)} verified unique reference(s), below required minimum ({floor})")
+    else:
+        floor = int(ctx.spec.get("min_refs") or ctx.target("min_manuscript_refs", 30))
+        bench_path = ctx.p("01_protocol/artifact_benchmark.json")
+        if bench_path.is_file():
+            import statistics
+            bench = load(ctx.project, "01_protocol/artifact_benchmark.json")
+            comp_refs = [r.get("observations", {}).get("references") for r in bench.get("comparators", [])
+                         if isinstance(r.get("observations", {}).get("references"), int) and r["observations"]["references"] > 0]
+            if comp_refs:
+                derived = round(statistics.median(comp_refs) * 0.65)
+                if not str((bench.get("adaptation") or {}).get("references_rationale", "")).strip():
+                    floor = max(floor, min(derived, floor + 15))
+        if len(used) < floor:
+            problems.append(f"{rel} cites {len(used)} unique reference(s), below required manuscript floor ({floor})")
+    return Result(not problems, "literature_sufficiency", "; ".join(problems) or
+                  f"{rel}: {len(used)} verified unique citations meet minimum floor")

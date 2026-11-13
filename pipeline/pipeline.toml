@@ -14,7 +14,7 @@
 
 [meta]
 name = "medpaper"
-version = "1.29.0"
+version = "1.30.0"
 schema = 1
 description = "Medical/clinical research pipeline: idea -> feasibility -> data -> analysis -> artifacts -> manuscript -> submission package."
 
@@ -92,6 +92,13 @@ reference_verification_age_days_max = 90
 live_reference_age_hours_max = 24
 discussion_supp_refs_max = 1
 discussion_main_refs_max = 2
+min_comparators = 3
+min_main_figures_floor = 4
+min_figure_ratio_to_benchmark = 0.7
+min_reflib_entries = 40
+min_intro_refs = 10
+min_discussion_refs = 18
+min_manuscript_refs = 30
 
 # ==============================================================================
 # STAGES
@@ -298,6 +305,11 @@ check = "display_labels_clinical"
 kind = "plan"
 since = "1.29.0"
 
+[[stage.gate]]
+check = "benchmark_display_sufficiency"
+layer = "science"
+since = "1.30.0"
+
 [[stage]]
 id = "S08_methods"
 title = "Write Methods"
@@ -341,6 +353,11 @@ section = "methods"
 
 [[stage.gate]]
 check = "reference_provenance"
+
+[[stage.gate]]
+check = "section_polished"
+path = "07_manuscript/methods.md"
+since = "1.30.0"
 
 [[stage]]
 id = "S10_tables"
@@ -412,6 +429,26 @@ kind = "figure"
 since = "1.29.0"
 
 [[stage]]
+id = "S11b_prewrite_review"
+title = "Pre-writing independent audit of statistical methods, results, and displays for SCIE readiness"
+card = "stages/S11b_prewrite_review.md"
+outputs = ["04_displays/prewrite_review.md"]
+freeform = ["04_displays/prewrite_review.md"]
+description = """
+Independent read-only subagent review and user checkpoint AFTER S10 tables and S11 figures
+and BEFORE drafting Results, Introduction, Discussion, or Abstract. Verifies statistical
+rigor, SCIE Original Article viability (or triggers early NO-GO stop-loss), and display clarity.
+"""
+
+[[stage.gate]]
+check = "outputs_exist"
+since = "1.30.0"
+
+[[stage.gate]]
+check = "prewrite_review_verified"
+since = "1.30.0"
+
+[[stage]]
 id = "S09_results"
 title = "Write Results from finished tables and figures"
 card = "stages/S09_results.md"
@@ -450,6 +487,11 @@ check = "writing_ready"
 check = "tables_match_plan"
 [[stage.gate]]
 check = "figures_match_plan"
+
+[[stage.gate]]
+check = "section_polished"
+path = "07_manuscript/results.md"
+since = "1.30.0"
 
 [[stage]]
 id = "S12_reconcile"
@@ -497,6 +539,11 @@ check = "bib_ris_match_library"
 check = "literature_coverage"
 library_only = true
 
+[[stage.gate]]
+check = "literature_sufficiency"
+mode = "library"
+since = "1.30.0"
+
 [[stage]]
 id = "S14_introduction"
 title = "Write Introduction"
@@ -525,6 +572,17 @@ path = "07_manuscript/introduction.md"
 check = "prose_not_lists"
 path = "07_manuscript/introduction.md"
 since = "1.13.0"
+
+[[stage.gate]]
+check = "section_polished"
+path = "07_manuscript/introduction.md"
+since = "1.30.0"
+
+[[stage.gate]]
+check = "literature_sufficiency"
+mode = "section"
+path = "07_manuscript/introduction.md"
+since = "1.30.0"
 
 [[stage]]
 id = "S15_deepread"
@@ -577,6 +635,17 @@ since = "1.28.0"
 check = "discussion_discipline"
 path = "07_manuscript/discussion.md"
 since = "1.28.0"
+
+[[stage.gate]]
+check = "section_polished"
+path = "07_manuscript/discussion.md"
+since = "1.30.0"
+
+[[stage.gate]]
+check = "literature_sufficiency"
+mode = "section"
+path = "07_manuscript/discussion.md"
+since = "1.30.0"
 
 [[stage]]
 id = "S17_assemble"
@@ -654,6 +723,17 @@ since = "1.28.0"
 check = "display_labels_clinical"
 kind = "all"
 since = "1.29.0"
+
+[[stage.gate]]
+check = "section_polished"
+path = "07_manuscript/abstract.md"
+since = "1.30.0"
+
+[[stage.gate]]
+check = "literature_sufficiency"
+mode = "manuscript"
+path = "07_manuscript/full_manuscript.md"
+since = "1.30.0"
 
 [[stage]]
 id = "S18_independent_review"

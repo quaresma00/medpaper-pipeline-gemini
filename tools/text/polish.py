@@ -109,6 +109,9 @@ AI_TIER_A = [
      "a growing body of evidence suggests"),
     (r"\bin\s+an\s+era\s+(?:of|where)\b", "in an era of"),
     (r"\bpaint\w*\s+a\s+(?:clear|complete)\s+picture\b", "paints a picture"),
+    (r"\b(?:data\s*frame|python\s+script|r\s+script|json\s+(?:file|manifest|schema)|workflow\s+(?:stage|pipeline|gate)|subagent|command[- ]line|regex)\b", "engineering/code jargon"),
+    (r"\b(?:unfortunately|merely\s+achieves|only\s+achieves|severely\s+insufficient|still\s+lags\s+far\s+behind|modest\s+at\s+best)\b", "defensive self-weakening"),
+    (r"\b(?:first(?:ly)?,\s+we\s+(?:ran|executed|loaded|parsed)|in\s+the\s+next\s+step,\s+we\s+(?:ran|processed|generated|built))\b", "lab-log chronology"),
 ]
 
 # Tier B: conventional in real papers but overused by generators. Advisory.
@@ -351,6 +354,11 @@ def lint_structure(rel: str, text: str) -> list[dict]:
     if long_sents:
         flag("long_sentences",
              f"{len(long_sents)} sentence(s) over 45 words, longest {max(len(s.split()) for s in long_sents)}",
+             "advisory")
+    em_dashes = b.count("\u2014")
+    if em_dashes >= 2:
+        flag("em_dash_density",
+             f"{em_dashes} em-dashes (\u2014) found; replace AI-style parenthetical interruptions with commas, parentheses, or clean sentences",
              "advisory")
     return out
 
@@ -756,6 +764,97 @@ def cmd_diff(args) -> int:
     return 0
 
 
+def cmd_section(args) -> int:
+    """Snapshot or verify immediate per-section de-AI & clinical polish."""
+    from wfcore.packagefreeze import _sha256
+    from wfcore.readiness import atomic_json
+    from wfcore.medicalstyle import diagnose
+    raw_arg = Path(args.file)
+    if args.project:
+        proj = args.project.resolve()
+    else:
+        probe = (raw_arg.resolve() if raw_arg.is_absolute() else (Path.cwd() / raw_arg).resolve()).parent
+        inferred = next((p for p in (probe, *probe.parents) if (p / ".wf").is_dir() or p.name == "project"), None)
+        proj = inferred.resolve() if inferred else project_root()
+    resolved = raw_arg.resolve() if raw_arg.is_absolute() else (Path.cwd() / raw_arg).resolve()
+    if not resolved.is_file():
+        resolved = (proj / args.file).resolve()
+    try:
+        rel = resolved.relative_to(proj).as_posix()
+    except ValueError:
+        print(f"section file must reside inside project/: {args.file}", file=sys.stderr)
+        return 2
+    if not resolved.is_file():
+        print(f"missing section file: {rel}", file=sys.stderr)
+        return 2
+
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", rel.strip("/")).strip("_")
+    sec_dir = proj / ".wf/section_polish"
+    sec_dir.mkdir(parents=True, exist_ok=True)
+    snap_path = sec_dir / f"{slug}.snapshot.json"
+    receipt_path = sec_dir / f"{slug}.json"
+    text = resolved.read_text(encoding="utf-8")
+
+    if args.snapshot:
+        payload = {
+            "rel": rel,
+            "snapshot_at": now(),
+            "snapshot_sha256": _sha256(resolved),
+            "facts": facts(text),
+        }
+        atomic_json(snap_path, payload)
+        print(f"Section polish snapshot saved: project/.wf/section_polish/{slug}.snapshot.json")
+        return 0
+
+    if not snap_path.is_file():
+        print(f"Missing pre-polish section snapshot for {rel}. Run with --snapshot BEFORE polishing.", file=sys.stderr)
+        return 2
+    snap = json.loads(snap_path.read_text(encoding="utf-8"))
+    expect = snap["facts"]
+    got = facts(text)
+    fact_problems = []
+    for field, label in (("numbers", "number"), ("citekeys", "citekey"), ("artifacts", "artifact ref"), ("pvalues", "P value")):
+        if field not in expect:
+            continue
+        lost = sorted(Counter(expect[field]) - Counter(got[field]))
+        added = sorted(Counter(got[field]) - Counter(expect[field]))
+        if lost:
+            fact_problems.append(f"{label}(s) LOST: {', '.join(map(str, lost[:6]))}")
+        if added:
+            fact_problems.append(f"{label}(s) APPEARED: {', '.join(map(str, added[:6]))}")
+
+    allow = allowlist()
+    ai = lint_ai(rel, text, allow)
+    struct = lint_structure(rel, text) + lint_medical(rel, text)
+    style = lint_style(rel, text)
+    medical_risks = [r for r in diagnose(text, rel)
+                     if r["kind"] in {"engineering_jargon", "lablog_chronology", "defensive_self_weakening", "assistant_voice", "workflow_metadata"}]
+    blocking_struct = [x for x in struct if x["severity"] == "blocking"]
+    blocking_style = [x for x in style if x["severity"] == "blocking"]
+    blocking_total = len(blocking_struct) + len(blocking_style) + len(medical_risks)
+    fact_ok = not fact_problems
+
+    receipt = {
+        "rel": rel,
+        "verified_at": now(),
+        "snapshot_sha256": snap.get("snapshot_sha256"),
+        "verified_sha256": _sha256(resolved),
+        "fact_preserving": fact_ok,
+        "fact_problems": fact_problems,
+        "blocking_total": blocking_total,
+        "ai_tier_a": len([x for x in ai if x["tier"] == "A"]),
+        "ai_tier_b": len([x for x in ai if x["tier"] == "B"]),
+        "medical_style_risks": [r["kind"] for r in medical_risks],
+        "summary": "; ".join(fact_problems + [f"{r['kind']}" for r in medical_risks] + [x["kind"] for x in blocking_struct + blocking_style]),
+    }
+    atomic_json(receipt_path, receipt)
+    if not fact_ok or blocking_total:
+        print(f"Section polish verification FAILED for {rel}: {receipt['summary']}", file=sys.stderr)
+        return 2
+    print(f"Section polish verified for {rel} (facts invariant, 0 blocking findings, AI tier-A={receipt['ai_tier_a']}).")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="de-AI and academic-English linting")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -772,6 +871,14 @@ def main() -> int:
 
     p = sub.add_parser("diff", help="verify polishing preserved every fact")
     p.set_defaults(fn=cmd_diff)
+
+    p = sub.add_parser("section", help="per-section immediate polish snapshot and verification")
+    p.add_argument("--file", required=True, help="target section .md inside project/")
+    p.add_argument("--project", type=Path, help="optional project root override")
+    group = p.add_mutually_exclusive_group(required=True)
+    group.add_argument("--snapshot", action="store_true", help="take pre-polish fact snapshot of this section")
+    group.add_argument("--verify", action="store_true", help="verify fact preservation and seal section polish receipt")
+    p.set_defaults(fn=cmd_section)
 
     args = ap.parse_args()
     return args.fn(args)

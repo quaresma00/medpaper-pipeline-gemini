@@ -55,6 +55,7 @@ NON_OVERRIDABLE_GATES = {
     "author_placement_consistent", "display_placement_compliant", "supplemental_filenames_compliant",
     "discussion_workflow_valid", "discussion_discipline", "discussion_review_verified",
     "display_labels_clinical",
+    "section_polished", "prewrite_review_verified", "benchmark_display_sufficiency", "literature_sufficiency",
 }
 
 

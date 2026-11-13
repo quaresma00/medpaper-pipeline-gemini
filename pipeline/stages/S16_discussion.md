@@ -73,6 +73,8 @@ certainty and clinical implications; no additional review round is introduced.
 - Do not claim a finding is "the first" unless S02's search supports it, and cite that.
 - No stock closers: not "further studies are warranted" as the whole future-work paragraph,
   not "paves the way", not "holds promise".
+- Meet configured citation floors (`literature_sufficiency`) and immediately execute per-section
+  de-AI, anti-defensive, and clinical polish (`polish.py section --file project/07_manuscript/discussion.md --snapshot` -> rewrite -> `--verify`) before advancing.
 
 ## Close
 ```

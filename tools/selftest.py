@@ -953,8 +953,8 @@ def run_codex_integration() -> None:
            f'version: "{pipe["meta"]["version"]}"' in agy_skill and
            'entrypoint: "uv run python tools/wf.py status"' in agy_skill,
            f'pipeline={pipe["meta"]["version"]}')
-    record("all 25 stage cards exist",
-           len(pipe["stage"]) == 25 and
+    record("all 26 stage cards exist",
+           len(pipe["stage"]) == 26 and
            all((ROOT / "pipeline" / s["card"]).is_file() for s in pipe["stage"]),
            f'{len(pipe["stage"])} stage(s)')
 
@@ -2482,7 +2482,8 @@ def main() -> int:
                              ("test_runtime_km_126.py","unified real R environments and source-bound uncensored KM applicability"),
                              ("test_review_hardening_127.py","S16 Discussion bindings, S09/S10 measure & table context, S11 figure annotations, S25 force guard and cross-drive launcher"),
                              ("test_workflow_128.py","single-source page-1 author block, default display placement, isolated Discussion workflow & audit, and Supplemental_File naming"),
-                             ("test_clinical_display_labels_129.py","clinical reader presentation, zero code variables, display dictionary, and non-overridable display_labels_clinical gate")):
+                             ("test_clinical_display_labels_129.py","clinical reader presentation, zero code variables, display dictionary, and non-overridable display_labels_clinical gate"),
+                             ("test_v130_workflow.py","v1.30.0 S11b prewrite SCIE review, immediate section polish, non-CAPTCHA Sci-Hub, >=3 comparator sufficiency, citation floors, and journal+timestamp releases")):
             current = subprocess.run([sys.executable,str(ROOT/"tools"/script)],
                                      capture_output=True,text=True,encoding="utf-8",errors="replace")
             record(label,current.returncode==0,(current.stdout+current.stderr)[-1800:].strip())

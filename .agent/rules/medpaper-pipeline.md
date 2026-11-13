@@ -1,6 +1,6 @@
-# medpaper pipeline — Antigravity workspace rule (v1.29.0)
+# medpaper pipeline — Antigravity workspace rule (v1.30.0)
 
-This repository is a **gated 25-stage medical research paper pipeline**. Do not follow the
+This repository is a **gated 26-stage medical research paper pipeline**. Do not follow the
 workflow from memory; `pipeline/pipeline.toml`, `AGENTS.md`, and the active stage card own all
 sequencing, outputs, and checks.
 
@@ -16,8 +16,8 @@ uv run python tools/wf.py card
 - If `.venv` is absent, run `uv run --python 3.13 python bootstrap.py`.
 - After context compaction, run `uv run python tools/wf.py handoff` and read only the active card
   and topic references routed by `AGENTS.md` (`--details` only when first needed).
-- Note the table/figure-first execution order: `S08_methods` -> `S10_tables` -> `S11_figures` ->
-  `S09_results` -> `S12_reconcile`.
+- Note the table/figure-first and pre-writing SCIE review order: `S08_methods` -> `S10_tables` ->
+  `S11_figures` -> `S11b_prewrite_review` -> `S09_results` -> `S12_reconcile`.
 - Complete active work, run `uv run python tools/wf.py check`, then
   `uv run python tools/wf.py advance --note "..."`. Gates are checkpoints, not turn boundaries.
 
@@ -57,3 +57,9 @@ uv run python tools/wf.py card
 See `AGENTS.md` and `reference/antigravity-integration.md` for capability and subagent routing.
 
 8. **Clinical display internal text & dictionary gate (`v1.29.0`)**: All text inside figures (axes, tick labels, legend keys, panel titles, annotations, and flowchart boxes) and tables (headers, row stubs, cell values, and notes) must be peer-reviewed medical standard. S07 defines an explicit `display_dictionary` (mapping internal features/terms to clinical publication labels and units). Raw snake_case variables, formula syntax (`y ~ x`), bare `TRUE`/`FALSE`, raw package column names (`coef`, `se`, `fpr`), analysis report titles (`Analysis Report Figure 1`), and pipeline data manipulation language in flowcharts are strictly prohibited and enforced via the non-overridable gate `display_labels_clinical` across S07, S10, S11, S17, S18, S22, S23, S25.
+9. **Per-section de-AI/anti-defensive polish, S11b SCIE prewrite review, multi-route fulltext, browser guide capture & journal-named bundles (`v1.30.0`)**:
+   - **Per-section polish**: Immediately run `tools/text/polish.py section --file <section.md> --snapshot` / `--verify` (`section_polished`) as each `.md` section is drafted (`S08`, `S09`, `S14`, `S16`, `S17` abstract) following `reference/clinical-deai-antidefensive-writing.md` (no engineering jargon, no lab-log order, no defensive self-weakening).
+   - **Early No-Go & S11b prewrite audit**: Halt immediately on `NO_GO` / `LOW_ROI_HALT` in `S02`/`S05`/`S06`/`S11b`. After `S11_figures` and before writing prose, run independent read-only SCIE review (`review_round.py --scope prewrite`) and obtain `我确认这一版`.
+   - **Benchmark display & citation floors**: `S07` requires `>= 3` close SCIE comparators driving figure counts/types (`benchmark_display_sufficiency`), and `S13`/`S14`/`S16`/`S17` enforce configured citation minimums (`literature_sufficiency`).
+   - **Multi-route fulltext + user fallback**: `fulltext.py fetch` tries OA + safe non-CAPTCHA Sci-Hub mirrors; CAPTCHA gates abort immediately without evasion and emit `.wf/pending_fulltext_requests.md` for user-supplied PDFs.
+   - **Browser-first guidelines & journal+timestamp bundles**: Invoke the built-in `browser` subagent when HTTP guide extraction is incomplete; review `portal_discrepancies_and_warnings`; freeze releases and archives under `<Journal_Slug>_<YYYYMMDD_HHMMSS>`, and re-run full browser guide capture on journal switch.

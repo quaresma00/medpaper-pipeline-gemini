@@ -57,6 +57,9 @@ uncertainty; a successful model run is not the result narrative.
   supplementary numbering.
 - No claim about a result you did not compute. If a reviewer would ask "where is the
   test for that", either make a scoped owner-stage correction or do not claim it.
+- **Immediate per-section polish (mandatory)**: After drafting `results.md`, immediately run
+  `polish.py section --file project/07_manuscript/results.md --snapshot` -> remove AI tells,
+  engineering/script wording, and defensive/apologetic phrasing -> `--verify` BEFORE advancing.
 
 ## Close
 ```

@@ -81,6 +81,7 @@ uv run python tools/pubmed/build_library.py --export
   cited as evidence.
 
 ## Close
+Ensure `06_refs/library.json` meets or exceeds the configured `min_reflib_entries` pool floor (default >=40 verified PubMed entries; never silently leave a tiny reference pool).
 ```
 uv run python tools/wf.py check
 uv run python tools/wf.py advance --note "library: <n> fresh-PubMed-proven entries with readable source evidence; independent live gate passed; coverage gaps: <...>"

@@ -14,6 +14,7 @@ from .packagefreeze import _safe_path, _sha256, expected_files
 from .readiness import atomic_json, reader_inputs
 
 SCOPES = {
+    "prewrite": ("W", "prewrite_review_approved", "NO_FURTHER_REVIEW", "04_displays/prewrite_review.md"),
     "manuscript": ("M", "manuscript_human_reviewed", "NO_FURTHER_REVIEW", "07_manuscript/human_review.md"),
     "package": ("P", "submission_package_user_confirmed", "OK", "08_submission/package_human_review.md"),
 }
@@ -25,6 +26,27 @@ def now() -> str:
 
 
 def inputs(project: Path, scope: str, *, protocol_context: bool | None = None) -> dict[str, str]:
+    if scope == "prewrite":
+        from .readiness import load
+        files = {}
+        for rel in ("01_protocol/analysis_contract.json", "01_protocol/study_facts.json",
+                    "01_protocol/artifact_plan.json", "01_protocol/artifact_benchmark.md",
+                    "01_protocol/protocol_final.md", "04_tables/table_captions.md", "05_figures/legends.md"):
+            if (project / rel).is_file():
+                files[rel] = project / rel
+        if (project / "03_analysis").is_dir():
+            for p in sorted((project / "03_analysis").rglob("*")):
+                if p.is_file() and p.suffix.lower() in {".json", ".md", ".csv", ".tsv", ".r", ".py"}:
+                    rel = p.relative_to(project).as_posix()
+                    files[rel] = p
+        if (project / "01_protocol/artifact_plan.json").is_file():
+            plan = load(project, "01_protocol/artifact_plan.json")
+            for group in ("main_figures", "supp_figures", "main_tables", "supp_tables"):
+                for entry in plan.get(group, []):
+                    rel = entry.get("file", "")
+                    if rel and (project / rel).is_file():
+                        files[rel] = project / rel
+        return {rel: _sha256(path) for rel, path in sorted(files.items())}
     if scope == "manuscript":
         if protocol_context is None:
             protocol_context = (latest(project, scope) or {}).get("schema_version", 1) >= 5
@@ -168,8 +190,12 @@ def attach(project: Path, scope: str, report: Path, *, revalidation: bool = Fals
     selection = current if revalidation else record["reviewed_artifacts"]
     if len(evidence) != 1 or evidence[0]["reviewed_artifacts"] != selection:
         raise ValueError("review report must bind the exact selected input hashes")
-    headings = ("Reader comprehension", "Medical presentation") if scope == "manuscript" else (
-        "Reader comprehension", "Editorial screening and low-level errors", "Guideline compliance")
+    if scope == "prewrite":
+        headings = ("Statistical methods & results rigor", "SCIE Original Article sufficiency", "Display clarity & medical language")
+    elif scope == "manuscript":
+        headings = ("Reader comprehension", "Medical presentation")
+    else:
+        headings = ("Reader comprehension", "Editorial screening and low-level errors", "Guideline compliance")
     if scope=="package" and record.get("schema_version",1)>=4:
         headings+=("Medical presentation",)
     from .reviewfindings import sections
@@ -279,8 +305,12 @@ def decide(project: Path, scope: str, answer: str, words: str) -> dict:
 
 def summary(project: Path, record: dict) -> None:
     scope = record["scope"]
-    headings = ("Materials presented", "Independent verdict", "User-requested revisions", "Revalidation", "Approval to proceed") if scope == "manuscript" else (
-        "Package presented", "User modifications", "Revalidation", "User confirmation", "Frozen package")
+    if scope == "prewrite":
+        headings = ("Materials presented", "Independent SCIE & methods audit", "Revisions before writing", "Revalidation", "Approval to draft manuscript")
+    elif scope == "manuscript":
+        headings = ("Materials presented", "Independent verdict", "User-requested revisions", "Revalidation", "Approval to proceed")
+    else:
+        headings = ("Package presented", "User modifications", "Revalidation", "User confirmation", "Frozen package")
     lines = [f"# {scope.capitalize()} review {record['id']}", ""]
     content = ["\n".join(f"- `{rel}`" for rel in record["after"]),
                f"Independent report: `{record['report']['path']}`; mode: {record['mode']}",

@@ -35,7 +35,12 @@ def main() -> int:
     project = (args.project or paths.project_dir()).resolve()
     try:
         state = State(project).load()
-        allowed = {"S18_independent_review", "S19_human_review"} if args.scope == "manuscript" else {"S24_package_human_review"}
+        allowed_map = {
+            "prewrite": {"S11b_prewrite_review"},
+            "manuscript": {"S18_independent_review", "S19_human_review"},
+            "package": {"S24_package_human_review"},
+        }
+        allowed = allowed_map[args.scope]
         if args.command not in {"status", "reader-copies"} and state.current not in allowed:
             raise ValueError("review control must run at its own review checkpoint")
         if args.scope == "manuscript" and args.command in {"close", "decide"} and state.current != "S19_human_review":

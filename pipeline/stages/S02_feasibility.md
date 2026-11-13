@@ -57,6 +57,7 @@ uv run python tools/wf.py decide go_nogo_1 GO --why "<what the gap is, how many 
 - If the verdict is PIVOT or STOP, stop and talk to the user. Do not advance.
 
 ## Close
+- **Early No-Go / Low-ROI Halt Rule**: If PubMed screening shows the clinical question is already exhausted without a real gap, sample/event power is fatal, or further protocol refinement yields negligible publishability gain (`NO_GO` or `LOW_ROI_HALT`), STOP immediately and brief the user clearly so quota is not wasted.
 ```
 uv run python tools/wf.py check
 uv run python tools/wf.py advance --note "go_nogo_1=<...>; N papers screened; gap = <...>"

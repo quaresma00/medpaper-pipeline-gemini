@@ -48,6 +48,7 @@ unstated. Apply those caps to the derived plan at S22 before Word production, no
 - `08_submission/docx_style.json`
 - `08_submission/submission_requirements.json`
 - `08_submission/integration/journal_workspace.json`
+- Capture complete author guidelines (use built-in `browser` subagent if HTTP capture is incomplete/JS-blocked) and review `portal_discrepancies_and_warnings` before final freeze.
 
 ## Close
 Run `tools/wf.py check` (or the active scoped revision check). Fix actual failures before

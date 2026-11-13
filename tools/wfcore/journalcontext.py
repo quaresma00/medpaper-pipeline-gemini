@@ -66,9 +66,15 @@ def begin(project: Path, target: dict) -> dict:
     if old and old.get("identity") == ident:
         return current(project)  # Idempotent resume preserves author edits and actual guide captures.
     previous = old or (load(project, TARGET) if (project / TARGET).is_file() else {})
-    attempt = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    raw_name = str(previous.get("journal_name") or previous.get("name") or previous.get("title") or "Previous_Journal")
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", raw_name).strip("_")[:48] or "Previous_Journal"
+    attempt = f"{slug}_{stamp}"
     root = project / "08_submission"
     archive = root / "journal_archives" / attempt
+    if archive.exists():
+        attempt = f"{slug}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
+        archive = root / "journal_archives" / attempt
     selected = [root / name for name in MANAGED if (root / name).exists()]
     # Resolve/check every move first, including Windows junction/symlink escape cases.
     for path in [*selected, archive]: _safe_path(project, path.relative_to(project).as_posix())

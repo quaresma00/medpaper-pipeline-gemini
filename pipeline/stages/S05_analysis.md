@@ -89,6 +89,7 @@ Do not infer unexported complementary counts later or replay old analysis solely
   deviation and it gets recorded at S06.
 - Analytical skills may help implement the approved analysis, but cannot change the
   protocol, create manuscript prose, bypass results JSON, or advance the stage.
+- **Early No-Go / Low-ROI Halt Rule**: If executed results reveal fatal confounding, unviable statistical power, null/unstable findings unsuitable for an SCIE Original Article, or negligible marginal gain from additional sensitivity/reanalysis passes, STOP immediately and report an objective stop-loss recommendation to the user rather than forcing downstream writing.
 
 ## Close
 When required analysis and validity questions are resolved, and no identified material task

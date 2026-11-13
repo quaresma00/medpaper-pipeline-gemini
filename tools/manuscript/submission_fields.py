@@ -19,6 +19,8 @@ def main():
             print(f"final DOCX: main={doc['word_counts']['main']}, abstract={doc['word_counts']['abstract']}")
             for warning in doc.get("advisories", []):
                 print("Advisory: " + warning)
+            for item in doc.get("portal_discrepancies_and_warnings", []):
+                print("Portal UI vs Guide check: " + item)
             print(args.project.resolve() / "08_submission/portal_fields.json")
         problems = verify_portal(args.project)
         print("\n".join(problems) if problems else "portal fields: PASS")

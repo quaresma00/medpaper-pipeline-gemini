@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import stat
 from datetime import datetime, timezone
@@ -125,6 +126,35 @@ def build_freeze(project: Path) -> dict:
     }
 
 
+def _journal_slug(project: Path) -> str:
+    target_path = project / "08_submission/target_journal.json"
+    name = "Target_Journal"
+    if target_path.is_file():
+        try:
+            data = json.loads(target_path.read_text(encoding="utf-8"))
+            name = str(data.get("journal_name") or data.get("name") or data.get("title") or data.get("short_name") or "Target_Journal")
+        except (OSError, ValueError, TypeError):
+            pass
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_")[:48]
+    return slug or "Target_Journal"
+
+
+def _resolve_release_dir(project: Path, freeze_id: str) -> Path:
+    slug = _journal_slug(project)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    base = project / "08_submission/releases" / f"{slug}_{stamp}"
+    if base.exists():
+        manifest = base / "upload_manifest.json"
+        if manifest.is_file():
+            try:
+                if json.loads(manifest.read_text(encoding="utf-8")).get("freeze_id") == freeze_id:
+                    return base
+            except (OSError, ValueError):
+                pass
+        return project / "08_submission/releases" / f"{slug}_{stamp}_{freeze_id[:6]}"
+    return base
+
+
 def write_freeze(project: Path, output: Path | None = None) -> Path:
     project = project.resolve()
     output = (output or project.joinpath(*PurePosixPath(FREEZE_REL).parts)).resolve()
@@ -133,7 +163,7 @@ def write_freeze(project: Path, output: Path | None = None) -> Path:
     except ValueError as exc:
         raise ValueError("freeze manifest must remain inside the project directory") from exc
     payload = build_freeze(project)
-    release = project / "08_submission/releases" / payload["freeze_id"]
+    release = _resolve_release_dir(project, payload["freeze_id"])
     release.mkdir(parents=True, exist_ok=True)
     for record in payload["files"]:
         source = project / record["path"]
@@ -209,10 +239,13 @@ def verify_freeze(project: Path, freeze: Path | None = None) -> tuple[bool, list
             same_container = original.is_file() and content_sha256(original) == content_sha256(path)
             if not same_container and not covered(project, rel, str(item.get("sha256", "")), _sha256(path)):
                 problems.append(f"changed after user confirmation: {rel}")
-    expected_release = "08_submission/releases/" + str(payload.get("freeze_id", ""))
-    if payload.get("release_dir") != expected_release:
-        problems.append("release directory does not match upload identity")
+    actual_release = str(payload.get("release_dir", "")).replace("\\", "/").strip("/")
+    fid = str(payload.get("freeze_id", ""))
+    valid_folder = bool(re.fullmatch(r"08_submission/releases/(?:" + re.escape(fid) + r"|[A-Za-z0-9_.-]+_\d{8}_\d{6}(?:_[A-Fa-f0-9]{6})?)", actual_release))
+    if not valid_folder:
+        problems.append("release directory does not match upload identity or journal+timestamp release convention")
         return False, problems, len(recorded)
+    expected_release = actual_release
     _, release = _safe_path(project, expected_release)
     release_names = {"upload_manifest.json"}
     for rel, item in recorded.items():

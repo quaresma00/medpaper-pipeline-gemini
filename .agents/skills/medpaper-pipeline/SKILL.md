@@ -1,13 +1,13 @@
 ---
 name: medpaper-pipeline
-description: Drives a gated, resumable 25-stage medical/clinical research paper pipeline from research intake through full-census data acquisition, R-first figures and three-line tables, context-bound IMRAD writing, version-bound independent subagent review, frozen scientific master, journal-isolated adaptation, native Word packaging, and final reader/editor/compliance audit. Use whenever the task involves a medical research idea, clinical manuscript, research protocol, PubMed literature retrieval, medical figures/tables, journal selection, user revisions, or a submission package. Never follow the workflow from memory — run `uv run python tools/wf.py status` and obey the active stage card.
+description: Drives a gated, resumable 26-stage medical/clinical research paper pipeline from research intake through full-census data acquisition, R-first figures and three-line tables, pre-writing SCIE audit (S11b), immediate per-section clinical de-AI/anti-defensive polish, context-bound IMRAD writing, version-bound independent subagent review, frozen scientific master, browser-verified journal adaptation, native Word packaging, and final reader/editor/compliance audit. Use whenever the task involves a medical research idea, clinical manuscript, research protocol, PubMed literature retrieval, medical figures/tables, journal selection, user revisions, or a submission package. Never follow the workflow from memory — run `uv run python tools/wf.py status` and obey the active stage card.
 compatibility: Requires Windows pwsh, uv, and Python 3.12+ (3.13 recommended) for pinned science/PDF dependencies (matplotlib, numpy, openpyxl, pandas, scipy, python-docx, pypdf). R (Rscript) is the default renderer for new medical figures; Pandoc and Microsoft Word support final DOCX assembly and visual QA. Network access is required for PubMed, Crossref, Unpaywall, and official journal guidelines.
 metadata:
-  version: "1.29.0"
+  version: "1.30.0"
   entrypoint: "uv run python tools/wf.py status"
 ---
 
-# medpaper pipeline (Antigravity / Gemini v1.29.0)
+# medpaper pipeline (Antigravity / Gemini v1.30.0)
 
 ## Master Template & Dispatch Rule
 
@@ -45,7 +45,7 @@ uv run python tools/wf.py check                  # run deterministic + provenanc
 uv run python tools/wf.py advance --note "..."   # advance when green; gates are not turn stops
 ```
 
-Note the **table/figure-first execution sequence**: despite stable stage IDs (`S01`–`S25`), execution advances **`S08_methods` -> `S10_tables` -> `S11_figures` -> `S09_results` -> `S12_reconcile`** so approved three-line tables and R figures precede `Results` prose.
+Note the **table/figure-first and pre-writing SCIE audit sequence**: execution advances **`S08_methods` -> `S10_tables` -> `S11_figures` -> `S11b_prewrite_review` -> `S09_results` -> `S12_reconcile`** so approved three-line tables, R figures, and an independent SCIE methods/display audit precede `Results` and full manuscript prose.
 
 ## Key Commands
 
@@ -78,3 +78,9 @@ Note the **table/figure-first execution sequence**: despite stable stage IDs (`S
 6. **Isolated Discussion, single-source authors, display placement & `Supplemental_File` naming (`v1.28.0`)**: S16 builds a table-free/callout-free `discussion_brief.md` and locks a concise 6-part `discussion_outline.md` (`discussion_brief.py`) before drafting `discussion.md`, blocks Results restatement and supplementary-callout overuse, and verifies `Discussion audit` at S18/S19/S24/S25. Non-blinded `manuscript.docx` places complete single-source author info (`00_input/author_info.json`) on page 1 (separate `title_page.docx` only when double-blind or backed by a verified official guideline quote). Figures upload separately (keeping `# Figure legends` at the end) and main tables sit one per page after `# References` unless an official guideline quote mandates inline embedding. Supplemental uploads use sequential `Supplemental_File_<N>_<Specific_Description>.<ext>` filenames.
 7. **Frozen scientific master & isolated journal layer (`S19`–`S25`)**: After S19 approval, lock `07_manuscript/scientific_master_freeze.json`. Perform all journal styling, native portrait/landscape Word three-line tables (`wordtables.py`), flat pure-black `SectionHeading` XML cleanup (`build_docx.py`), and portal field extraction inside `08_submission/` and `08_submission/integration/`. See `reference/antigravity-integration.md`.
 8. **Clinical display internal text & dictionary gate (`v1.29.0`)**: All text inside figures (axes, tick labels, legend keys, panel titles, annotations, and flowchart boxes) and tables (headers, row stubs, cell values, and notes) must be peer-reviewed medical standard. S07 defines an explicit `display_dictionary` (mapping internal features/terms to clinical publication labels and units). Raw snake_case variables, formula syntax (`y ~ x`), bare `TRUE`/`FALSE`, raw package column names (`coef`, `se`, `fpr`), analysis report titles (`Analysis Report Figure 1`), and pipeline data manipulation language in flowcharts are strictly prohibited and enforced via the non-overridable gate `display_labels_clinical` across S07, S10, S11, S17, S18, S22, S23, S25.
+9. **Per-section de-AI/anti-defensive polish, S11b SCIE prewrite review, multi-route fulltext, browser guide capture & journal-named bundles (`v1.30.0`)**:
+   - **Immediate per-section polish**: Immediately run `tools/text/polish.py section --file <section.md> --snapshot` / `--verify` (`section_polished`) as each `.md` section is drafted (`S08`, `S09`, `S14`, `S16`, `S17` abstract) following `reference/clinical-deai-antidefensive-writing.md`.
+   - **Early No-Go & S11b prewrite audit**: Halt immediately on `NO_GO` / `LOW_ROI_HALT` in `S02`/`S05`/`S06`/`S11b`. After `S11_figures` and before writing prose, run independent read-only SCIE review (`review_round.py --scope prewrite`) and obtain `我确认这一版`.
+   - **Benchmark display & citation floors**: `S07` requires `>= 3` close SCIE comparators driving figure counts/types (`benchmark_display_sufficiency`), and `S13`/`S14`/`S16`/`S17` enforce configured citation minimums (`literature_sufficiency`).
+   - **Multi-route fulltext + user fallback**: `fulltext.py fetch` tries OA + safe non-CAPTCHA Sci-Hub mirrors; CAPTCHA gates abort immediately without evasion and emit `.wf/pending_fulltext_requests.md` for user-supplied PDFs.
+   - **Browser-first guidelines & journal+timestamp bundles**: Invoke the built-in `browser` subagent when HTTP guide extraction is incomplete; inspect `portal_discrepancies_and_warnings`; freeze releases and archives under `<Journal_Slug>_<YYYYMMDD_HHMMSS>`, and re-run full browser guide capture on journal switch.

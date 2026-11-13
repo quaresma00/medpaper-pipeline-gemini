@@ -40,8 +40,7 @@ from a `journal-switch`, which still preserves the same accepted science.
    impact factor.
 5. Write the actual next target to a task-local JSON, with ISSN, article_type,
    submission_stage and existing SCIE/JCR/integrity/guide fields. Run `journal.py begin`
-   before fetching its official pages/PDFs. Use browser/registration fallback when needed;
-   original snapshots remain under `project/08_submission/cache/`.
+   before fetching its official pages/PDFs. If HTTP fetching (`journal.py fetch`) returns truncated text or triggers JS/anti-bot blocks (`needs_browser_review: true`), immediately invoke the built-in `browser` subagent to open the official Author Guidelines page, inspect sub-pages/expandable tabs, capture the complete rules/PDF, and run `journal.py register --url ... --file ...`. When switching journals after rejection, re-run `journal.py begin` (creating `08_submission/journal_archives/<Journal_Slug>_<YYYYMMDD_HHMMSS>`) and repeat full browser-verified guideline acquisition for the new journal. Original snapshots remain under `project/08_submission/cache/`.
 6. Write `guidelines_extract.md` with sourced sections for word limits, abstract, keywords,
    references, figures and legends, tables, supplements, statements, cover letter, required
    upload items and formatting.

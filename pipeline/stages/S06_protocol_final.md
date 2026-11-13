@@ -89,5 +89,6 @@ the must-fix subset. Review neutral actual artifacts; don't prime with the write
 Use read-only rework preview and actual scoped checks; never infer scientific change from a
 publication label number or silently invalidate author approval. Existing privacy, freezes,
 centralized abbreviations, Word cleanup and final actual-page inspection remain in force.
+If exploratory outcomes in S05 show unviable SCIE Original Article potential (`NO_GO` / low ROI), stop and advise the user immediately instead of locking a weak protocol.
 
 

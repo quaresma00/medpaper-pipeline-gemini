@@ -33,12 +33,36 @@ def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _load_global_env_var(*names: str) -> str | None:
+    for name in names:
+        val = os.environ.get(name)
+        if val and val.strip():
+            return val.strip()
+    for env_path in (Path.home() / ".env", Path.home() / ".gemini" / ".env"):
+        if not env_path.is_file():
+            continue
+        try:
+            for raw in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip('"').strip("'")
+                if k in names and v:
+                    os.environ.setdefault(k, v)
+                    return v
+        except OSError:
+            continue
+    return None
+
+
 def api_key() -> str | None:
-    return os.environ.get("NCBI_API_KEY") or os.environ.get("PUBMED_API_KEY") or None
+    return _load_global_env_var("NCBI_API_KEY", "PUBMED_API_KEY")
 
 
 def api_email() -> str | None:
-    return os.environ.get("NCBI_API_EMAIL") or os.environ.get("PUBMED_API_EMAIL") or None
+    return _load_global_env_var("NCBI_API_EMAIL", "PUBMED_API_EMAIL")
 
 
 def _min_interval() -> float:

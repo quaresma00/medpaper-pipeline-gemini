@@ -119,6 +119,22 @@ def build_portal(project: Path) -> dict:
     warnings = advisories({"main": main_words, "abstract": abstract_words}, rules)
     if warnings:
         payload["advisories"] = warnings
+    discrepancies = [
+        "Verify online portal abstract character/word counter directly on submission: web forms sometimes count subheadings or spaces differently from DOCX.",
+        "Check Title Page vs blinded Manuscript separation in the portal file-role dropdown even if static guide HTML omits upload slot details.",
+        "Confirm individual figure file slots (TIFF/EPS/PDF vs embedded preview) and Highlights/Key Points text boxes in the live submission wizard.",
+        "Verify co-author ORCID authentication links and mandatory ICMJE/COI portal questionnaires before final Submit.",
+    ]
+    target_path = project / "08_submission/target_journal.json"
+    target_doc = json.loads(target_path.read_text(encoding="utf-8")) if target_path.is_file() else {}
+    portal_hint = " ".join(str(target_doc.get(k, "")) for k in ("submission_system", "portal_url", "guidelines_url", "publisher")).casefold()
+    if "scholarone" in portal_hint or "manuscriptcentral" in portal_hint:
+        discrepancies.append("ScholarOne UI check: separate Title Page is routinely required as 'Title Page not for review', and web forms collect short/running title + attributes directly.")
+    elif "editorialmanager" in portal_hint or "elsevier" in portal_hint:
+        discrepancies.append("Editorial Manager UI check: generated PDF proof merges uploaded files automatically; inspect built PDF order, editable vs PDF tables, and mandatory Highlights/Graphical Abstract fields.")
+    elif "frontiers" in portal_hint:
+        discrepancies.append("Frontiers UI check: loop profile/ORCID email matching is strict at submission; verify section/specialty selection and interactive abstract fields.")
+    payload["portal_discrepancies_and_warnings"] = discrepancies
     return payload
 
 

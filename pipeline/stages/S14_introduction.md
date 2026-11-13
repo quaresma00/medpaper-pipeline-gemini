@@ -42,6 +42,8 @@ uv run python tools/wf.py check
   not automatic replacement of legitimate medical terminology.
 - Do not restate the whole field. Paragraph count follows the argument and close comparators,
   not a fixed quota.
+- Respect configured citation floors (`literature_sufficiency`) and immediately run per-section
+  de-AI + anti-defensive polish (`polish.py section --file project/07_manuscript/introduction.md --snapshot` / `--verify`) once drafted.
 
 ## Close
 ```

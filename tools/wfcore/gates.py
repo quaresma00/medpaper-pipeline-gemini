@@ -23,7 +23,8 @@ def run_stage(pipeline, state, project: Path, stage, *, reuse: bool = False, rec
     for spec in stage.gate:
         name = spec.get("check")
         if name in {"prose_not_lists", "display_numbering_consistent", "journal_profile_valid",
-                    "medical_display_story", "medical_display_production", "journal_requirements_current", "display_labels_clinical"} and state.pin_excludes(stage.id, spec.get("since")):
+                    "medical_display_story", "medical_display_production", "journal_requirements_current", "display_labels_clinical",
+                    "section_polished", "prewrite_review_verified", "benchmark_display_sufficiency", "literature_sufficiency"} and state.pin_excludes(stage.id, spec.get("since")):
             results.append(Result(True, name, "new presentation gate not retroactive to this pinned completed stage; wf migrate opts in"))
             continue
         fn = checks.get(name)

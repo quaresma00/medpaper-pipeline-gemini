@@ -104,13 +104,17 @@ def capture(project, url, *, file=None, mode="auto", why="", retrieved_at=None):
         except (OSError,ValueError) as exc:
             if mode=="http": raise ValueError(f"Guide acquisition failed: {exc}") from exc
             try: raw,final,mime=asyncio.run(browser_download(url));kind="browser";suffix=".html"
-            except (OSError,ValueError) as fallback: raise ValueError(f"Direct acquisition: {exc}; browser: {fallback}") from fallback
+            except (OSError,ValueError) as fallback: raise ValueError(f"Direct acquisition: {exc}; optional crawl4ai unavailable ({fallback}). Use the Antigravity built-in `browser` subagent to open the official Author Guidelines page, capture the complete visible text/PDF, and save via `uv run python tools/journal.py register --url ... --file ...`.") from fallback
     jc.allowed_url(project,final)
     suffix,text,reader=extract(raw,suffix)
+    low_text = text.casefold()
+    covered_topics = [kw for kw in ("abstract", "word", "figure", "table", "reference", "title page", "blind", "ethic", "orcid") if kw in low_text]
+    incomplete_guide = len(text) < 1200 or len(covered_topics) < 3
     key=jc.digest(url)[:16]; root=project/"08_submission/cache/guides"
     root.mkdir(parents=True,exist_ok=True)
     source={"id":key,"context_id":context["context_id"],"url":url,"final_url":final,
             "fetched_at":retrieved_at or jc.now(),"registered_at":jc.now(),"mode":kind,"registration_basis":why,
+            "extracted_chars":len(text),"covered_topics":covered_topics,"needs_browser_review":incomplete_guide,
             "raw":f"08_submission/cache/guides/{key}.source{suffix}","text":f"08_submission/cache/guides/{key}.txt"}
     # Preserve exact original bytes and complete visible text. Reader text is optional,
     # never the only retained evidence and never a substitute for the complete guide.
