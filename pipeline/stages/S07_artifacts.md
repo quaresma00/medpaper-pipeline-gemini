@@ -1,10 +1,10 @@
 # S07 - Artifact inventory and reader-ready display plan
 
-Before writing or expensive production, acquire and read at least 3 close SCIE Original Article
-full-text comparators (`min_comparators = 3`). Synthesize their exact figure counts and figure
-archetypes (e.g., study flow, primary outcome plot, subgroup/forest plot, ROC/calibration/KM curve)
-so this study matches SCIE Original Article standards rather than producing 2-3 thin figures
-without substantive clinical justification. Abstract-only comparisons are insufficient.
+Before writing or expensive production, survey 5-10 recent close SCIE Original Article
+full-text comparators published within the past 5 years (`min_comparators = 5`). Synthesize
+their figure counts and figure archetypes (e.g., study flow, primary outcome plot, subgroup/forest
+plot, ROC/calibration/KM curve) so this study matches current SCIE Original Article standards rather
+than using outdated articles or producing 2-3 thin figures without clinical justification. Abstract-only comparisons are insufficient.
 
 For EACH table/figure state its clinical question, population/comparison, measure/unit and
 denominator, placement, overlap with other displays and likely reader misunderstanding.

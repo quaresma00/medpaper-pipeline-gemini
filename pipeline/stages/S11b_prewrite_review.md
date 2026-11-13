@@ -21,7 +21,7 @@ uv run python tools/review_round.py start --scope prewrite
    - Required JSON evidence hash map `reviewed_artifacts` from step 1.
 3. The independent reviewer MUST deliver substantive findings (>=80 chars each) under these exact `##` headings plus the JSON `reviewed_artifacts` + `findings` fence:
    - `## Statistical methods & results rigor` (design alignment, confounding, sensitivity checks, effect precision, null/borderline honesty)
-   - `## SCIE Original Article sufficiency` (novelty/incremental value vs the ≥3 benchmark comparators; verdict on whether results warrant an Original Article vs NO-GO / stop-loss)
+   - `## SCIE Original Article sufficiency` (novelty/incremental value vs the ≥5 recent SCIE benchmark comparators; verdict on whether results warrant an Original Article vs NO-GO / stop-loss)
    - `## Display clarity & medical language` (clinician readability of figure axes/panels and table headers/notes; zero code/variable jargon; adequate figure count and types)
 4. Ingest the saved reply and present key gaps/revisions to the user:
 ```

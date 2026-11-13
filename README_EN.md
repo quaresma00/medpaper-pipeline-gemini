@@ -78,7 +78,7 @@ uv run python tools/wf.py advance --note "concise summary of outputs, decisions,
 20. `S19_human_review` — Scoped executor fixes, single consolidated report, explicit `我确认这一版` & `scientific_master_freeze.json`
 21. `S20_journal` — Realistic SCIE journal selection, browser-verified official guide capture & isolated `08_submission/integration/`
 22. `S21_authors` — Deferred author/affiliation/declaration intake & synced reference counts
-23. `S22_polish` — Whole-manuscript harmonization, house style & immutable fact preservation
+23. `S22_polish` — Cross-section spelling/abbreviation harmonization, journal limit trim & immutable fact check (no full rewrite)
 24. `S23_package` — Native Word three-line tables, flat-heading DOCX bundle, portal fields & Portal-vs-Guide discrepancy warnings
 25. `S24_package_human_review` — Package subagent review round, explicit `我确认这一版` & `<Journal_Slug>_<YYYYMMDD_HHMMSS>` freeze
 26. `S25_submission_audit` — Independent read-only reader, screening-editor & official-guideline final audit

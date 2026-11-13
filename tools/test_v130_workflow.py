@@ -147,24 +147,34 @@ class TestV130Workflow(unittest.TestCase):
         self.assertTrue(r_ok.ok, r_ok.detail)
 
     def test_5_benchmark_display_and_reference_floors(self) -> None:
-        _progress("5/6 Checking >=3 comparator display sufficiency and citation floors...")
+        _progress("5/6 Checking >=5 recent (<=5y) comparator display sufficiency and citation floors...")
+        from datetime import datetime, timezone
+        cur_year = datetime.now(timezone.utc).year
         bench_gate = get_check("benchmark_display_sufficiency")
-        comp = lambda k, mf: {"citekey": k, "observations": {"main_figures": mf, "figure_types": ["flow", "forest", "km", "roc"], "references": 42}}
+        comp = lambda k, mf, yr: {"citekey": k, "year": yr, "observations": {"main_figures": mf, "figure_types": ["flow", "forest", "km", "roc"], "references": 42}}
+        # Too few comparators (<5) must fail
         (self.project / "01_protocol/artifact_benchmark.json").write_text(json.dumps({
-            "comparators": [comp("a", 5), comp("b", 6)],
+            "comparators": [comp("a", 5, cur_year), comp("b", 6, cur_year), comp("c", 5, cur_year)],
             "adaptation": {"displays": {"figure_count_rationale": "Matched to peer SCIE articles with four core clinical visuals."}},
         }), encoding="utf-8")
         (self.project / "01_protocol/artifact_plan.json").write_text(json.dumps({
-            "main_figures": [{"id": f"Figure {i}"} for i in range(1, 3)],
+            "main_figures": [{"id": f"Figure {i}"} for i in range(1, 5)],
         }), encoding="utf-8")
         self.assertFalse(bench_gate(self._ctx("S07_artifacts", {"since": "1.30.0"})).ok)
 
+        # Outdated comparators (>5 years old) without recency_exception must fail
         (self.project / "01_protocol/artifact_benchmark.json").write_text(json.dumps({
-            "comparators": [comp("a", 5), comp("b", 6), comp("c", 5)],
-            "adaptation": {"displays": {"figure_count_rationale": "Three SCIE comparators use 5-6 figures; our 4-figure plan covers flow, primary HR, forest, and ROC."}},
+            "comparators": [comp(f"old{i}", 5, cur_year - 9) for i in range(5)],
+            "adaptation": {"displays": {"figure_count_rationale": "Five older comparators surveyed across the design."}},
         }), encoding="utf-8")
-        (self.project / "01_protocol/artifact_plan.json").write_text(json.dumps({
-            "main_figures": [{"id": f"Figure {i}"} for i in range(1, 5)],
+        r_old = bench_gate(self._ctx("S07_artifacts", {"since": "1.30.0"}))
+        self.assertFalse(r_old.ok)
+        self.assertIn("last 5 years", r_old.detail)
+
+        # 5 recent comparators + >=4 figures must pass
+        (self.project / "01_protocol/artifact_benchmark.json").write_text(json.dumps({
+            "comparators": [comp(f"c{i}", 5, cur_year - (i % 3)) for i in range(5)],
+            "adaptation": {"displays": {"figure_count_rationale": "Five recent SCIE comparators (last 3 years) use 5 figures; our 4-figure plan covers flow, primary HR, forest, and ROC."}},
         }), encoding="utf-8")
         self.assertTrue(bench_gate(self._ctx("S07_artifacts", {"since": "1.30.0"})).ok)
 

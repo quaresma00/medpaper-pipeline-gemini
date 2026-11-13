@@ -141,17 +141,22 @@ def _journal_slug(project: Path) -> str:
 
 def _resolve_release_dir(project: Path, freeze_id: str) -> Path:
     slug = _journal_slug(project)
+    releases_root = project / "08_submission/releases"
+    if releases_root.is_dir():
+        for child in sorted(releases_root.iterdir()):
+            if not child.is_dir() or not child.name.startswith(f"{slug}_"):
+                continue
+            manifest = child / "upload_manifest.json"
+            if manifest.is_file():
+                try:
+                    if json.loads(manifest.read_text(encoding="utf-8")).get("freeze_id") == freeze_id:
+                        return child
+                except (OSError, ValueError):
+                    pass
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    base = project / "08_submission/releases" / f"{slug}_{stamp}"
+    base = releases_root / f"{slug}_{stamp}"
     if base.exists():
-        manifest = base / "upload_manifest.json"
-        if manifest.is_file():
-            try:
-                if json.loads(manifest.read_text(encoding="utf-8")).get("freeze_id") == freeze_id:
-                    return base
-            except (OSError, ValueError):
-                pass
-        return project / "08_submission/releases" / f"{slug}_{stamp}_{freeze_id[:6]}"
+        return releases_root / f"{slug}_{stamp}_{freeze_id[:6]}"
     return base
 
 

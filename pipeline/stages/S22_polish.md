@@ -4,9 +4,11 @@ After wording changes update only affected `08_submission/integration/claim_bind
 entries under `reference/numeric-claims.md`; never alter frozen scientific facts to match prose.
 
 ## Purpose
-Give the journal-specific integration copy one language pass without changing a number,
-citekey, figure/table reference or scientific claim. The accepted scientific master remains
-unchanged.
+Per-section de-AI, anti-defensive, and clinical language polishing has ALREADY been completed
+when each `.md` was drafted (`S08`, `S09`, `S14`, `S16`, `S17`). **Do NOT re-polish or rewrite
+the entire manuscript here** (avoid redundant token spend and numeric drift). Limit this stage
+strictly to cross-section consistency (spelling, abbreviation first-definitions, section seam
+transitions), target-journal word/heading/abstract limits, and immutable fact preservation.
 
 ## Procedure
 1. Snapshot before editing:
@@ -15,11 +17,10 @@ uv run python tools/text/polish.py snapshot
 ```
    The tool snapshots `08_submission/integration/full_manuscript.md` plus its supplementary
    Methods and administrative files. It never snapshots or edits the frozen S19 sources.
-2. Run `tools/text/polish.py lint`, resolve actual structural/house-style defects, assess
-   wording prompts in their medical context, and align
-   abstract structure, spelling, word/reference limits and permitted headings with the
-   chosen journal. Preserve medical-journal prose: continuous narrative, calibrated claims,
-   concise Methods in the main paper, and detailed implementation only in the supplement.
+2. Run `tools/text/polish.py lint` to catch ONLY cross-section house-style issues (`lint_spelling`,
+   `lint_abbreviations`, `P`/`p` case consistency, numeric range dashes), check seam transitions
+   between assembled sections, and apply only the target journal's required spelling, abstract
+   structure, and word/reference limits. Leave already-clean section prose intact.
 3. Keep Keywords immediately after the Abstract. Use the actual selected journal's keyword
    count and final-output separator, already recorded in the target profile. The scientific
    source's 3-6 comma-delimited convention does not override that journal. Preserve the

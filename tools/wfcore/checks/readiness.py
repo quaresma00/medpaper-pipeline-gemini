@@ -77,9 +77,10 @@ def portal_fields_current(ctx: Ctx) -> Result:
 
 @check("benchmark_display_sufficiency")
 def benchmark_display_sufficiency(ctx: Ctx) -> Result:
-    """Require >=3 close SCIE comparators and benchmark-aligned figure count/types (anti-thin-figure guard)."""
+    """Require >=5 recent (<=5y) SCIE comparators and benchmark-aligned figure count/types."""
     if ctx.state.pin_excludes(ctx.stage.id, ctx.spec.get("since")):
         return Result(True, "benchmark_display_sufficiency", "comparator sufficiency gate not retroactive to pinned completed stage")
+    from datetime import datetime, timezone
     import statistics
     from ..readiness import load
     layer = ctx.spec.get("layer", "science")
@@ -90,22 +91,50 @@ def benchmark_display_sufficiency(ctx: Ctx) -> Result:
         plan = load(ctx.project, plan_rel)
     except (OSError, ValueError) as exc:
         return Result(False, "benchmark_display_sufficiency", str(exc))
+    lib_years: dict[str, int] = {}
+    lib_path = ctx.p("06_refs/library.json")
+    if lib_path.is_file():
+        try:
+            for e in load(ctx.project, "06_refs/library.json").get("entries", []):
+                if e.get("citekey") and str(e.get("year", "")).isdigit():
+                    lib_years[e["citekey"]] = int(e["year"])
+        except (OSError, ValueError, TypeError):
+            pass
     rows = bench.get("comparators", [])
-    min_comp = int(ctx.target("min_comparators", 3))
+    min_comp = int(ctx.target("min_comparators", 5))
+    recency_years = int(ctx.target("comparator_recency_years", 5))
+    min_year = datetime.now(timezone.utc).year - recency_years
     problems = []
     if len(rows) < min_comp:
-        problems.append(f"need at least {min_comp} distinct close SCIE Original Article full-text comparators (found {len(rows)})")
+        problems.append(f"need at least {min_comp} recent (5-10 recommended) close SCIE Original Article full-text comparators (found {len(rows)})")
     comp_figs = []
+    recent_count = 0
     for row in rows:
+        key = row.get("citekey", "?")
         obs = row.get("observations", {})
+        year_val = row.get("year") or obs.get("year") or lib_years.get(key)
+        try:
+            y_int = int(year_val)
+        except (TypeError, ValueError):
+            y_int = None
+        if y_int is None:
+            problems.append(f"{key}: record comparator publication year (year or observations.year) to prove recent SCIE status")
+        elif y_int >= min_year:
+            recent_count += 1
         mf = obs.get("main_figures")
         if not isinstance(mf, int) or mf <= 0:
-            problems.append(f"{row.get('citekey', '?')}: record integer observations.main_figures from the real full text")
+            problems.append(f"{key}: record integer observations.main_figures from the real full text")
         else:
             comp_figs.append(mf)
         ftypes = obs.get("figure_types") or obs.get("display_archetypes")
         if not ftypes or (isinstance(ftypes, str) and len(ftypes.strip()) < 8):
-            problems.append(f"{row.get('citekey', '?')}: record observations.figure_types / display_archetypes used in that SCIE paper")
+            problems.append(f"{key}: record observations.figure_types / display_archetypes used in that SCIE paper")
+    recency_exc = str(bench.get("recency_exception") or (bench.get("adaptation") or {}).get("recency_exception") or "").strip()
+    if len(rows) >= min_comp and recent_count < min_comp and len(recency_exc) < 40:
+        problems.append(
+            f"only {recent_count}/{len(rows)} comparators were published in the last {recency_years} years (>={min_year}); "
+            "use 5-10 recent SCIE articles instead of outdated papers (or record a substantive >=40-char recency_exception)"
+        )
     main_figs = plan.get("main_figures", [])
     floor = int(ctx.target("min_main_figures_floor", 4))
     ratio = float(ctx.target("min_figure_ratio_to_benchmark", 0.7))

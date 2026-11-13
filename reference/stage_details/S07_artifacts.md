@@ -8,7 +8,7 @@ Markdown's `benchmark_version: 1` block. Counts are reference points, not fixed 
 Abstracts and a bare "benchmarked" flag do not satisfy this gate.
 
 Read `reference/r-first.md`. Plan new figures with renderer="R" and co-located .R/PNG/PDF.
-Use `01_protocol/artifact_benchmark.md` (with `>= 3` close SCIE Original Article full texts for v1.30.0+) to drive figure count and figure archetypes (`observations.main_figures`, `observations.figure_types`, `observations.references`). Synthesize `adaptation.displays.figure_count_rationale` so the paper presents an SCIE-competitive figure suite (e.g., study flow, primary outcome plot, subgroup/sensitivity forest plot, prognostic/calibration curve) instead of 2-3 sparse displays without explicit clinical justification (`benchmark_display_sufficiency`). Prototype in R with full data and the same semantic layout; retain approved legacy Python
+Use `01_protocol/artifact_benchmark.md` (surveying 5-10 recent close SCIE Original Article full texts published within the last 5 years, `min_comparators = 5`) to drive figure count and figure archetypes (`observations.main_figures`, `observations.figure_types`, `observations.references`, and `year` / `observations.year`). Synthesize `adaptation.displays.figure_count_rationale` so the paper presents an SCIE-competitive figure suite (e.g., study flow, primary outcome plot, subgroup/sensitivity forest plot, prognostic/calibration curve) instead of 2-3 sparse displays without explicit clinical justification (`benchmark_display_sufficiency`). Prototype in R with full data and the same semantic layout; retain approved legacy Python
 figures or record a concrete Python exception instead of silently defaulting to it.
 
 ## Purpose
