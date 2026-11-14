@@ -4,9 +4,9 @@ After wording changes update only affected `08_submission/integration/claim_bind
 entries under `reference/numeric-claims.md`; never alter frozen scientific facts to match prose.
 
 ## Purpose
-Per-section de-AI, anti-defensive, and clinical language polishing has ALREADY been completed
+Per-section de-AI, claim-driven (anti-lab-log), and balanced clinical language polishing has ALREADY been completed
 when each `.md` was drafted (`S08`, `S09`, `S14`, `S16`, `S17`). **Do NOT re-polish or rewrite
-the entire manuscript here** (avoid redundant token spend and numeric drift). Limit this stage
+the entire manuscript here** (avoid redundant token spend and numeric drift), and never weaken or delete honest reports of null/unfavorable findings, limitations, or uncertainty. Limit this stage
 strictly to cross-section consistency (spelling, abbreviation first-definitions, section seam
 transitions), target-journal word/heading/abstract limits, and immutable fact preservation.
 

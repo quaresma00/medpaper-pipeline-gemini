@@ -98,7 +98,7 @@ class TestV130Workflow(unittest.TestCase):
         clean = (
             "# Methods\n\n"
             "We evaluated adult patients admitted with sepsis in a multivariable regression analysis (OR 1.42, 95% CI 1.10\u20131.83, P = 0.008) [@smith2023].\n"
-            "Adjusted estimates quantified independent mortality risk across predefined clinical strata.\n"
+            "Adjusted estimates quantified mortality risk across predefined clinical strata, while retaining modest effect sizes, null secondary findings, unfavorable adverse outcomes, study limitations, and wide confidence interval uncertainty.\n"
         )
         sec.write_text(clean, encoding="utf-8")
         subprocess.run([sys.executable, str(tool), "section", "--file", str(sec), "--verify"],

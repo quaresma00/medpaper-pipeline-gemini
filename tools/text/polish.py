@@ -109,8 +109,8 @@ AI_TIER_A = [
      "a growing body of evidence suggests"),
     (r"\bin\s+an\s+era\s+(?:of|where)\b", "in an era of"),
     (r"\bpaint\w*\s+a\s+(?:clear|complete)\s+picture\b", "paints a picture"),
-    (r"\b(?:data\s*frame|python\s+script|r\s+script|json\s+(?:file|manifest|schema)|workflow\s+(?:stage|pipeline|gate)|subagent|command[- ]line|regex)\b", "engineering/code jargon"),
-    (r"\b(?:unfortunately|merely\s+achieves|only\s+achieves|severely\s+insufficient|still\s+lags\s+far\s+behind|modest\s+at\s+best)\b", "defensive self-weakening"),
+    (r"\b(?:data\s*frame|python\s*script|r\s*script|json\s+(?:file|manifest|schema)|workflow\s+(?:stage|pipeline|gate)|subagent|command[- ]line|regex)\b", "engineering/code jargon"),
+    (r"\b(?:merely\s+achieves|only\s+achieves|severely\s+insufficient|still\s+lags\s+far\s+behind)\b", "work-report self-belittling (retain honest null/unfavorable findings, limitations, and uncertainty)"),
     (r"\b(?:first(?:ly)?,\s+we\s+(?:ran|executed|loaded|parsed)|in\s+the\s+next\s+step,\s+we\s+(?:ran|processed|generated|built))\b", "lab-log chronology"),
 ]
 

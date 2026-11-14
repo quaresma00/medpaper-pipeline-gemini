@@ -25,8 +25,8 @@ RULES = {
     "ambiguous_antecedent": (r"\bpost\s+hoc\s*:\s*same\b", "Describe the actual post-hoc population/comparison; preserve its timing, not an unexplained 'same'."),
     "software_state": (r"\b(?:NaN|Undefined|Not fitted)\b", "Check missing/not applicable/not fitted/not estimable/unbounded separately; never automatically replace all states with a dash."),
     "engineering_jargon": (r"\b(?:data\s*frame|python\s+script|r\s+script|json\s+(?:file|manifest|schema)|workflow\s+(?:stage|pipeline|gate)|subagent|hardcoded|command[- ]line|stdout|stderr|regex|refactor\w*)\b", "Remove software/engineering implementation words from medical text, tables, and figures; describe clinical concepts and statistical methodology directly."),
-    "lablog_chronology": (r"\b(?:first(?:ly)?,\s+we\s+(?:ran|executed|loaded|parsed)|in\s+the\s+(?:first|next|subsequent)\s+step,\s+we\s+(?:ran|processed|generated|built)|we\s+then\s+executed)\b", "Replace chronological script/lab-log phrasing with purpose-driven clinical and statistical prose."),
-    "defensive_self_weakening": (r"\b(?:unfortunately|merely\s+achieves|only\s+achieves|severely\s+insufficient|still\s+lags\s+far\s+behind|trivial\s+improvement|modest\s+at\s+best)\b", "Remove defensive or self-belittling framing (anti-defensive writing principle); state study scope and limitations factually."),
+    "lablog_chronology": (r"\b(?:first(?:ly)?,\s+we\s+(?:ran|executed|loaded|parsed)|in\s+the\s+(?:first|next|subsequent)\s+step,\s+we\s+(?:ran|processed|generated|built)|we\s+then\s+executed)\b", "Replace chronological script/lab-log phrasing with claim-driven clinical and statistical prose."),
+    "defensive_self_weakening": (r"\b(?:merely\s+achieves|only\s+achieves|severely\s+insufficient|still\s+lags\s+far\s+behind)\b", "Remove non-clinical work-report self-belittling phrasing; always retain honest reporting of unfavorable results, null findings, modest effect sizes, study limitations, and statistical/causal uncertainty."),
 }
 FIELDS = {
     "table": ("title_and_labels", "denominators_and_summaries", "footnotes_and_model_states"),

@@ -59,7 +59,8 @@ uncertainty; a successful model run is not the result narrative.
   test for that", either make a scoped owner-stage correction or do not claim it.
 - **Immediate per-section polish (mandatory)**: After drafting `results.md`, immediately run
   `polish.py section --file project/07_manuscript/results.md --snapshot` -> remove AI tells,
-  engineering/script wording, and defensive/apologetic phrasing -> `--verify` BEFORE advancing.
+  engineering/script wording, and work-report narration while adopting clear finding-first structure
+  and **strictly retaining all unfavorable results, null findings, modest effect sizes, and statistical uncertainty** (never spin or cherry-pick advantages) -> `--verify` BEFORE advancing.
 
 ## Close
 ```

@@ -74,7 +74,7 @@ certainty and clinical implications; no additional review round is introduced.
 - No stock closers: not "further studies are warranted" as the whole future-work paragraph,
   not "paves the way", not "holds promise".
 - Meet configured citation floors (`literature_sufficiency`) and immediately execute per-section
-  de-AI, anti-defensive, and clinical polish (`polish.py section --file project/07_manuscript/discussion.md --snapshot` -> rewrite -> `--verify`) before advancing.
+  de-AI, claim-driven, and clinical polish (`polish.py section --file project/07_manuscript/discussion.md --snapshot` -> rewrite -> `--verify`) before advancing: eliminate work-report narration and AI clichés while **fully preserving unfavorable/null findings, contrary literature, concrete study limitations, and calibrated causal/statistical uncertainty** (never spin only strengths).
 
 ## Close
 ```

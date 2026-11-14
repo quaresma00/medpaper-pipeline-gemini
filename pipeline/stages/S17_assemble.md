@@ -66,7 +66,7 @@ uv run python tools/manuscript/assemble.py
 - `full_manuscript.md` is the canonical assembled view after this stage. Later scientific or
   human edits return through `tools/rework.py` to the owning component source, then rebuild
   this file; never patch it as a detached manuscript.
-- Immediately polish `07_manuscript/abstract.md` via `polish.py section --file project/07_manuscript/abstract.md --snapshot` / `--verify` BEFORE assembling, and ensure total citations satisfy `literature_sufficiency`.
+- Immediately polish `07_manuscript/abstract.md` via `polish.py section --file project/07_manuscript/abstract.md --snapshot` / `--verify` BEFORE assembling (clear finding-first prose without work-report narration, while accurately retaining null/unfavorable outcomes, limitations, and appropriate uncertainty), and ensure total citations satisfy `literature_sufficiency`.
 
 ## Close
 Before S18/user delivery, read `reference/project-benchmarking.md`, read the complete actual

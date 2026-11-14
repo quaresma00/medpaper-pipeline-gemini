@@ -43,7 +43,7 @@ uv run python tools/wf.py check
 - Do not restate the whole field. Paragraph count follows the argument and close comparators,
   not a fixed quota.
 - Respect configured citation floors (`literature_sufficiency`) and immediately run per-section
-  de-AI + anti-defensive polish (`polish.py section --file project/07_manuscript/introduction.md --snapshot` / `--verify`) once drafted.
+  de-AI + claim-driven clinical polish (`polish.py section --file project/07_manuscript/introduction.md --snapshot` / `--verify`, removing work-report narration while keeping balanced clinical framing and genuine evidence uncertainty) once drafted.
 
 ## Close
 ```
