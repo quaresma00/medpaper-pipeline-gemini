@@ -1,6 +1,6 @@
 # medpaper pipeline — Antigravity workspace rule (v1.30.0)
 
-This repository is a **gated 26-stage medical research paper pipeline**. Do not follow the
+This repository is a **gated 25-stage medical research paper pipeline**. Do not follow the
 workflow from memory; `pipeline/pipeline.toml`, `AGENTS.md`, and the active stage card own all
 sequencing, outputs, and checks.
 
@@ -16,8 +16,8 @@ uv run python tools/wf.py card
 - If `.venv` is absent, run `uv run --python 3.13 python bootstrap.py`.
 - After context compaction, run `uv run python tools/wf.py handoff` and read only the active card
   and topic references routed by `AGENTS.md` (`--details` only when first needed).
-- Note the table/figure-first and pre-writing SCIE review order: `S08_methods` -> `S10_tables` ->
-  `S11_figures` -> `S11b_prewrite_review` -> `S09_results` -> `S12_reconcile`.
+- Note the table/figure-first and pre-writing SCIE review order (all manuscript prose follows `S11b`): `S07_artifacts` -> `S10_tables` ->
+  `S11_figures` -> `S11b_prewrite_review` -> `S08_methods` -> `S09_results` -> `S12_reconcile`.
 - Complete active work, run `uv run python tools/wf.py check`, then
   `uv run python tools/wf.py advance --note "..."`. Gates are checkpoints, not turn boundaries.
 

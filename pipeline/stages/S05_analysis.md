@@ -22,9 +22,9 @@ what decision or claim it could change. An available model/package is not a reas
 Complete necessary work; stop adding speculative variants once material questions are resolved.
 
 ## Procedure
-1. **Method scan.** Search for how comparable papers analysed this design - the model
+1. **Method & comparator display-data scan.** Search for how comparable papers (specifically anchoring 5-10 recent close SCIE Original Articles published within the past 5 years) analysed this design - the model
    family, the confounder strategy, the sensitivity analyses, the standard reported
-   metrics. Discovery tools may suggest candidates, but method claims and citations must
+   metrics, **and the statistical outputs required by their typical figures** (e.g., restricted cubic spline knot/curve estimates, subgroup interaction P-values for forest plots, calibration/ROC/DCA arrays, or KM/competing-risk cumulative incidence tables). Ensuring `S05` scripts export all figure-backing JSONs upfront prevents backtracking when `S07`/`S11` design and render figures. Discovery tools may suggest candidates, but method claims and citations must
    resolve to records retrieved by the bundled client. Reuse relevant S02/S03 retrievals and
    full texts; run a new query for a real uncovered method/assumption, not to reach a count:
 ```

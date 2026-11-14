@@ -44,7 +44,7 @@ class QualityTests(unittest.TestCase):
         return source
 
     def test_order_is_tables_figures_results_then_reconcile(self):
-        self.assertEqual([self.pipe.next_of(s).id for s in ("S08_methods", "S10_tables", "S11_figures", "S11b_prewrite_review", "S09_results")], ["S10_tables", "S11_figures", "S11b_prewrite_review", "S09_results", "S12_reconcile"])
+        self.assertEqual([self.pipe.next_of(s).id for s in ("S07_artifacts", "S10_tables", "S11_figures", "S11b_prewrite_review", "S08_methods", "S09_results")], ["S10_tables", "S11_figures", "S11b_prewrite_review", "S08_methods", "S09_results", "S12_reconcile"])
 
     def test_unknown_design_source_is_not_inferred(self):
         self.data("01_protocol/idea.json", {})

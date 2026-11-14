@@ -953,8 +953,8 @@ def run_codex_integration() -> None:
            f'version: "{pipe["meta"]["version"]}"' in agy_skill and
            'entrypoint: "uv run python tools/wf.py status"' in agy_skill,
            f'pipeline={pipe["meta"]["version"]}')
-    record("all 26 stage cards exist",
-           len(pipe["stage"]) == 26 and
+    record("all 25 stage cards exist",
+           len(pipe["stage"]) == 25 and
            all((ROOT / "pipeline" / s["card"]).is_file() for s in pipe["stage"]),
            f'{len(pipe["stage"])} stage(s)')
 
@@ -963,13 +963,13 @@ def run_codex_integration() -> None:
            stage_ids.index("S17_assemble") < stage_ids.index("S18_independent_review") <
            stage_ids.index("S19_human_review") < stage_ids.index("S20_journal") <
            stage_ids.index("S21_authors") < stage_ids.index("S23_package") <
-           stage_ids.index("S24_package_human_review") < stage_ids.index("S25_submission_audit"),
-           "assemble -> publishability review -> user manuscript review -> journal -> authors -> package -> user package OK -> final audit")
+           stage_ids.index("S24_package_human_review"),
+           "assemble -> publishability review -> user manuscript review -> journal -> authors -> package -> independent package audit & user OK")
     independent = next(s for s in pipe["stage"] if s["id"] == "S18_independent_review")
     human = next(s for s in pipe["stage"] if s["id"] == "S19_human_review")
     authors = next(s for s in pipe["stage"] if s["id"] == "S21_authors")
     package_human = next(s for s in pipe["stage"] if s["id"] == "S24_package_human_review")
-    final_audit = next(s for s in pipe["stage"] if s["id"] == "S25_submission_audit")
+    final_audit = package_human
     review_card = (ROOT / "pipeline/stages/S18_independent_review.md").read_text(encoding="utf-8")
     def card_contract(name):
         text=(ROOT/"pipeline/stages"/name).read_text(encoding="utf-8")
@@ -978,7 +978,7 @@ def run_codex_integration() -> None:
     package_card = card_contract("S23_package.md")
     package_human_card = (ROOT / "pipeline/stages/S24_package_human_review.md").read_text(encoding="utf-8")
     human_card = (ROOT / "pipeline/stages/S19_human_review.md").read_text(encoding="utf-8")
-    final_audit_card = card_contract("S25_submission_audit.md")
+    final_audit_card = card_contract("S24_package_human_review.md") + "\n" + card_contract("S25_submission_audit.md")
     record("independent reviewer is singular, read-only, and before author intake",
            independent.get("needs_user", False) is False and human.get("needs_user") is True and
            authors.get("needs_user") is True and "exactly one independent subagent" in review_card and
@@ -987,7 +987,6 @@ def run_codex_integration() -> None:
            "one frozen-package review, then user review, then authors")
     record("final package audit waits for explicit user OK and is independent",
            package_human.get("needs_user") is True and
-           final_audit.get("needs_user", False) is False and
            "无需继续审阅" in package_human_card and
            "tools/package_review.py freeze" in package_human_card and
            "exactly one independent read-only subagent" in final_audit_card and
@@ -996,9 +995,9 @@ def run_codex_integration() -> None:
            (ROOT / "pipeline/pipeline.toml").read_text(encoding="utf-8") and
            "tools/rework.py batch" in final_audit_card and
            "tools/wf.py loop --to" not in final_audit_card,
-           "user confirmation -> immutable freeze -> one guideline audit -> PASS or scoped source correction")
+           "independent package audit -> scoped repair -> user confirmation -> immutable freeze + bound audit")
     final_headings = next(g for g in final_audit["gate"]
-                          if g["check"] == "md_sections")["headings"]
+                          if g["check"] == "md_sections" and g.get("path") == "08_submission/independent_submission_audit.md")["headings"]
     record("final independent audit includes reader and editor lenses",
            "ordinary scientific reader" in final_audit_card and
            "Editorial screening" in final_audit_card and
@@ -1034,7 +1033,7 @@ def run_codex_integration() -> None:
     journal = next(s for s in pipe["stage"] if s["id"] == "S20_journal")
     late_stages = [next(s for s in pipe["stage"] if s["id"] == stage_id) for stage_id in
                    ("S20_journal", "S21_authors", "S22_polish", "S23_package",
-                    "S24_package_human_review", "S25_submission_audit")]
+                    "S24_package_human_review")]
     cli_text = (ROOT / "tools/wfcore/cli.py").read_text(encoding="utf-8")
     record("S19 scientific master is frozen and journal adaptation is isolated",
            "07_manuscript/scientific_master_freeze.json" in human["outputs"] and
@@ -1065,7 +1064,7 @@ def run_codex_integration() -> None:
     required_live_stages = {
         "S13_reflib", "S14_introduction", "S16_discussion", "S17_assemble",
         "S18_independent_review", "S19_human_review", "S21_authors", "S22_polish",
-        "S23_package", "S24_package_human_review", "S25_submission_audit",
+        "S23_package", "S24_package_human_review",
     }
     record("reference verification is live, evidence-bound and non-overridable",
            any(g.get("check") == "reference_provenance" and g.get("live") is True
@@ -1083,7 +1082,7 @@ def run_codex_integration() -> None:
     }
     record("full data acquisition is evidence-bound and non-overridable",
            {"S04_data", "S05_analysis", "S06_protocol_final", "S17_assemble",
-            "S23_package", "S25_submission_audit"}.issubset(acquisition_stages) and
+            "S23_package", "S24_package_human_review"}.issubset(acquisition_stages) and
            "02_data/acquisition_manifest.json" in
            next(s for s in pipe["stage"] if s["id"] == "S04_data")["outputs"] and
            '"data_acquisition_complete"' in

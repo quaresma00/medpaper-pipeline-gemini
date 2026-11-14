@@ -312,55 +312,6 @@ layer = "science"
 since = "1.30.0"
 
 [[stage]]
-id = "S08_methods"
-title = "Write Methods"
-card = "stages/S08_methods.md"
-outputs = ["07_manuscript/methods.md", "07_manuscript/supplementary_methods.md"]
-[[stage.gate]]
-check = "outputs_exist"
-optional = ["07_manuscript/supplementary_methods.md"]
-[[stage.gate]]
-check = "single_section_written"
-[[stage.gate]]
-check = "citekeys_resolve"
-paths = ["07_manuscript/methods.md", "07_manuscript/supplementary_methods.md"]
-[[stage.gate]]
-check = "supplementary_methods_clean"
-[[stage.gate]]
-check = "numbers_have_provenance"
-path = "07_manuscript/methods.md"
-[[stage.gate]]
-check = "numbers_have_provenance"
-path = "07_manuscript/supplementary_methods.md"
-optional = true
-[[stage.gate]]
-check = "no_ai_boilerplate"
-path = "07_manuscript/methods.md"
-[[stage.gate]]
-check = "prose_not_lists"
-path = "07_manuscript/methods.md"
-since = "1.13.0"
-[[stage.gate]]
-check = "no_ai_boilerplate"
-path = "07_manuscript/supplementary_methods.md"
-optional = true
-
-[[stage.gate]]
-check = "writing_ready"
-
-[[stage.gate]]
-check = "literature_coverage"
-section = "methods"
-
-[[stage.gate]]
-check = "reference_provenance"
-
-[[stage.gate]]
-check = "section_polished"
-path = "07_manuscript/methods.md"
-since = "1.30.0"
-
-[[stage]]
 id = "S10_tables"
 title = "Build tables (three-line xlsx, reader-facing)"
 card = "stages/S10_tables.md"
@@ -437,7 +388,7 @@ outputs = ["04_displays/prewrite_review.md"]
 freeform = ["04_displays/prewrite_review.md"]
 description = """
 Independent read-only subagent review and user checkpoint AFTER S10 tables and S11 figures
-and BEFORE drafting Results, Introduction, Discussion, or Abstract. Verifies statistical
+and BEFORE drafting Methods, Results, Introduction, Discussion, or Abstract. Verifies statistical
 rigor, SCIE Original Article viability (or triggers early NO-GO stop-loss), and display clarity.
 """
 
@@ -447,6 +398,55 @@ since = "1.30.0"
 
 [[stage.gate]]
 check = "prewrite_review_verified"
+since = "1.30.0"
+
+[[stage]]
+id = "S08_methods"
+title = "Write Methods"
+card = "stages/S08_methods.md"
+outputs = ["07_manuscript/methods.md", "07_manuscript/supplementary_methods.md"]
+[[stage.gate]]
+check = "outputs_exist"
+optional = ["07_manuscript/supplementary_methods.md"]
+[[stage.gate]]
+check = "single_section_written"
+[[stage.gate]]
+check = "citekeys_resolve"
+paths = ["07_manuscript/methods.md", "07_manuscript/supplementary_methods.md"]
+[[stage.gate]]
+check = "supplementary_methods_clean"
+[[stage.gate]]
+check = "numbers_have_provenance"
+path = "07_manuscript/methods.md"
+[[stage.gate]]
+check = "numbers_have_provenance"
+path = "07_manuscript/supplementary_methods.md"
+optional = true
+[[stage.gate]]
+check = "no_ai_boilerplate"
+path = "07_manuscript/methods.md"
+[[stage.gate]]
+check = "prose_not_lists"
+path = "07_manuscript/methods.md"
+since = "1.13.0"
+[[stage.gate]]
+check = "no_ai_boilerplate"
+path = "07_manuscript/supplementary_methods.md"
+optional = true
+
+[[stage.gate]]
+check = "writing_ready"
+
+[[stage.gate]]
+check = "literature_coverage"
+section = "methods"
+
+[[stage.gate]]
+check = "reference_provenance"
+
+[[stage.gate]]
+check = "section_polished"
+path = "07_manuscript/methods.md"
 since = "1.30.0"
 
 [[stage]]
@@ -1090,81 +1090,10 @@ since = "1.29.0"
 
 [[stage]]
 id = "S24_package_human_review"
-title = "User review, modification and explicit confirmation of the final submission package"
+title = "Independent audit, user confirmation, and immutable release of the final submission package"
 card = "stages/S24_package_human_review.md"
 needs_user = true
-outputs = ["08_submission/package_human_review.md", "08_submission/package_review_freeze.json", "08_submission/evidence/evidence_manifest.json"]
-[[stage.gate]]
-check = "outputs_exist"
-[[stage.gate]]
-check = "scientific_master_unchanged"
-[[stage.gate]]
-check = "journal_workspace_ready"
-[[stage.gate]]
-check = "md_sections"
-path = "08_submission/package_human_review.md"
-headings = ["Package presented", "User modifications", "Revalidation", "User confirmation", "Frozen package"]
-[[stage.gate]]
-check = "bundle_complete"
-[[stage.gate]]
-check = "docx_bundle_ready"
-supplementary_path = "08_submission/integration/supplementary_methods.md"
-[[stage.gate]]
-check = "reference_provenance"
-live = true
-[[stage.gate]]
-check = "title_page_reference_count"
-manuscript = "08_submission/integration/full_manuscript.md"
-title_page = "08_submission/integration/title_page.md"
-[[stage.gate]]
-check = "package_content_matches_baseline"
-[[stage.gate]]
-check = "guidelines_sourced"
-[[stage.gate]]
-check = "bundle_matches_freeze"
-[[stage.gate]]
-check = "revision_rounds_closed"
-[[stage.gate]]
-check = "decision_recorded"
-name = "submission_package_user_confirmed"
-allowed = ["OK"]
-
-[[stage.gate]]
-check = "review_round_approved"
-scope = "package"
-[[stage.gate]]
-check = "submission_measurements_current"
-
-[[stage.gate]]
-check = "portal_fields_current"
-
-[[stage.gate]]
-check = "executor_acceptance"
-layer = "journal"
-final = true
-
-[[stage.gate]]
-check = "journal_requirements_current"
-since = "1.24.0"
-final = true
-[[stage.gate]]
-check = "author_placement_consistent"
-since = "1.28.0"
-[[stage.gate]]
-check = "display_placement_compliant"
-since = "1.28.0"
-[[stage.gate]]
-check = "supplemental_filenames_compliant"
-since = "1.28.0"
-[[stage.gate]]
-check = "discussion_review_verified"
-since = "1.28.0"
-
-[[stage]]
-id = "S25_submission_audit"
-title = "Independent reader, editor and journal-guideline audit of the user-confirmed frozen package"
-card = "stages/S25_submission_audit.md"
-outputs = ["08_submission/independent_submission_audit.md"]
+outputs = ["08_submission/package_human_review.md", "08_submission/independent_submission_audit.md", "08_submission/package_review_freeze.json", "08_submission/evidence/evidence_manifest.json"]
 [[stage.gate]]
 check = "outputs_exist"
 [[stage.gate]]
@@ -1173,6 +1102,10 @@ check = "scientific_master_unchanged"
 check = "journal_workspace_ready"
 [[stage.gate]]
 check = "data_acquisition_complete"
+[[stage.gate]]
+check = "md_sections"
+path = "08_submission/package_human_review.md"
+headings = ["Package presented", "User modifications", "Revalidation", "User confirmation", "Frozen package"]
 [[stage.gate]]
 check = "md_sections"
 path = "08_submission/independent_submission_audit.md"
@@ -1202,8 +1135,15 @@ path = "08_submission/independent_submission_audit.md"
 check = "revision_rounds_closed"
 [[stage.gate]]
 check = "decision_recorded"
+name = "submission_package_user_confirmed"
+allowed = ["OK"]
+[[stage.gate]]
+check = "decision_recorded"
 name = "submission_package_independent_audit"
 allowed = ["PASS", "PASS_AUTHOR_FINAL_COPY"]
+[[stage.gate]]
+check = "review_round_approved"
+scope = "package"
 [[stage.gate]]
 check = "final_copy_verified"
 [[stage.gate]]
@@ -1212,7 +1152,11 @@ check = "submission_measurements_current"
 [[stage.gate]]
 check = "portal_fields_current"
 
-# ------------------------------------------------------------------------------
+[[stage.gate]]
+check = "executor_acceptance"
+layer = "journal"
+final = true
+
 [[stage.gate]]
 check = "journal_requirements_current"
 since = "1.24.0"

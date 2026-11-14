@@ -38,31 +38,34 @@ class Pipeline:
 
     # ---- lookups -------------------------------------------------------
     def stage(self, sid: str) -> Stage:
+        target = "S24_package_human_review" if sid == "S25_submission_audit" else sid
         for s in self.stages:
-            if s.id == sid:
+            if s.id == target:
                 return s
         raise KeyError(f"unknown stage: {sid}")
 
-    def resolve(self, token: str) -> Stage:
+    def resolve(self, stage_ref: str) -> Stage:
         """Accept exact id, index (1-based), or unique prefix/substring."""
-        token = (token or "").strip()
-        if not token:
+        stage_ref = (stage_ref or "").strip()
+        if not stage_ref:
             raise KeyError("empty stage token")
+        if stage_ref in {"S25_submission_audit", "s25", "S25"}:
+            stage_ref = self.stages[-1].id
         for s in self.stages:
-            if s.id == token:
+            if s.id == stage_ref:
                 return s
-        if token.isdigit():
-            i = int(token)
+        if stage_ref.isdigit():
+            i = int(stage_ref)
             if 1 <= i <= len(self.stages):
                 return self.stages[i - 1]
-        low = token.lower()
+        low = stage_ref.lower()
         hits = [s for s in self.stages if s.id.lower().startswith(low)]
         if len(hits) == 1:
             return hits[0]
         hits = [s for s in self.stages if low in s.id.lower()]
         if len(hits) == 1:
             return hits[0]
-        raise KeyError(f"stage token '{token}' matched {len(hits)} stages")
+        raise KeyError(f"stage token '{stage_ref}' matched {len(hits)} stages")
 
     def next_of(self, sid: str) -> Stage | None:
         s = self.stage(sid)

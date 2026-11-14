@@ -50,12 +50,16 @@ class TestV130Workflow(unittest.TestCase):
                    stage=self.pipe.stage(stage_id), spec=spec or {})
 
     def test_1_pipeline_order_and_compact_cards(self) -> None:
-        _progress("1/6 Checking 26-stage sequence (S11b before S09) and compact card limits...")
+        _progress("1/6 Checking 25-stage sequence (S10->S11->S11b->S08->S09, merged S24) and compact card limits...")
         ids = [s.id for s in self.pipe.stages]
-        self.assertEqual(len(ids), 26)
+        self.assertEqual(len(ids), 25)
+        self.assertEqual(ids.index("S10_tables"), ids.index("S07_artifacts") + 1)
+        self.assertEqual(ids.index("S11_figures"), ids.index("S10_tables") + 1)
         self.assertEqual(ids.index("S11b_prewrite_review"), ids.index("S11_figures") + 1)
-        self.assertEqual(ids.index("S09_results"), ids.index("S11b_prewrite_review") + 1)
-        for name in ("S07_artifacts", "S20_journal", "S23_package", "S25_submission_audit"):
+        self.assertEqual(ids.index("S08_methods"), ids.index("S11b_prewrite_review") + 1)
+        self.assertEqual(ids.index("S09_results"), ids.index("S08_methods") + 1)
+        self.assertEqual(ids[-1], "S24_package_human_review")
+        for name in ("S07_artifacts", "S20_journal", "S23_package", "S24_package_human_review", "S25_submission_audit"):
             card = ROOT / "pipeline/stages" / f"{name}.md"
             self.assertLess(len(card.read_text(encoding="utf-8")), 4000, f"{name} exceeded 4000 chars")
 

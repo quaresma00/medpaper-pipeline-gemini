@@ -28,6 +28,7 @@ STAGE_ALIASES = {
     "S18_journal": "S17_assemble",
     "S19_polish": "S17_assemble",
     "S20_package": "S17_assemble",
+    "S25_submission_audit": "S24_package_human_review",
 }
 NON_OVERRIDABLE_GATES = {
     "data_acquisition_complete",
@@ -278,12 +279,17 @@ def cmd_status(args) -> int:
 
 def cmd_card(args) -> int:
     pipe, st, _ = _load(need_state=False)
+    explicit_legacy_card = None
     if args.stage:
+        if args.stage.strip() == "S25_submission_audit":
+            candidate = paths.pipeline_dir() / "stages/S25_submission_audit.md"
+            if candidate.is_file():
+                explicit_legacy_card = candidate
         stage = pipe.resolve(args.stage)
     else:
         st.load()
         stage = pipe.stage(st.current)
-    card = stage.card_path()
+    card = explicit_legacy_card or stage.card_path()
     if getattr(args,"details",False):
         detail=paths.repo_root()/"reference/stage_details"/card.name
         if detail.is_file(): card=detail
@@ -380,7 +386,7 @@ def cmd_advance(args) -> int:
         r for r in results
         if r.blocking and (
             r.check in NON_OVERRIDABLE_GATES
-            or (stage.id == "S25_submission_audit" and r.check == "decision_recorded")
+            or (stage.id in {"S24_package_human_review", "S25_submission_audit"} and r.check == "decision_recorded")
         )
     ]
     if non_overridable_failures:
@@ -437,6 +443,8 @@ def cmd_advance(args) -> int:
     nxt = pipe.next_of(stage.id)
     while nxt is not None and st.is_done(nxt.id):
         nxt = pipe.next_of(nxt.id)  # reordered upgrades do not replay completed outputs
+    if st.current != stage.id:
+        st.complete(st.current, nxt.id if nxt else None)
     st.complete(stage.id, nxt.id if nxt else None)
     if nxt:
         print(f"{stage.id} closed. now at {nxt.id} - {nxt.title}")

@@ -355,7 +355,7 @@ def reference_provenance(ctx: Ctx) -> Result:
         library = ctx.read_json(LIB)
         entries = library.get("entries", [])
         from ..liverefs import cached_sources, store_sources
-        cached = (None if ctx.stage.id in {"S13_reflib", "S25_submission_audit"} else
+        cached = (None if ctx.stage.id in {"S13_reflib", "S24_package_human_review", "S25_submission_audit"} else
                   cached_sources(ctx.project, entries,
                                  float(ctx.target("live_reference_age_hours_max", 24))))
         if cached is not None:

@@ -4,13 +4,13 @@
 
 ## 1.30 版：写前 SCIE 独立审稿（S11b）、全章节即写即润色、安全多路由全文获取、浏览器全量抓指南与期刊时间戳投稿包
 
-围绕真实医学发表与投稿体验痛点，在不破坏 `engine_pin` 历史项目的原则下新增并升级十项核心机制（`since = "1.30.0"`，全流程增至 26 阶段）：
+围绕真实医学发表与投稿体验痛点，在不破坏 `engine_pin` 历史项目的原则下新增并升级十项核心机制（`since = "1.30.0"`，全流程精调为 25 阶段）：
 
-- **写前独立 SCIE 审稿与早期 No-Go/低收益熔断（`S02`/`S05`/`S06`/`S11b_prewrite_review`）。** 在完成 `S11_figures` 之后、动笔撰写 `S09_results`/`S14`/`S16`/`S17` 之前插入强制性独立只读 subagent 审查阶段 `S11b_prewrite_review`（`review_round.py --scope prewrite` + `prewrite_review_verified`），在写文字之前先行审计统计方法、结果可靠性及图表是否达到 SCIE Original Article 发表体量并听取用户返修意见；在 `S02`/`S05`/`S06`/`S11b` 明确早期 `NO_GO / LOW_ROI_HALT` 停机机制，避免全文写完再大返工或空耗额度。
+- **写前独立 SCIE 审稿、全正文后置与早期 No-Go/低收益熔断（`S02`/`S05`/`S06`/`S11b_prewrite_review`）。** 在 `S05_analysis` 方法扫描时即同步锚定近 5 年 5–10 篇同类 SCIE 标杆论文的图表数据需求（一次算全后续画图所需 JSON）；在完成 `S10_tables` 与 `S11_figures` 之后、动笔撰写**任何正文**（`S08_methods`、`S09_results`、`S14`、`S16`、`S17`）之前执行强制性独立只读 subagent 审查阶段 `S11b_prewrite_review`（`review_round.py --scope prewrite` + `prewrite_review_verified`），并将 `S08_methods` 移至 `S11b` 之后，确保统计方法、三线表与 R 图表经独立审稿并由用户确认后再写正文；在 `S02`/`S05`/`S06`/`S11b` 明确早期 `NO_GO / LOW_ROI_HALT` 停机机制，避免全文写完再大返工或空耗额度。
 - **全章节写完即润色与反防御医学写作规范（`S08`/`S09`/`S14`/`S16`/`S17`）。** 新增 `reference/clinical-deai-antidefensive-writing.md`（融合 `Adkid-Zephyr/anti-defensive-writing-Skill` 与高星学术 humanizer 去 AI 实践），在 `tools/text/polish.py` 新增 `section --file <md> --snapshot/--verify` 并在 `S08`、`S09`、`S14`、`S16`、`S17(abstract)` 加设不可豁免门禁 `section_polished`，每完成一个 `.md` 文件即刻清除 AI 套话、工程/代码腔、实验流水账与自我削弱词，同时锁定数字/P值/引文严格不变。
 - **安全多路由全文获取与用户兜底清单（`S07`/`S15`）。** `tools/pubmed/eutils.py` 支持 `~/.env` 与 `~/.gemini/.env` 全局 Key 自动回退；`tools/pubmed/fulltext.py` 新增无验证码安全 Sci-Hub DOI 兜底探测（遇到 CAPTCHA/Cloudflare 阻断立即中止不绕过），并在仍缺全文时生成 `.wf/pending_fulltext_requests.json` 与 `.md` 清单请求用户协助下载并导入。
 - **对标驱动图表体量/类型与参考文献下限刚性执行（`S07`/`S13`–`S17`）。** 新增 `benchmark_display_sufficiency` 与 `literature_sufficiency`：要求调研 5–10 篇（硬性底线至少 5 篇）近 5 年内最新发表的同类 SCIE 原著全文对标，核验对标发表年份新鲜度，统计图数量和类型须与当前期刊对标水平匹配（拦截陈旧老文章凑数或仅做 2–3 张单薄图表）；并恢复 `min_reflib_entries`（默认 40）、`min_intro_refs`、`min_discussion_refs` 及 `min_manuscript_refs`（默认 30 / 对标推导下限）硬性校验。`S22_polish` 同步收窄为仅做跨章拼写/缩写统一、章节接缝与期刊字数适配，不重复整篇大润色。
-- **浏览器全量获取投稿指南、Portal UI 差异预警与可读发布目录（`S20`–`S25`）。** `guides.py` 自动识别残缺/JS 拦截页面并提示强制调用内置 `browser` subagent 全量读取注册；`submission.py` 在 `portal_fields.json` 输出 `portal_discrepancies_and_warnings` 预警实际投稿系统与静态指南出入；`packagefreeze.py` 与 `journalcontext.py` 将 `08_submission/releases/` 及 `journal_archives/` 目录命名为 `<Journal_Slug>_<YYYYMMDD_HHMMSS>`，拒稿换刊强制重走完整浏览器指南捕获流程。
+- **浏览器全量获取投稿指南、Portal UI 差异预警、终审合一与可读发布目录（`S20`–`S24`）。** `guides.py` 自动识别残缺/JS 拦截页面并提示强制调用内置 `browser` subagent 全量读取注册；`submission.py` 在 `portal_fields.json` 输出 `portal_discrepancies_and_warnings` 预警实际投稿系统与静态指南出入；将原 `S25` 的完整读者/编辑/指南终审与实时 PubMed 引文复核合并入 `S24_package_human_review`，消除用户确认后的冗余二次盲审；`packagefreeze.py` 与 `journalcontext.py` 将 `08_submission/releases/` 及 `journal_archives/` 目录命名为 `<Journal_Slug>_<YYYYMMDD_HHMMSS>`，拒稿换刊强制重走完整浏览器指南捕获流程。
 
 ## 1.28 版：正文单源作者块、默认图表位置门禁、讨论脱敏提纲与审阅闭环及补充文件标准命名
 

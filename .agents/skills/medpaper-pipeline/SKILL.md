@@ -1,6 +1,6 @@
 ---
 name: medpaper-pipeline
-description: Drives a gated, resumable 26-stage medical/clinical research paper pipeline from research intake through full-census data acquisition, R-first figures and three-line tables, pre-writing SCIE audit (S11b), immediate per-section clinical de-AI/anti-defensive polish, context-bound IMRAD writing, version-bound independent subagent review, frozen scientific master, browser-verified journal adaptation, native Word packaging, and final reader/editor/compliance audit. Use whenever the task involves a medical research idea, clinical manuscript, research protocol, PubMed literature retrieval, medical figures/tables, journal selection, user revisions, or a submission package. Never follow the workflow from memory — run `uv run python tools/wf.py status` and obey the active stage card.
+description: Drives a gated, resumable 25-stage medical/clinical research paper pipeline from research intake through full-census data acquisition, R-first figures and three-line tables, pre-writing SCIE audit (S11b), immediate per-section clinical de-AI/anti-defensive polish, context-bound IMRAD writing, version-bound independent subagent review, frozen scientific master, browser-verified journal adaptation, native Word packaging, and final reader/editor/compliance audit. Use whenever the task involves a medical research idea, clinical manuscript, research protocol, PubMed literature retrieval, medical figures/tables, journal selection, user revisions, or a submission package. Never follow the workflow from memory — run `uv run python tools/wf.py status` and obey the active stage card.
 compatibility: Requires Windows pwsh, uv, and Python 3.12+ (3.13 recommended) for pinned science/PDF dependencies (matplotlib, numpy, openpyxl, pandas, scipy, python-docx, pypdf). R (Rscript) is the default renderer for new medical figures; Pandoc and Microsoft Word support final DOCX assembly and visual QA. Network access is required for PubMed, Crossref, Unpaywall, and official journal guidelines.
 metadata:
   version: "1.30.0"
@@ -45,7 +45,7 @@ uv run python tools/wf.py check                  # run deterministic + provenanc
 uv run python tools/wf.py advance --note "..."   # advance when green; gates are not turn stops
 ```
 
-Note the **table/figure-first and pre-writing SCIE audit sequence**: execution advances **`S08_methods` -> `S10_tables` -> `S11_figures` -> `S11b_prewrite_review` -> `S09_results` -> `S12_reconcile`** so approved three-line tables, R figures, and an independent SCIE methods/display audit precede `Results` and full manuscript prose.
+Note the **table/figure-first and pre-writing SCIE audit sequence**: execution advances **`S07_artifacts` -> `S10_tables` -> `S11_figures` -> `S11b_prewrite_review` -> `S08_methods` -> `S09_results` -> `S12_reconcile`** so approved three-line tables, R figures, and an independent SCIE methods/display audit precede `Methods`, `Results`, and all manuscript prose.
 
 ## Key Commands
 

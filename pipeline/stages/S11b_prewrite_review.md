@@ -1,6 +1,6 @@
 # S11b - Pre-writing independent SCIE rigor & display review
 
-**CRITICAL CHECKPOINT BEFORE DRAFTING PROSE.** Run this independent audit AFTER `S10_tables` and `S11_figures` and BEFORE writing `results.md`, `introduction.md`, `discussion.md`, or `abstract.md`. Catching fatal statistical gaps, thin figures, or non-publishable designs here saves massive rework and token quota.
+**CRITICAL CHECKPOINT BEFORE DRAFTING ANY MANUSCRIPT PROSE.** Run this independent audit AFTER `S10_tables` and `S11_figures` and BEFORE writing `methods.md` (`S08`), `results.md` (`S09`), `introduction.md` (`S14`), `discussion.md` (`S16`), or `abstract.md` (`S17`). Catching fatal statistical gaps, thin figures, or non-publishable designs here saves massive rework and token quota.
 
 ## Purpose
 Dispatch one independent, read-only subagent to evaluate whether the statistical methodology, executed results, tables, and rendered figures are scientifically rigorous and sufficiently comprehensive to support an **SCIE Original Article**—and gather user feedback BEFORE drafting prose.
@@ -27,7 +27,7 @@ uv run python tools/review_round.py start --scope prewrite
 ```
 uv run python tools/review_round.py ingest --scope prewrite --from-file <reply.md>
 ```
-5. Execute any user-approved method/result/figure/table revisions via scoped `tools/rework.py` owners (run `prepare-revalidation` + `ingest --revalidation` if scientific inputs changed), close the round, and obtain explicit user approval (`我确认这一版`) BEFORE starting `S09_results`:
+5. Execute any user-approved method/result/figure/table revisions via scoped `tools/rework.py` owners (run `prepare-revalidation` + `ingest --revalidation` if scientific inputs changed), close the round, and obtain explicit user approval (`我确认这一版`) BEFORE starting `S08_methods` and `S09_results`:
 ```
 uv run python tools/review_round.py close --scope prewrite --change <path> "<why>" ...
 uv run python tools/review_round.py decide --scope prewrite --answer no_further_review --words "我确认这一版"

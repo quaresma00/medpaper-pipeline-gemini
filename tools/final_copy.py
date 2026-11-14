@@ -15,7 +15,7 @@ def main():
     args = parser.parse_args(); project = (args.project or paths.project_dir()).resolve()
     try:
         state = State(project).load()
-        if state.current != "S25_submission_audit" or state.data.get("active_revision_round"): raise ValueError("finish source revisions and reach S25 first")
+        if state.current not in {"S24_package_human_review", "S25_submission_audit"} or state.data.get("active_revision_round"): raise ValueError("finish source revisions and reach S24/S25 first")
         if args.command == "prepare": print(f"prepared {finalcopy.prepare(project)} uploads; existing author edits preserved")
         elif args.command == "record": finalcopy.record(project, args.edit, args.words); print("actual author authorization/manual edits recorded")
         elif args.command == "check":

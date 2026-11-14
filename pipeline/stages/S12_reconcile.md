@@ -1,8 +1,7 @@
 # S12 - Reconcile the rendered artifacts against the text
 
 ## Purpose
-Results and Methods were written before the tables and figures existed. This stage closes
-that gap. It is the cheapest place to catch a number that drifted, a renumbered panel, or
+Methods and Results were drafted from the audited tables and figures (`S10`–`S11b`). This stage performs the dedicated cross-check to close any gap between prose and displays. It is the cheapest place to catch a number that drifted, a renumbered panel, or
 a table the prose describes differently from how it was built.
 
 ## Procedure

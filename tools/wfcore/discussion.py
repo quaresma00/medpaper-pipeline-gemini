@@ -511,35 +511,37 @@ def validate_discussion_review(project: Path, stage_id: str) -> list[str]:
         if rec and rec.get("report") and rec["report"].get("path"):
             rel = str(rec["report"]["path"])
             targets.append((rel, project / rel))
-    elif stage_id == "S24_package_human_review":
+    elif stage_id in {"S24_package_human_review", "S25_submission_audit"}:
         rec = latest(project, "package")
+        audit_path = project / "08_submission/independent_submission_audit.md"
         if rec and rec.get("report") and rec["report"].get("path"):
             rel = str(rec["report"]["path"])
             targets.append((rel, project / rel))
-        else:
+        elif audit_path.is_file():
+            freeze_path = project / "08_submission/package_review_freeze.json"
+            if freeze_path.is_file():
+                try:
+                    freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
+                    audit_txt = audit_path.read_text(encoding="utf-8", errors="replace")
+                    amendment = freeze.get("presentation_approval", {})
+                    freeze_id = str(freeze.get("freeze_id", "")).strip()
+                    if freeze_id and freeze_id not in audit_txt and amendment:
+                        rev_path = project / f".wf/revisions/{amendment.get('round', '')}.json"
+                        if rev_path.is_file():
+                            rev = json.loads(rev_path.read_text(encoding="utf-8"))
+                            if (
+                                rev.get("status") == "complete"
+                                and rev.get("validation", {}).get("ok")
+                                and rev.get("content_classification", {}).get("class") == "presentation"
+                            ):
+                                return []
+                except (OSError, json.JSONDecodeError):
+                    pass
+            targets.append(("08_submission/independent_submission_audit.md", audit_path))
+        elif stage_id == "S24_package_human_review":
             return ["no attached package independent review report to verify Discussion audit"]
-    elif stage_id == "S25_submission_audit":
-        freeze_path = project / "08_submission/package_review_freeze.json"
-        audit_path = project / "08_submission/independent_submission_audit.md"
-        if freeze_path.is_file() and audit_path.is_file():
-            try:
-                freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
-                audit_txt = audit_path.read_text(encoding="utf-8", errors="replace")
-                amendment = freeze.get("presentation_approval", {})
-                freeze_id = str(freeze.get("freeze_id", "")).strip()
-                if freeze_id and freeze_id not in audit_txt and amendment:
-                    rev_path = project / f".wf/revisions/{amendment.get('round', '')}.json"
-                    if rev_path.is_file():
-                        rev = json.loads(rev_path.read_text(encoding="utf-8"))
-                        if (
-                            rev.get("status") == "complete"
-                            and rev.get("validation", {}).get("ok")
-                            and rev.get("content_classification", {}).get("class") == "presentation"
-                        ):
-                            return []
-            except (OSError, json.JSONDecodeError):
-                pass
-        targets.append(("08_submission/independent_submission_audit.md", audit_path))
+        else:
+            targets.append(("08_submission/independent_submission_audit.md", audit_path))
 
     problems: list[str] = []
     for label, path in targets:

@@ -3,7 +3,7 @@ Read the Methods section of `reference/medical-writing.md`. Use actual methods a
 post-hoc status; internal plan history stays backstage. Reuse already-read study context.
 
 ## Purpose
-Write a concise, journal-native main Methods section. Create a supplementary Methods file
+Write a concise, journal-native main Methods section AFTER tables (`S10`), figures (`S11`), and the pre-writing independent SCIE audit (`S11b`) have locked the analytical and display design. Create a supplementary Methods file
 only when reproducibility requires detail that would obscure the main narrative.
 
 ## Inputs
