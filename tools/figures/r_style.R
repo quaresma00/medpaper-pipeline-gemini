@@ -11,6 +11,8 @@ medpaper_theme <- function(base_size = 10, family = "Arial") {
     ggplot2::theme(text = ggplot2::element_text(colour = "black"),
                    axis.line = ggplot2::element_line(linewidth = 0.25),
                    axis.ticks = ggplot2::element_line(linewidth = 0.25),
+                   plot.subtitle = ggplot2::element_blank(),
+                   plot.caption = ggplot2::element_blank(),
                    legend.position = "bottom", legend.title = ggplot2::element_blank(),
                    plot.margin = ggplot2::margin(4, 4, 4, 4, unit = "mm"),
                    plot.background = ggplot2::element_rect(fill = "white", colour = NA))
@@ -123,13 +125,26 @@ medpaper_layers <- function(plot) {
     if (is.null(x)) "" else paste(as.character(x), collapse = " ")
   }
   ranges <- lapply(built$layout$panel_params, function(x) list(x = x$x.range, y = x$y.range))
-  list(layers = summary, bar_baseline_zero = medpaper_bar_zero(built, geom_names), x_label = label("x"), y_label = label("y"),
+  list(layers = summary, bar_baseline_zero = medpaper_bar_zero(built, geom_names),
+       title = label("title"), subtitle = label("subtitle"), caption = label("caption"),
+       x_label = label("x"), y_label = label("y"),
        legend = has_legend, ranges = ranges)
 }
 
 medpaper_save <- function(plot, stem, width = "single", height_mm = 75, dpi = 600,
                          panels = list(plot), tiff = FALSE) {
   medpaper_require(c("ggplot2", "jsonlite", "ragg", "svglite", "systemfonts"))
+  has_nonempty <- function(x) is.character(x) && length(x) > 0L && any(nzchar(trimws(x)))
+  check_no_subtitle_or_caption <- function(item) {
+    if (inherits(item, "ggplot")) {
+      if (has_nonempty(item$labels$subtitle) || has_nonempty(item$labels$caption))
+        stop("Figure subtitle and plot caption are forbidden in medical figures; move all explanatory text to 05_figures/legends.md.")
+      if (!is.null(item$patches$annotation) && (has_nonempty(item$patches$annotation$subtitle) || has_nonempty(item$patches$annotation$caption)))
+        stop("Patchwork subtitle and caption are forbidden in medical figures; move all explanatory text to 05_figures/legends.md.")
+    }
+  }
+  check_no_subtitle_or_caption(plot)
+  for (p_item in panels) check_no_subtitle_or_caption(p_item)
   apply_labels <- function(item) {
     if (inherits(item, "ggplot")) {
       for (name in c("title", "subtitle", "caption", "x", "y", "colour", "color", "fill", "shape", "linetype", "size", "alpha")) {

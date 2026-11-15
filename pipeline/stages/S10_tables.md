@@ -54,10 +54,7 @@ write_table(
  "tables": [{"id": "Table 1", "file": "04_tables/main/Table1.xlsx", "sheet": "Table 1",
              "n_rows": 0, "source_results": ["03_analysis/results/baseline.json"]}]}
 ```
-   - Clinical display labels: Every table title, column header, row stub, cell value and footnote
-     must be publication-ready for medical clinicians. Raw column names (e.g. `sbp`, `bmi`, `age_yrs`),
-     raw database codes, bare boolean `TRUE`/`FALSE`, and bare package columns (`coef`, `p_val`) are
-     prohibited and blocked by the `display_labels_clinical` gate.
+   - Clinical display labels & de-AI/de-engineering polish: Every table title (`04_tables/table_captions.md` and row 1), column header, row stub, cell value, and footnote must be publication-ready for medical clinicians. Raw column names (`sbp`, `bmi`, `age_yrs`), raw database codes, bare boolean `TRUE`/`FALSE`, bare package columns (`coef`, `p_val`), AI clichés (`delve into`, `underscores`), engineering/workflow jargon (`dataframe`, `script`, `JSON`, `CSV`), and work-report narration are prohibited and blocked by `display_labels_clinical`. Retain honest null/unfavorable findings and uncertainty in all tables.
 4. Run it, then verify the structure rather than assuming:
 ```
 uv run python project/04_tables/code/build_tables.py

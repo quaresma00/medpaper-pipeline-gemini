@@ -111,6 +111,25 @@ class TestV130Workflow(unittest.TestCase):
         r2 = gate(self._ctx("S08_methods", {"path": "07_manuscript/methods.md", "since": "1.30.0"}))
         self.assertFalse(r2.ok)
 
+        # Figure subtitle, excessive in-plot prose, and table/legend AI clichés & engineering jargon must be blocked
+        from wfcore import displaylabels
+        sub_issues = displaylabels.scan_text("Multivariable cohort comparison adjusted for age", context="Figure subtitle")
+        self.assertTrue(any(i["kind"] == "figure_subtitle_forbidden" for i in sub_issues))
+        prose_issues = displaylabels.scan_text(
+            "Note: Solid line indicates multivariable Cox regression adjusted for age, sex, and baseline SOFA score across all strata.",
+            context="Figure text",
+        )
+        self.assertTrue(any(i["kind"] in {"figure_explanatory_prose", "figure_excessive_text"} for i in prose_issues))
+        ai_tbl_issues = displaylabels.scan_text(
+            "This table delves into python script dataframe outputs and underscores the importance of sepsis biomarkers.",
+            context="Table footnote",
+        )
+        kinds = {i["kind"] for i in ai_tbl_issues}
+        self.assertIn("display_ai_cliche", kinds)
+        self.assertIn("display_engineering_jargon", kinds)
+        concise_stat = displaylabels.scan_text("Adjusted HR 1.42 (95% CI 1.10-1.83), P = 0.008", context="Figure text")
+        self.assertEqual(concise_stat, [])
+
     def test_4_prewrite_independent_review_gate(self) -> None:
         _progress("4/6 Checking S11b_prewrite_review independent SCIE audit workflow...")
         from wfcore import reviewrounds as rounds

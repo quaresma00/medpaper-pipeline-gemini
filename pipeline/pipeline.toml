@@ -400,6 +400,11 @@ since = "1.30.0"
 check = "prewrite_review_verified"
 since = "1.30.0"
 
+[[stage.gate]]
+check = "display_labels_clinical"
+kind = "all"
+since = "1.30.0"
+
 [[stage]]
 id = "S08_methods"
 title = "Write Methods"

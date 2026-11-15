@@ -56,11 +56,8 @@ uv run python tools/figures/qc.py --figure "Figure 1"
    tables, flow counts, units and essential source-bound statistics. Use the existing
    legend length as advisory unless the journal explicitly limits it; record actual moved
    material in 05_figures/moved_to_legend.md.
-   - Clinical internal labels: All text rendered inside figures (axis titles, tick labels, legend
-     keys, panel titles, annotations, and flowchart boxes) must be clinical-reader ready. Eliminate
-     analytics pipeline phrasing (e.g. 'filtered where age >= 18', 'dropna()', 'Analysis Report Figure 1'),
-     raw variables, and model code. Apply `apply_labels()` or `medpaper_label()` in R scripts. Figures are
-     strictly gated by `display_labels_clinical`.
+   - **No subtitles, no in-plot captions, and no excessive explanatory text inside figures**: Never add a `subtitle` (`labs(subtitle=...)`, `ggtitle(..., subtitle=...)`, `plot_annotation(subtitle=...)`) or in-plot `caption` to any figure. Keep all explanatory notes, model covariate lists, symbol/line definitions (`Solid line indicates...`, `Adjusted for...`, `Note:...`), and abbreviations out of the figure canvas—place them in `05_figures/legends.md` or Methods. Inside a non-flowchart panel, keep text strictly to concise axis labels with units, group/stratum names, panel letters (`A`, `B`, `C`), and brief statistical annotations (`<=12` words, e.g. `HR 1.42 (95% CI 1.10-1.83), P = 0.008`).
+   - **Clinical internal labels & de-AI/de-engineering polish**: All text rendered inside figures and `05_figures/legends.md` must be clinical-reader ready and free of AI clichés, work-report narration, analytics pipeline phrasing (`filtered where age >= 18`, `dropna()`, `Analysis Report Figure 1`), raw variables, and model code. Apply `apply_labels()` or `medpaper_label()` in R scripts. Figures and legends are strictly gated by `display_labels_clinical` and `figures_qc_pass`.
 8. Write 05_figures/manifest.json with actual renderer, script, source_results, png/pdf,
    width/size_mm/dpi, R/package versions or the Python exception, and review_rounds.
    SVG/rmeta/artist sidecars are backstage QC, not submission uploads.

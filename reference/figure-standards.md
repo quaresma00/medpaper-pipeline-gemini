@@ -202,9 +202,14 @@ Content was rephrased for compliance with licensing restrictions.
 
 ## 6. Text in panels - the line
 
+**Strictly forbidden inside the figure canvas**:
+- **Never render a figure subtitle (`subtitle`) or in-plot footnote/caption (`labs(subtitle=..., caption=...)`, `ggtitle(..., subtitle=...)`, `plot_annotation(subtitle=..., caption=...)`).**
+- **Never put explanatory sentences or multi-line prose inside the plot** (no `Note:...`, no `Adjusted for age, sex...`, no `Solid line indicates...`, no `Data are presented as...`, no in-canvas `Abbreviations:`, and no non-flowchart text element exceeding 12 words).
+- **Zero AI clichés, zero engineering/code/workflow jargon, and zero work-report narration** in figure labels, `05_figures/legends.md`, `04_tables/table_captions.md`, or table cells/footnotes.
+
 **In the panel** (structural, needed to read the plot): axis titles and units, tick labels,
-panel letters, group and category labels, legend entries, significance markers, key data
-values (n, HR with CI, AUC, r), and guideline-mandated content such as Kaplan-Meier risk
+panel letters, concise group and category labels, legend entries, significance markers, brief key data
+values (`<=12` words, e.g. `n`, `HR` with `CI`, `AUC`, `P`), and guideline-mandated content such as Kaplan-Meier risk
 tables, participant/study-selection box text, scale bars and axis-break marks.
 
 **In the legend** (only what decodes the figure): a concise descriptive title, panel

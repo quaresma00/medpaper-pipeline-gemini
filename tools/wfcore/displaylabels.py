@@ -145,6 +145,82 @@ FLOW_JARGON_RE = re.compile(
     re.I,
 )
 
+# De-AI clichés prohibited across all table/figure titles, headers, cells, footnotes, legends, and in-plot text.
+DISPLAY_AI_CLICHE_RE = re.compile(
+    r"\b(?:"
+    r"delve[sd]?\s+(?:in)?to|it\s+is\s+worth\s+noting|"
+    r"plays?\s+(?:a\s+)?(?:crucial|vital|pivotal|key)\s+role|"
+    r"pave[sd]?\s+the\s+way|in\s+today'?s\s+(?:rapidly\s+)?(?:evolving|changing)|"
+    r"ever[- ]evolving|in\s+the\s+realm\s+of|"
+    r"(?:the\s+)?landscape\s+of\s+(?:modern|contemporary|current)|"
+    r"tapestry|a\s+testament\s+to|navigat\w*\s+the\s+complexit\w+|"
+    r"underscore[sd]?\s+the\s+(?:importance|need|critical)|"
+    r"hold[sd]?\s+(?:immense\s+|great\s+|significant\s+)?promise|"
+    r"cutting[- ]edge|seamless(?:ly)?|revolutioni[sz]\w+|game[- ]chang\w+|"
+    r"unlock\w*\s+the\s+(?:potential|power)|multifaceted|"
+    r"(?:a\s+)?myriad\s+of|(?:a\s+)?plethora\s+of|"
+    r"intricate\s+(?:interplay|balance|relationship|mechanism)|"
+    r"robust\s+and\s+comprehensive|comprehensive\s+understanding|"
+    r"it\s+is\s+(?:crucial|essential|imperative|vital)\s+to\s+(?:note|understand|recognize|recognise)|"
+    r"bridg\w*\s+(?:this\s+|the\s+)?gap|deep\s+dive|at\s+the\s+forefront\s+of|"
+    r"shed(?:ding)?\s+light\s+(?:on|upon)|to\s+the\s+best\s+of\s+our\s+knowledge"
+    r")\b",
+    re.I,
+)
+
+# Engineering, code, and workflow jargon prohibited across all table/figure text and legends/captions.
+DISPLAY_ENGINEERING_JARGON_RE = re.compile(
+    r"\b(?:"
+    r"data\s*frame|python\s+script|r\s+script|"
+    r"json\s+(?:file|manifest|schema|export|object|payload)|"
+    r"csv\s+(?:file|export|rows|dump)|"
+    r"workflow\s+(?:stage|pipeline|gate|step|engine)|"
+    r"pipeline\s+(?:stage|script|step|run|execution)|"
+    r"subagent|hardcoded|command[- ]line|stdout|stderr|regex|refactor\w*|"
+    r"source_sha256|render_sha256|artifact_plan|schema_version|"
+    r"S(?:0[1-9]|1[0-9]|2[0-5])_(?:intake|feasibility|protocol|data|analysis|artifacts|methods|results|tables|figures|prewrite_review|reconcile|reflib|introduction|deepread|discussion|assemble|independent_review|human_review|journal|authors|polish|package|package_human_review|submission_audit)"
+    r")\b",
+    re.I,
+)
+
+# Work-report chronology and non-clinical self-belittling phrasing (retaining genuine null/unfavorable findings & limitations).
+DISPLAY_LABLOG_OR_SPIN_RE = re.compile(
+    r"\b(?:"
+    r"first(?:ly)?,\s+we\s+(?:ran|executed|loaded|parsed)|"
+    r"in\s+the\s+(?:first|next|subsequent)\s+step,\s+we\s+(?:ran|processed|generated|built)|"
+    r"we\s+then\s+executed|"
+    r"merely\s+achieves|only\s+achieves|severely\s+insufficient|still\s+lags\s+far\s+behind|"
+    r"as\s+an\s+AI(?:\s+language)?\s+model|as\s+requested\s+by\s+(?:the\s+|our\s+)?user|"
+    r"here\s+(?:is|are)\s+(?:the\s+|your\s+)?(?:requested\s+|revised\s+)?(?:table|figure)"
+    r")\b",
+    re.I,
+)
+
+# Explanatory or legend-like sentences that belong in 05_figures/legends.md or Methods, never inside the figure canvas.
+FIGURE_EXPLANATORY_PROSE_RE = re.compile(
+    r"(?:"
+    r"^\s*(?:Note|Notes|Footnote|Caption|Subtitle|Interpretation|Explanation|Legend)\s*:|"
+    r"\b(?:models?\s+(?:were|was)\s+adjusted\s+for|adjusted\s+for\s+age|controlling\s+for\s+age|"
+    r"(?:solid|dashed|dotted)\s+lines?\s+(?:indicate|represent|show|denote)|"
+    r"shaded\s+(?:areas?|bands?|regions?)\s+(?:indicate|represent|show|denote)|"
+    r"error\s+bars?\s+(?:indicate|represent|show|denote)|"
+    r"data\s+are\s+(?:presented|shown|expressed)\s+as|"
+    r"abbreviations?\s*:|"
+    r"each\s+(?:point|dot|bar|box)\s+(?:indicates|represents|shows)|"
+    r"statistical\s+significance\s+was\s+(?:defined|assessed|tested))"
+    r")",
+    re.I,
+)
+
+SCRIPT_SUBTITLE_CALL_RE = re.compile(
+    r"(?:"
+    r"\bsubtitle\s*=\s*(?!NULL\b|None\b|ggplot2::element_blank\b|element_blank\b|\"\"\s*[,)]|''\s*[,)])[^\s,)]|"
+    r"\b(?:labs|plot_annotation)\s*\([^)]*\bcaption\s*=\s*(?!NULL\b|None\b|\"\"\s*[,)]|''\s*[,)])[^\s,)]|"
+    r"\bggtitle\s*\([^,\n]+,\s*(?!NULL\b|\"\"\s*\)|''\s*\))[^)]+\)"
+    r")",
+    re.S,
+)
+
 
 def _strip_urls(text: str) -> str:
     return URL_OR_DOI_RE.sub(" ", text)
@@ -305,6 +381,78 @@ def diagnose_label_token(
             "Selection flowchart box uses data-processing/script jargon instead of clinical eligibility and exclusion criteria.",
             context=raw,
         ))
+
+    if DISPLAY_AI_CLICHE_RE.search(cleaned):
+        out.append(_make_issue(
+            path,
+            locator,
+            "display_ai_cliche",
+            raw,
+            "Remove AI-generated cliché phrasing from table/figure display text, captions, or legends; use direct medical terminology.",
+            context=raw,
+        ))
+
+    if DISPLAY_ENGINEERING_JARGON_RE.search(cleaned):
+        out.append(_make_issue(
+            path,
+            locator,
+            "display_engineering_jargon",
+            raw,
+            "Remove engineering, code, or workflow jargon (e.g. dataframe, script, JSON, CSV, pipeline stage) from table/figure text and legends.",
+            context=raw,
+        ))
+
+    if DISPLAY_LABLOG_OR_SPIN_RE.search(cleaned):
+        out.append(_make_issue(
+            path,
+            locator,
+            "display_lablog_narration",
+            raw,
+            "Remove work-report chronology or non-clinical self-belittling phrasing from display text/legends (while retaining genuine null/unfavorable findings and limitations).",
+            context=raw,
+        ))
+
+    if surface == "figure_subtitle":
+        out.append(_make_issue(
+            path,
+            locator,
+            "figure_subtitle_forbidden",
+            raw,
+            "Figure subtitles and in-plot captions are strictly forbidden; remove subtitle/caption from the plot and put descriptive context in 05_figures/legends.md.",
+            context=raw,
+        ))
+    elif surface in {"figure_text", "figure_axis", "figure_title", "flow_node"}:
+        if FIGURE_EXPLANATORY_PROSE_RE.search(cleaned):
+            out.append(_make_issue(
+                path,
+                locator,
+                "figure_explanatory_prose",
+                raw,
+                "Explanatory notes, model adjustment lists, and symbol/line decoding belong in 05_figures/legends.md or Methods, never inside the figure canvas.",
+                context=raw,
+            ))
+        if surface == "figure_title":
+            title_words = re.findall(r"\b[A-Za-z0-9][A-Za-z0-9'-]*\b", cleaned)
+            if "\n" in cleaned or len(title_words) > 10 or re.search(r":\s+\S+\s+\S+\s+\S+", cleaned):
+                out.append(_make_issue(
+                    path,
+                    locator,
+                    "figure_subtitle_forbidden",
+                    raw,
+                    "In-figure title contains a subtitle line, colon subtitle, or excessive words (>10 words); remove subtitles and keep panel labels concise.",
+                    context=raw,
+                ))
+        elif surface == "figure_text" and archetype != "flow_diagram":
+            words = re.findall(r"\b[A-Za-z0-9][A-Za-z0-9'-]*\b", cleaned)
+            if len(words) > 12 or len(cleaned) > 90 or ("\n" in cleaned and len(words) > 8):
+                out.append(_make_issue(
+                    path,
+                    locator,
+                    "figure_excessive_text",
+                    raw,
+                    "Figure canvas contains excessive explanatory text (>12 words or multi-line prose); keep only concise axis/group labels, panel tags (A/B/C), and brief statistics inside the plot, and move explanations to 05_figures/legends.md.",
+                    context=raw,
+                ))
 
     return out
 
@@ -596,10 +744,22 @@ def collect_figure_text_items(
                 break
 
     if isinstance(art, dict):
+        if art.get("subtitle"):
+            _add("figure subtitle", "figure_subtitle", str(art["subtitle"]))
+        if art.get("caption"):
+            _add("figure caption", "figure_subtitle", str(art["caption"]))
+        if art.get("title"):
+            _add("figure title", "figure_title", str(art["title"]))
         runtime = art.get("runtime") if isinstance(art.get("runtime"), dict) else {}
         panels = runtime.get("panels") if isinstance(runtime.get("panels"), list) else []
         for idx, panel in enumerate(panels, 1):
             if isinstance(panel, dict):
+                if panel.get("subtitle"):
+                    _add(f"panel {idx} subtitle", "figure_subtitle", str(panel["subtitle"]))
+                if panel.get("caption"):
+                    _add(f"panel {idx} caption", "figure_subtitle", str(panel["caption"]))
+                if panel.get("title"):
+                    _add(f"panel {idx} title", "figure_title", str(panel["title"]))
                 if panel.get("x_label"):
                     _add(f"panel {idx} x-axis", "figure_axis", str(panel["x_label"]))
                 if panel.get("y_label"):
@@ -640,14 +800,38 @@ def inspect_figure_entry(
     layer: str = "science",
     art_override: dict | None = None,
 ) -> list[dict]:
-    """Audit all rendered internal text of a figure entry for clinical readability."""
+    """Audit all rendered internal text and plotting script of a figure entry for clinical readability."""
     fid = str(entry.get("id", "?")).strip()
     archetype = str(entry.get("archetype", "")).strip()
     rel_str, items = collect_figure_text_items(project, entry, art_override=art_override)
-    if not rel_str or not items:
-        return []
-
     issues: list[dict] = []
+
+    script_rel = str(entry.get("script", "")).strip()
+    if script_rel:
+        try:
+            _, script_path = _safe_path(project, script_rel)
+            if script_path.is_file():
+                active_lines = [
+                    ln for ln in script_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                    if not ln.lstrip().startswith("#")
+                ]
+                code_body = "\n".join(active_lines)
+                m_sub = SCRIPT_SUBTITLE_CALL_RE.search(code_body)
+                if m_sub:
+                    issues.append(_make_issue(
+                        script_rel,
+                        f"{fid} script",
+                        "figure_subtitle_forbidden",
+                        m_sub.group(0).strip(),
+                        "Plotting script defines a figure subtitle or in-plot caption; subtitles are strictly forbidden in medical figures. Move explanatory details to 05_figures/legends.md.",
+                        context=m_sub.group(0).strip(),
+                    ))
+        except ValueError:
+            pass
+
+    if not rel_str or not items:
+        return _dedup(issues)
+
     all_texts: list[str] = []
     for loc, surf, txt in items:
         all_texts.append(txt)
@@ -655,7 +839,7 @@ def inspect_figure_entry(
             txt,
             path=rel_str,
             locator=f"{fid} ({loc})",
-            surface="flow_node" if archetype == "flow_diagram" else surf,
+            surface="flow_node" if (archetype == "flow_diagram" and surf == "figure_text") else surf,
             archetype=archetype,
         ))
 
@@ -831,7 +1015,16 @@ def _dedup(issues: list[dict]) -> list[dict]:
 def scan_text(text: str, context: str = "") -> list[dict]:
     """Convenience helper to scan a single text string for clinical label defects."""
     ctx_lower = context.lower() if context else ""
-    surface = "figure_axis" if "axis" in ctx_lower else ("flow_node" if "flow" in ctx_lower else "figure_text")
+    if "subtitle" in ctx_lower:
+        surface = "figure_subtitle"
+    elif "axis" in ctx_lower:
+        surface = "figure_axis"
+    elif "flow" in ctx_lower:
+        surface = "flow_node"
+    elif "legend" in ctx_lower or "footnote" in ctx_lower:
+        surface = "legend"
+    else:
+        surface = "figure_text"
     archetype = "flow_diagram" if "flow" in ctx_lower else ""
     return diagnose_label_token(text, path="inline", locator=context or "text", surface=surface, archetype=archetype)
 
