@@ -8,9 +8,14 @@ Render the planned tables as three-line xlsx files a reader and a reviewer can u
 Generated from result JSONs by code, never retyped.
 
 ## Procedure
-1. Write `project/04_tables/code/build_tables.py`. It reads
-   `03_analysis/results/*.json` and `01_protocol/artifact_plan.json`, and writes every
-   table with the shared helper so formatting cannot drift:
+1. Modularize table builders to avoid monolithic multi-thousand-line files: place shared
+   formatting helpers in `project/04_tables/code/tables_common.py`, put each large table
+   in its own module (`table1.py`, `table2.py`, ...), and expose `--only Table2` from a thin
+   entrypoint `project/04_tables/code/build_tables.py`. Declare each table's `script` in
+   `04_tables/manifest.json` so editing one table never invalidates unrelated tables:
+   It reads `03_analysis/results/*.json` and `01_protocol/artifact_plan.json`, and writes
+   every table with the shared helper (`threeline.py`, which enables `wrap_text=True`,
+   auto-row heights, horizontal spacing, landscape fit, and `print_title_rows="1:2"`):
 
 ```python
 import sys; sys.path.insert(0, "tools")
@@ -52,22 +57,27 @@ write_table(
 ```json
 {"built_at": "", "built_by": "04_tables/code/build_tables.py",
  "tables": [{"id": "Table 1", "file": "04_tables/main/Table1.xlsx", "sheet": "Table 1",
-             "n_rows": 0, "source_results": ["03_analysis/results/baseline.json"]}]}
+             "script": "04_tables/code/table1.py", "n_rows": 0, "source_results": ["03_analysis/results/baseline.json"]}]}
 ```
-   - Clinical display labels & de-AI/de-engineering polish: Every table title (`04_tables/table_captions.md` and row 1), column header, row stub, cell value, and footnote must be publication-ready for medical clinicians. Raw column names (`sbp`, `bmi`, `age_yrs`), raw database codes, bare boolean `TRUE`/`FALSE`, bare package columns (`coef`, `p_val`), AI clichés (`delve into`, `underscores`), engineering/workflow jargon (`dataframe`, `script`, `JSON`, `CSV`), and work-report narration are prohibited and blocked by `display_labels_clinical`. Retain honest null/unfavorable findings and uncertainty in all tables.
-4. Run it, then verify the structure rather than assuming:
+   - Clinical display labels & de-AI/de-engineering polish: Every table title (`04_tables/table_captions.md` and row 1), column header, row stub, cell value, and footnote must be publication-ready for medical clinicians. Raw column names (`sbp`, `bmi`, `age_yrs`), raw database codes, bare boolean `TRUE`/`FALSE`, bare package columns (`coef`, `p_val`), AI clichés (`delve into`, `underscores`), engineering/workflow jargon (`dataframe`, `script`, `JSON`, `CSV`, `locked protocol`), spelled-out clinical age/window words (`eighteen to sixty-four`, `thirty-day`), internal tier codes (`Tier A/B/C`), repeated `Prefix:` rows (`>=4` times instead of `group_rows`/`indent_rows`), and work-report narration are prohibited and blocked by `display_labels_clinical`. Retain honest null/unfavorable findings and uncertainty in all tables.
+4. Run the table builder, render official visual previews (`tools/tables/render_preview.py`), and inspect all checks in one pass:
+```powershell
+uv run python project/04_tables/code/build_tables.py --only Table1
+uv run python tools/tables/render_preview.py --all
+uv run python tools/wf.py check --all-checks --only "Table 1"
 ```
-uv run python project/04_tables/code/build_tables.py
-uv run python tools/wf.py check
-```
-   The builder must support selecting an affected workbook (for example `--only Table2`).
+   The builder must support selecting an affected workbook (`--only Table2`).
    A shared supplementary workbook is one rebuild unit; preserve the other sheets' values
    and meaning. A change to one main table must not overwrite other main workbooks.
-5. Use the Codex spreadsheet capability to render and visually inspect every worksheet in
-   every generated workbook. Check clipping, wrapping, column widths, row heights, title
-   and header hierarchy, footnotes, units, decimal precision, missing-value symbols and
-   page usability. It is a QA helper only: fix the generating script, regenerate, and
-   inspect the affected workbook again; never hand-edit a generated value.
+5. Inspect the rendered previews in `project/04_tables/previews/` (`render_preview.py` uses
+   Excel/pdftoppm or deterministic Python booktabs rendering + layout QC in
+   `04_tables/qc/table_qc_report.json` with zero `temp/` residue — do NOT write ad-hoc COM
+   scripts in `project/temp/`). Check clipping, wrapping, column widths, row heights, title
+   and header hierarchy, adjacent right/left column gaps, multi-page header repeats, footnotes,
+   units, decimal precision, missing/zero-event symbols (`NE (0/N)` vs `-`), and page usability.
+   Fix the generating script, regenerate only that affected table, and visually inspect again;
+   never hand-edit a generated value.
+   - Table-figure estimator parity: Ensure every comparison shown in both a table and a figure uses the exact same statistical estimator and sparse-cell handling (never Wald in one display and Haldane/penalized in the other).
 6. After all workbooks pass visual review, record the gate:
 ```
 uv run python tools/wf.py decide tables_visually_confirmed YES --why "<workbooks/sheets inspected and defects corrected>"

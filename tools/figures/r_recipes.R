@@ -44,11 +44,138 @@ medpaper_forest_table <- function(data, measure, null, log_scale, digits=2L,
   if(is.null(effect_header)) effect_header <- paste0(measure,"\n(",interval_label,")")
   p + ggplot2::geom_text(data=data,ggplot2::aes(x=Inf,y=label,label=effect_text),
                          inherit.aes=FALSE,hjust=-.08,size=9/ggplot2::.pt) +
-    ggplot2::annotate("text",x=Inf,y=Inf,label=effect_header,hjust=-.08,vjust=-.15,
-                       size=9/ggplot2::.pt,fontface="bold") +
+    ggplot2::annotate("label",x=Inf,y=Inf,label=effect_header,hjust=-.08,vjust=-.15,
+                       size=9/ggplot2::.pt,fontface="bold",fill="white",colour="black",
+                       linewidth=0,label.padding=grid::unit(0.15,"lines")) +
     ggplot2::coord_cartesian(clip="off") + ggplot2::labs(x=measure,y=NULL) +
     ggplot2::theme(plot.margin=ggplot2::margin(12,48,4,4,unit="mm"))
 }
+
+# Multi-column publication forest layout using independent aligned patchwork panels:
+# avoids fragile x=Inf coordinates and keeps the vertical reference line inside the plot area.
+# Returns list(plot = <patchwork>, panels = list(p_left, p_forest, p_right)).
+medpaper_forest_panels <- function(data, measure, null=1, log_scale=TRUE, digits=2L,
+                                   interval_label="95% CI", label_header="Characteristic",
+                                   effect_header=NULL, p_col=NULL, p_header="P value",
+                                   xlim=NULL, col_widths=NULL) {
+  medpaper_require(c("ggplot2", "patchwork", "grid"))
+  if (is.null(col_widths)) {
+    col_widths <- if (!is.null(p_col) && p_col %in% names(data)) c(1.30, 1.35, 1.40) else c(1.35, 1.50, 1.05)
+  }
+  if (!is.data.frame(data) || !nrow(data) || !"label" %in% names(data))
+    stop("data.frame with 'label' required")
+  if (missing(measure) || missing(null) || missing(log_scale) ||
+      length(measure)!=1L || is.na(measure) || !nzchar(measure) ||
+      length(null)!=1L || !is.finite(null) || !is.logical(log_scale) || length(log_scale)!=1L)
+    stop("Explicit measure, null, and logical log_scale required")
+  data$label <- medpaper_label(as.character(data$label))
+  n_rows <- nrow(data)
+  data$y_pos <- rev(seq_len(n_rows))
+  is_grp <- if ("is_group" %in% names(data)) isTRUE_vec(data$is_group) else rep(FALSE, n_rows)
+  is_ind <- if ("indent" %in% names(data)) isTRUE_vec(data$indent) else rep(FALSE, n_rows)
+
+  format_effect <- function(x) ifelse(!is.finite(x), "", ifelse(x!=0 & round(x,digits)==0,
+                                      formatC(x,format="g",digits=2),formatC(x,format="f",digits=digits)))
+  has_est <- all(c("estimate","lower","upper") %in% names(data))
+  plot_rows <- if (has_est) (is.finite(data$estimate) & is.finite(data$lower) & is.finite(data$upper) & !is_grp) else rep(FALSE, n_rows)
+  if (any(plot_rows)) {
+    sub_df <- data[plot_rows, , drop=FALSE]
+    if (any(sub_df$lower > sub_df$estimate | sub_df$estimate > sub_df$upper)) stop("Invalid confidence interval")
+    if (log_scale && (any(sub_df$lower <= 0) || null <= 0)) stop("Logarithmic effect measures must be positive")
+  }
+
+  y_lims <- c(0.70, n_rows + 0.96)
+  y_header <- n_rows + 0.80
+
+  # Left column: structured labels with group bolding and indentation
+  data$label_x <- ifelse(is_ind, 0.08, 0.0)
+  data$label_face <- ifelse(is_grp, "bold", "plain")
+  p_left <- ggplot2::ggplot(data) +
+    ggplot2::geom_text(ggplot2::aes(x=label_x, y=y_pos, label=label, fontface=label_face),
+                       hjust=0, size=8.5/ggplot2::.pt, colour="black") +
+    ggplot2::annotate("text", x=0.0, y=y_header, label=medpaper_label(label_header),
+                      hjust=0, fontface="bold", size=8.8/ggplot2::.pt, colour="black") +
+    ggplot2::geom_hline(yintercept=n_rows + 0.45, linewidth=0.35, colour="black") +
+    ggplot2::scale_x_continuous(limits=c(0, 1), expand=c(0, 0)) +
+    ggplot2::scale_y_continuous(limits=y_lims, expand=c(0, 0)) +
+    ggplot2::labs(x=NULL, y=NULL) +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin=ggplot2::margin(1, 2, 2.5, 1.5, unit="mm"))
+
+  # Middle column: forest plot strictly bounded within axis limits, optional overflow arrows
+  fp <- data[plot_rows, , drop=FALSE]
+  if (is.null(xlim)) {
+    lo_min <- min(fp$lower, null, na.rm=TRUE)
+    hi_max <- max(fp$upper, null, na.rm=TRUE)
+    xlim <- if (log_scale) c(lo_min * 0.85, hi_max * 1.15) else { span <- max(1e-6, hi_max - lo_min); c(lo_min - 0.08*span, hi_max + 0.08*span) }
+  }
+  fp$draw_lower <- pmax(fp$lower, xlim[1])
+  fp$draw_upper <- pmin(fp$upper, xlim[2])
+  fp$clip_lo <- fp$lower < xlim[1]
+  fp$clip_hi <- fp$upper > xlim[2]
+  fp$in_bounds <- fp$estimate >= xlim[1] & fp$estimate <= xlim[2]
+
+  p_forest <- ggplot2::ggplot(fp, ggplot2::aes(y=y_pos)) +
+    ggplot2::annotate("segment", x=null, xend=null, y=0.72, yend=n_rows + 0.40,
+                      linetype="dashed", linewidth=0.35, colour="grey35") +
+    ggplot2::geom_vline(xintercept=null, linetype="blank") +
+    ggplot2::geom_errorbar(ggplot2::aes(xmin=draw_lower, xmax=draw_upper), orientation="y",
+                           width=0.16, linewidth=0.4, colour="black") +
+    ggplot2::geom_point(data=fp[fp$in_bounds, , drop=FALSE], ggplot2::aes(x=estimate, y=y_pos), size=2.1, colour="black")
+  if (any(fp$clip_lo)) {
+    p_forest <- p_forest + ggplot2::geom_segment(
+      data=fp[fp$clip_lo, , drop=FALSE],
+      ggplot2::aes(x=draw_upper, xend=xlim[1], y=y_pos, yend=y_pos),
+      arrow=grid::arrow(length=grid::unit(1.6, "mm"), type="closed"), linewidth=0.4, colour="black")
+  }
+  if (any(fp$clip_hi)) {
+    p_forest <- p_forest + ggplot2::geom_segment(
+      data=fp[fp$clip_hi, , drop=FALSE],
+      ggplot2::aes(x=draw_lower, xend=xlim[2], y=y_pos, yend=y_pos),
+      arrow=grid::arrow(length=grid::unit(1.6, "mm"), type="closed"), linewidth=0.4, colour="black")
+  }
+  if (log_scale) {
+    p_forest <- p_forest + ggplot2::scale_x_log10()
+  }
+  p_forest <- p_forest +
+    ggplot2::coord_cartesian(xlim=xlim) +
+    ggplot2::scale_y_continuous(limits=y_lims, expand=c(0, 0)) +
+    ggplot2::labs(x=paste0(measure, " (", interval_label, ")"), y=medpaper_label(label_header)) +
+    medpaper_theme() +
+    ggplot2::theme(axis.line.y=ggplot2::element_blank(), axis.ticks.y=ggplot2::element_blank(),
+                   axis.text.y=ggplot2::element_blank(), axis.title.y=ggplot2::element_blank(),
+                   plot.margin=ggplot2::margin(1, 2.5, 1, 2.5, unit="mm"))
+
+  # Right column: aligned effect + CI (+ optional P value column)
+  if (is.null(effect_header)) effect_header <- paste0(measure, " (", interval_label, ")")
+  data$eff_str <- ifelse(plot_rows, paste0(format_effect(data$estimate), " (", format_effect(data$lower), " to ", format_effect(data$upper), ")"), "")
+  has_p <- !is.null(p_col) && p_col %in% names(data)
+  data$p_str <- if (has_p) ifelse(is.na(data[[p_col]]), "", as.character(data[[p_col]])) else ""
+  p_right <- ggplot2::ggplot(data) +
+    ggplot2::geom_text(ggplot2::aes(x=0.02, y=y_pos, label=eff_str),
+                       hjust=0, size=8.3/ggplot2::.pt, colour="black") +
+    ggplot2::annotate("text", x=0.02, y=y_header, label=effect_header,
+                      hjust=0, fontface="bold", size=8.6/ggplot2::.pt, colour="black")
+  if (has_p) {
+    p_right <- p_right +
+      ggplot2::geom_text(ggplot2::aes(x=0.72, y=y_pos, label=p_str),
+                         hjust=0, size=8.3/ggplot2::.pt, colour="black") +
+      ggplot2::annotate("text", x=0.72, y=y_header, label=p_header,
+                        hjust=0, fontface="bold", size=8.6/ggplot2::.pt, colour="black")
+  }
+  p_right <- p_right +
+    ggplot2::geom_hline(yintercept=n_rows + 0.45, linewidth=0.35, colour="black") +
+    ggplot2::scale_x_continuous(limits=c(0, 1), expand=c(0, 0)) +
+    ggplot2::scale_y_continuous(limits=y_lims, expand=c(0, 0)) +
+    ggplot2::labs(x=NULL, y=NULL) +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin=ggplot2::margin(1, 2, 2.5, 1.5, unit="mm"))
+
+  composed <- patchwork::wrap_plots(p_left, p_forest, p_right, ncol=3L, widths=col_widths)
+  list(plot=composed, panels=list(p_left, p_forest, p_right))
+}
+
+isTRUE_vec <- function(x) vapply(x, isTRUE, logical(1))
 
 medpaper_roc <- function(data, legend_title=NULL) {
   medpaper_require("ggplot2")

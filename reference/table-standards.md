@@ -73,8 +73,9 @@ sets and analysis populations. Do not compute new results during table productio
   Never `0.000`. Never a bare `p<0.05`. `threeline.p_value()` does this.
 - **Decimals**: consistent within a column. Keep trailing zeros (`0.50`, not `0.5`).
   Do not report more precision than the measurement supports.
-- **Missing data**: a single convention, stated in the footnote. `-` for not applicable,
-  and give the n with data per variable if missingness varies.
+- **Zero-event vs not-applicable vs missing data**: Distinguish distinct non-numeric states explicitly and state every convention in the footnote: use `NE (0/N)` (or exact zero count with `NE`) for zero-event cells that cannot estimate a ratio/effect (never replace zero-event cells with smoothed pseudo-values unless explicitly labeled as a single preplanned sensitivity analysis), `-` or `NA` strictly for structurally inapplicable cells, and report actual missingness counts per variable. Do not silently mix distinct states under one ambiguous dash.
+- **Table-figure estimator parity**: When the same clinical comparison appears in both a table and a figure, both displays must use the exact same underlying statistical estimator and sparse-cell adjustment rule.
+- **Modular scripts & official visual preview CLI**: Split large multi-table projects into per-table modules (`04_tables/code/table1.py`, ...) coordinated by `build_tables.py --only <id>`, and render PNG previews via `uv run python tools/tables/render_preview.py --all` (writing `04_tables/previews/*.png` and `04_tables/qc/table_qc_report.json` with auto-wrap, row heights, landscape fit, and `PrintTitleRows = 1:2`).
 - **Denominators**: put n in the column header (`Group A (n=642)`); if a row has a
   different denominator, give it in that row.
 - **Row order**: follow the order the Methods introduced the variables, not descending

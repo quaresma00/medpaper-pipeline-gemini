@@ -208,9 +208,9 @@ Content was rephrased for compliance with licensing restrictions.
 - **Zero AI clichés, zero engineering/code/workflow jargon, and zero work-report narration** in figure labels, `05_figures/legends.md`, `04_tables/table_captions.md`, or table cells/footnotes.
 
 **In the panel** (structural, needed to read the plot): axis titles and units, tick labels,
-panel letters, concise group and category labels, legend entries, significance markers, brief key data
+panel letters, concise group and category labels (use bold group headers and visual indentation instead of repeating `Prefix:` 4+ times on Y-axis stubs), legend entries (every legend entry must match actually plotted observations — zero orphan legend keys, enforced by `no_orphan_legend_keys`), significance markers, brief key data
 values (`<=12` words, e.g. `n`, `HR` with `CI`, `AUC`, `P`), and guideline-mandated content such as Kaplan-Meier risk
-tables, participant/study-selection box text, scale bars and axis-break marks.
+tables, participant/study-selection box text, scale bars and axis-break marks. Keep all plotted points and confidence-interval whiskers inside axis limits or show explicit overflow arrows (`medpaper_forest_panels`, enforced by `r_data_axis_bounds`). Render zero-event matrix/heatmap cells in neutral grey annotated `NE` (`0/N`) rather than misleading positive colour shading from ad-hoc continuity corrections; maintain 100% estimator parity with S10 tables.
 
 **In the legend** (only what decodes the figure): a concise descriptive title, panel
 descriptions, essential statistical/error-bar/threshold definitions, what a reference line

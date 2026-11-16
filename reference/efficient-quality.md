@@ -105,10 +105,13 @@ this workflow's implementation choice, not a claim of a universal publication th
 
 ## Display prototypes: S07
 
-Create low-cost previews under `01_protocol/prototypes/`: Markdown/CSV tables and low-resolution
-figures. Retain full underlying data; low rendering resolution never means sampling the data.
+Create lightweight structural previews under `01_protocol/prototypes/`: Markdown/CSV table skeletons
+(column headers, clinical group hierarchy, sample stubs, units, and footnote templates — without
+pre-filling full numeric tables) and representative low-cost figure drafts. Do not build full
+publication-grade XLSXs, Word files, or duplicate plotting codebases just for prototyping; initial R
+scripts may be reused and promoted directly in S11.
 Use `artifact_plan.json` as the one display inventory. Every planned main/supplementary display
-has one primary clinical question. Reuse the prototype's script and semantic layout at S10/S11.
+has one primary clinical question. Reuse the prototype's semantic layout at S10/S11.
 Do not build Word, formatted workbooks or journal-specific TIFF files at this checkpoint.
 
 Record `01_protocol/display_review.json` with `items`, one per planned display:

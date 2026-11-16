@@ -889,9 +889,9 @@ def _validate_table_cell_context(
             )
 
 
-def validate_tables(project, paths):
+def validate_tables(project, paths, *, only: str | None = None):
     from . import xlsxlite
-    from .checks.numbers import _offenders, _scrub, NUM_RE
+    from .checks.numbers import _offenders, load_allowlist, results_pool, NUM_RE, _scrub
     from openpyxl import load_workbook
     from .state import State, version_tuple
     state_file = project / ".wf/state.json"
@@ -902,6 +902,10 @@ def validate_tables(project, paths):
     problems = []
     catalog = None
     label_cache = {}
+    allowed_constants = load_allowlist(project)
+    pool_cache = None
+    only_filter = str(only or "").strip().casefold()
+    only_compact = only_filter.replace(" ", "")
 
     def context_label(value):
         from .clinicalpresentation import label as clinical_label
@@ -915,17 +919,63 @@ def validate_tables(project, paths):
         cells = [(s, c, v) for s, c, v in xlsxlite.numeric_cell_values(path) if NUM_RE.search(_scrub(str(v)))]
         if not cells:
             continue
+        xls_wb = xlsxlite.Workbook(path)
+        sheet_zones: dict[str, tuple[int, int]] = {}
+        for sh in xls_wb.sheets:
+            hdrs, last_body = xls_wb.header_rows(sh)
+            sheet_zones[sh.name] = (max(hdrs) if hdrs else 2, last_body)
+
+        rows = None
+        index = {}
+        binding_load_error = None
         try:
             rows = [r for r in bindings(project, rel) if r.get("path") == rel]
             index = {(r.get("sheet"), r.get("cell")): r for r in rows}
             if len(index) != len(rows):
-                raise ValueError("duplicate table-cell bindings")
-            xls_wb = xlsxlite.Workbook(path)
-            workbook = load_workbook(path, read_only=True, data_only=True)
-            try:
-                for sheet, cell, value in cells:
-                    row = index.get((sheet, cell))
-                    if row is None or row.get("text") != str(value):
+                binding_load_error = "duplicate table-cell bindings"
+        except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+            binding_load_error = str(exc)
+
+        reported_binding_err = False
+        workbook = load_workbook(path, read_only=True, data_only=True)
+        try:
+            for sheet, cell, value in cells:
+                if only_filter:
+                    if (
+                        only_filter not in path.stem.casefold()
+                        and only_filter not in sheet.casefold()
+                        and only_compact not in sheet.replace(" ", "").casefold()
+                    ):
+                        continue
+                pos = xlsxlite.parse_cell_ref(cell)
+                hdr_end, last_body = sheet_zones.get(sheet, (2, 10**9))
+                is_result_body = bool(pos is not None and (hdr_end < pos[0] <= last_body) and pos[1] > 1)
+                row = index.get((sheet, cell))
+
+                if row is None:
+                    if not is_result_body:
+                        if not _offenders(str(value), set(), set(), allowed_constants, table_non_result=True):
+                            continue
+                        if pos is not None:
+                            if pool_cache is None:
+                                pool_floats, pool_strings, _ = results_pool(project)
+                                pool_cache = (pool_floats, pool_strings)
+                            if not _offenders(str(value), pool_cache[0], pool_cache[1], allowed_constants, table_non_result=True):
+                                continue
+                    if binding_load_error and not reported_binding_err:
+                        problems.append(f"{rel}: {binding_load_error}")
+                        reported_binding_err = True
+                    else:
+                        problems.append(f"{rel}: {sheet}!{cell}: missing/stale exact-value binding")
+                    continue
+
+                if binding_load_error and not reported_binding_err:
+                    problems.append(f"{rel}: {binding_load_error}")
+                    reported_binding_err = True
+                    break
+
+                try:
+                    if row.get("text") != str(value):
                         raise ValueError(f"{sheet}!{cell}: missing/stale exact-value binding")
                     if row.get("kind") == "unit_scale":
                         allowed = table_unit_constants(project, path, sheet, cell, value)
@@ -963,10 +1013,10 @@ def validate_tables(project, paths):
                         raise ValueError(f"{sheet}!{cell}: " + "; ".join(issues))
                     if _offenders(str(value), floats, strings, set(), p_values):
                         raise ValueError(f"{sheet}!{cell}: value not from its own fact(s)")
-            finally:
-                workbook.close()
-        except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
-            problems.append(f"{rel}: {exc}")
+                except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+                    problems.append(f"{rel}: {exc}")
+        finally:
+            workbook.close()
     return problems
 
 
@@ -1219,17 +1269,121 @@ def validate_figure_entry(project: Path, entry: dict, art: dict | None = None, *
     return problems, fp
 
 
-def validate_figures(project: Path, *, journal: bool = False) -> list[str]:
+def _cross_display_consistency_problems(project: Path, *, journal: bool = False) -> list[str]:
+    """Ensure identical study facts/contexts do not split estimators across tables and figures."""
+    binding_rel = "08_submission/integration/claim_bindings.json" if journal else "07_manuscript/claim_bindings.json"
+    if not (project / binding_rel).is_file() or not (project / "01_protocol/study_facts.json").is_file():
+        return []
+    try:
+        payload = json.loads((project / binding_rel).read_text(encoding="utf-8"))
+        catalog = facts(project)
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+    table_rows = [
+        r for r in payload.get("claims", [])
+        if str(r.get("path", "")).endswith(".xlsx") and r.get("kind") != "unit_scale" and r.get("fact_ids")
+    ]
+    fig_rows = payload.get("figure_annotations", [])
+    if not table_rows or not fig_rows:
+        return []
+
+    from .checks.numbers import NUM_RE, normalize_grouping
+    primary_fields = {"estimate", "or", "hr", "rr", "irr", "ard", "md", "smd", "auc", "ror", "prr", "ic", "ebgm"}
+
+    def _primary_val(fact_vals: dict, explicit_field: str | None = None):
+        if explicit_field and isinstance(fact_vals.get(explicit_field), (int, float)):
+            return explicit_field, float(fact_vals[explicit_field])
+        for k in ("estimate", "or", "hr", "rr", "ror", "prr", "auc", "md", "smd"):
+            if isinstance(fact_vals.get(k), (int, float)) and not isinstance(fact_vals.get(k), bool):
+                return k, float(fact_vals[k])
+        return None, None
+
+    # Map fact_id -> table text tokens & context signature -> (fact_id, primary_val, location)
+    table_by_fact: dict[str, list[tuple[str, set[float]]]] = {}
+    table_by_sig: dict[tuple[str, ...], tuple[str, float, str]] = {}
+    for row in table_rows:
+        txt = str(row.get("text", ""))
+        nums: set[float] = set()
+        for m in NUM_RE.finditer(normalize_grouping(txt)):
+            try:
+                nums.add(float(m.group(1).replace("−", "-")))
+            except ValueError:
+                pass
+        loc = f"{Path(row['path']).name}[{row.get('sheet', '')}]!{row.get('cell', '')}"
+        for fk in row.get("fact_ids", []):
+            if fk not in catalog:
+                continue
+            table_by_fact.setdefault(fk, []).append((loc, nums))
+            c = catalog[fk]["context"]
+            sig = tuple(str(c.get(k, "")).strip().casefold() for k in ("outcome", "population", "comparison", "model", "timepoint", "unit"))
+            _, pval = _primary_val(catalog[fk]["values"])
+            if pval is not None:
+                table_by_sig.setdefault(sig, (fk, pval, loc))
+
+    problems: list[str] = []
+    for frow in fig_rows:
+        fig_id = str(frow.get("figure_id", "?"))
+        fields = frow.get("fields") if isinstance(frow.get("fields"), list) else (frow.get("values") if isinstance(frow.get("values"), list) else [])
+        for fspec in fields:
+            if not isinstance(fspec, dict):
+                continue
+            fk = fspec.get("fact_id") or frow.get("fact_id")
+            fname = str(fspec.get("field", "")).strip()
+            if not fk or fk not in catalog:
+                continue
+            fvals = catalog[fk]["values"]
+            raw_v = fvals.get(fname)
+            if isinstance(raw_v, bool) or not isinstance(raw_v, (int, float)):
+                continue
+            fname_low = fname.casefold()
+            is_estimate_field = (fname_low in primary_fields or "estimate" in fname_low or "haldane" in fname_low)
+            if is_estimate_field and fk in table_by_fact:
+                for loc, tbl_nums in table_by_fact[fk]:
+                    # Ignore count/P-value-only cells (single value <= 1 when estimate > 1 or p-value exact match)
+                    if not tbl_nums:
+                        continue
+                    p_val_src = fvals.get("p_value")
+                    if isinstance(p_val_src, (int, float)) and len(tbl_nums) == 1 and abs(next(iter(tbl_nums)) - float(p_val_src)) < 0.015:
+                        continue
+                    # Check whether figure's primary estimate matches at least one number in the table cell within coarse rounding tolerance
+                    if not any(abs(tn - float(raw_v)) <= max(0.055, 0.03 * abs(float(raw_v))) for tn in tbl_nums):
+                        problems.append(
+                            f"{fig_id} vs {loc}: cross-display inconsistency on fact '{fk}' (figure binds {fname}={float(raw_v):.3g}, table shows {sorted(tbl_nums)})"
+                        )
+            # Detect split estimators using distinct fact_ids for identical model/comparison/outcome/unit context
+            c = catalog[fk]["context"]
+            sig = tuple(str(c.get(k, "")).strip().casefold() for k in ("outcome", "population", "comparison", "model", "timepoint", "unit"))
+            if is_estimate_field and sig in table_by_sig:
+                tfk, tpval, tloc = table_by_sig[sig]
+                if tfk != fk and abs(tpval - float(raw_v)) > max(0.06, 0.05 * max(abs(tpval), abs(float(raw_v)))):
+                    problems.append(
+                        f"{fig_id} ({fk}={float(raw_v):.3g}) vs {tloc} ({tfk}={tpval:.3g}): identical model/comparison context displays conflicting estimates across figure and table"
+                    )
+    return problems
+
+
+def validate_figures(project: Path, *, journal: bool = False, only: str | None = None) -> list[str]:
     plan_rel = "08_submission/integration/artifact_plan.json" if journal else "01_protocol/artifact_plan.json"
     plan_path = project / plan_rel
     if not plan_path.is_file():
         return [f"{plan_rel} missing"]
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     entries = list(plan.get("main_figures", [])) + list(plan.get("supp_figures", []))
+    only_filter = str(only or "").strip().casefold()
+    if only_filter:
+        only_compact = only_filter.replace(" ", "")
+        entries = [
+            e for e in entries
+            if only_filter in str(e.get("id", "")).casefold()
+            or only_compact in str(e.get("id", "")).casefold().replace(" ", "")
+            or only_filter in str(e.get("file", "")).casefold()
+        ]
     problems: list[str] = []
     for entry in entries:
         errs, _ = validate_figure_entry(project, entry, require_complete=True)
         problems.extend(errs)
+    if not only_filter:
+        problems.extend(_cross_display_consistency_problems(project, journal=journal))
     return problems
 
 

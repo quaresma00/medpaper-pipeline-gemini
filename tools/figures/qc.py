@@ -280,6 +280,14 @@ def _qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Pa
                 f"{len(art.get('text_clipped_at_edge', []))} text boxes exceed canvas (conservative height estimate)")
             add("r_text_box_collisions", not art.get("r_text_box_collisions"),
                 str(art.get("r_text_box_collisions", [])[:3]) or "no estimated text-box collisions")
+            data_clipped = art.get("data_clipped_at_axes") or []
+            add("r_data_axis_bounds", not data_clipped,
+                f"{len(data_clipped)} point/interval coordinate(s) exceed axis limits: {data_clipped[:2]}" if data_clipped
+                else "all rendered points and confidence intervals lie within axis limits")
+            orphans = art.get("orphan_legend_keys") or []
+            add("no_orphan_legend_keys", not orphans,
+                f"unused/orphan legend key(s) with zero rendered observations: {orphans[:4]}" if orphans
+                else "every displayed legend key corresponds to plotted observations")
             add("r_visual_measurement_limits", False, "; ".join(art.get("measurement_limits", [])), severity="warn")
             elements_found = art.get("elements", {})
             if archetype and arch_reg:

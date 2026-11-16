@@ -63,11 +63,23 @@ def story_problems(plan: dict, benchmark: dict) -> list[str]:
 
 def flat_labels(labels: list[str]) -> list[str]:
     prefixes = Counter()
+    examples = {}
+    ignore = {"note", "notes", "abbreviation", "abbreviations", "source", "adjusted for"}
     for label in labels:
-        m = re.match(r"^([A-Za-z][A-Za-z -]*\bdistribution)\s*:", str(label), re.I)
-        if m: prefixes[m[1].casefold()] += 1
-    return [f"Repeated '{key}:' in {n} row labels; use a clinical variable heading and indented categories"
-            for key, n in prefixes.items() if n >= 3]
+        s = str(label or "").strip()
+        m = re.match(r"^([A-Za-z][A-Za-z0-9\s/\-]*)\s*:\s+\S", s)
+        if m:
+            pref = re.sub(r"\s+", " ", m[1]).strip()
+            low = pref.casefold()
+            if low in ignore or re.fullmatch(r"model\s+\w+", low):
+                continue
+            prefixes[low] += 1
+            examples.setdefault(low, pref)
+    out = []
+    for low, n in prefixes.items():
+        if ("distribution" in low and n >= 3) or n >= 4:
+            out.append(f"Repeated '{examples[low]}:' in {n} row labels; use a bold clinical heading and indented categories")
+    return out
 
 
 def panel_problems(svg: Path, entry: dict) -> list[str]:
@@ -112,14 +124,21 @@ def panel_problems(svg: Path, entry: dict) -> list[str]:
     return problems
 
 
-def production_problems(project: Path, kind: str) -> list[str]:
+def production_problems(project: Path, kind: str, *, only: str | None = None) -> list[str]:
     plan = load(project, "01_protocol/artifact_plan.json")
     reviews = load(project, "01_protocol/display_review.json").get("final_reviews", {})
     groups = ("main_tables", "supp_tables") if kind == "table" else ("main_figures", "supp_figures")
+    only_filter = str(only or "").strip().casefold()
+    only_compact = only_filter.replace(" ", "")
     problems = []
     for group in groups:
         for entry in plan.get(group, []):
-            key = entry["id"]; rel, path = _safe_path(project, entry["file"])
+            key = entry["id"]
+            if only_filter:
+                cands = [str(key), str(entry.get("file", "")), str(entry.get("sheet", ""))]
+                if not any(only_filter in c.casefold() or only_compact in c.casefold().replace(" ", "") for c in cands if c):
+                    continue
+            rel, path = _safe_path(project, entry["file"])
             row = reviews.get(key, {})
             if row.get("reviewed_file") != rel or not path.is_file() or row.get("sha256") != _sha256(path):
                 problems.append(f"{key}: actual production file needs current rendered medical review, not a prototype PASS"); continue

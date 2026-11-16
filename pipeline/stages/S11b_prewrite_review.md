@@ -27,8 +27,11 @@ uv run python tools/review_round.py start --scope prewrite
 ```
 uv run python tools/review_round.py ingest --scope prewrite --from-file <reply.md>
 ```
-5. Execute any user-approved method/result/figure/table revisions via scoped `tools/rework.py` owners (run `prepare-revalidation` + `ingest --revalidation` if scientific inputs changed), close the round, and obtain explicit user approval (`我确认这一版`) BEFORE starting `S08_methods` and `S09_results`:
-```
+5. Execute user-approved revisions **incrementally whenever scope is localized**:
+   - **Localized fixes** (e.g., adding an interval field to one result JSON, adding a zero-count stratum, or fixing specific tables/figures without changing cohort eligibility or core hypothesis): use **`tools/rework.py batch --sealed --plan <plan.json> --why "..."`** directly at `S11b_prewrite_review`! Only affected JSON consumers, `S06` freeze signature, and edited displays are re-checked (`tables_visually_confirmed` / `figures_visually_confirmed` stay intact for untouched displays). Run `prepare-revalidation` + `ingest --revalidation` before closing.
+   - **Global cohort/eligibility restructuring or `NO-GO` pivot**: use `uv run python tools/wf.py loop --to S03_protocol --why "..."` (or halt on `NO-GO`).
+   Close the round and obtain explicit user approval (`我确认这一版`) BEFORE starting `S08_methods` and `S09_results`:
+```powershell
 uv run python tools/review_round.py close --scope prewrite --change <path> "<why>" ...
 uv run python tools/review_round.py decide --scope prewrite --answer no_further_review --words "我确认这一版"
 uv run python tools/wf.py check

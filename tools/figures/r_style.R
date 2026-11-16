@@ -125,10 +125,85 @@ medpaper_layers <- function(plot) {
     if (is.null(x)) "" else paste(as.character(x), collapse = " ")
   }
   ranges <- lapply(built$layout$panel_params, function(x) list(x = x$x.range, y = x$y.range))
+  clipped_data <- list()
+  bounds_geoms <- c("GeomPoint", "GeomJitter", "GeomErrorbar", "GeomErrorbarh", "GeomLinerange", "GeomPointrange")
+  for (i in seq_along(geom_names)) {
+    gname <- geom_names[i]
+    if (!gname %in% bounds_geoms) next
+    d <- built$data[[i]]
+    if (!is.data.frame(d) || nrow(d) == 0L) next
+    p_idx <- if ("PANEL" %in% names(d)) as.integer(d$PANEL) else rep(1L, nrow(d))
+    for (r_i in seq_len(nrow(d))) {
+      pid <- p_idx[r_i]
+      if (is.na(pid) || pid < 1L || pid > length(built$layout$panel_params)) next
+      pp <- built$layout$panel_params[[pid]]
+      xr <- pp$x.range; yr <- pp$y.range
+      if (is.numeric(xr) && length(xr) == 2L && all(is.finite(xr))) {
+        tol_x <- max(1e-6, abs(diff(xr)) * 0.005)
+        for (col in intersect(c("x", "xmin", "xmax"), names(d))) {
+          val <- d[[col]][r_i]
+          if (is.numeric(val) && is.finite(val) && (val < xr[1] - tol_x || val > xr[2] + tol_x)) {
+            clipped_data[[length(clipped_data) + 1L]] <- list(geom = gname, panel = pid, axis = "x", field = col, value = val, range = xr)
+            break
+          }
+        }
+      }
+      if (is.numeric(yr) && length(yr) == 2L && all(is.finite(yr))) {
+        tol_y <- max(1e-6, abs(diff(yr)) * 0.005)
+        for (col in intersect(c("y", "ymin", "ymax"), names(d))) {
+          val <- d[[col]][r_i]
+          if (is.numeric(val) && is.finite(val) && (val < yr[1] - tol_y || val > yr[2] + tol_y)) {
+            clipped_data[[length(clipped_data) + 1L]] <- list(geom = gname, panel = pid, axis = "y", field = col, value = val, range = yr)
+            break
+          }
+        }
+      }
+    }
+  }
+
+  orphan_legend <- character()
+  if (has_legend) {
+    legend_aes <- c("colour", "color", "fill", "shape", "linetype")
+    for (sc in built$plot$scales$scales) {
+      if (!sc$is_discrete()) next
+      matched_aes <- intersect(sc$aesthetics, legend_aes)
+      if (!length(matched_aes)) next
+      if (!is.null(sc$guide) && identical(sc$guide, "none")) next
+      lims <- tryCatch(sc$get_limits(), error = function(e) NULL)
+      if (!length(lims)) next
+      lbls <- tryCatch(as.character(sc$get_labels(lims)), error = function(e) as.character(lims))
+      mapped <- tryCatch(sc$map(lims), error = function(e) NULL)
+      if (is.null(mapped) || length(mapped) != length(lims)) next
+      aes_col <- if ("colour" %in% matched_aes || "color" %in% matched_aes) "colour" else matched_aes[1]
+      seen_cols <- character()
+      col_present_in_layers <- FALSE
+      for (k in seq_along(built$data)) {
+        dk <- built$data[[k]]
+        if (!is.data.frame(dk) || nrow(dk) == 0L) next
+        if (aes_col %in% names(dk)) {
+          col_present_in_layers <- TRUE
+          vals <- dk[[aes_col]]
+          vals <- vals[!is.na(vals)]
+          if (length(vals)) seen_cols <- union(seen_cols, as.character(vals))
+        }
+      }
+      if (col_present_in_layers && length(seen_cols)) {
+        for (idx in seq_along(lims)) {
+          mv <- as.character(mapped[idx])
+          if (!is.na(mv) && nzchar(mv) && !(mv %in% seen_cols)) {
+            lbl <- if (idx <= length(lbls) && !is.na(lbls[idx])) lbls[idx] else as.character(lims[idx])
+            if (nzchar(lbl)) orphan_legend <- union(orphan_legend, lbl)
+          }
+        }
+      }
+    }
+  }
+
   list(layers = summary, bar_baseline_zero = medpaper_bar_zero(built, geom_names),
        title = label("title"), subtitle = label("subtitle"), caption = label("caption"),
        x_label = label("x"), y_label = label("y"),
-       legend = has_legend, ranges = ranges)
+       legend = has_legend, ranges = ranges,
+       clipped_data = clipped_data, orphan_legend = orphan_legend)
 }
 
 medpaper_save <- function(plot, stem, width = "single", height_mm = 75, dpi = 600,

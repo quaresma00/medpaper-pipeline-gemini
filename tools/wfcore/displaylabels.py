@@ -65,7 +65,7 @@ BINARY_KV_ALLOWED_KEYS = {
     "n", "p", "hr", "or", "rr", "irr", "smd", "auc", "ci", "sd", "iqr", "se",
     "df", "k", "r", "r2", "i2", "q", "score", "grade", "stage", "class", "type",
     "phase", "step", "visit", "day", "week", "month", "year", "cycle", "dose",
-    "level", "tier", "tertile", "quartile", "quintile", "decile", "parity", "gravidity",
+    "level", "tertile", "quartile", "quintile", "decile", "parity", "gravidity",
     "ecog", "asa", "nyha", "mrs", "killip", "timi", "glasgow", "sofa", "apache",
     "cha2ds2-vasc", "has-bled", "child-pugh", "meld", "aki", "ckd", "gold", "bi-rads",
 }
@@ -170,6 +170,7 @@ DISPLAY_AI_CLICHE_RE = re.compile(
 
 # Engineering, code, and workflow jargon prohibited across all table/figure text and legends/captions.
 DISPLAY_ENGINEERING_JARGON_RE = re.compile(
+    r"(?:"
     r"\b(?:"
     r"data\s*frame|python\s+script|r\s+script|"
     r"json\s+(?:file|manifest|schema|export|object|payload)|"
@@ -178,8 +179,29 @@ DISPLAY_ENGINEERING_JARGON_RE = re.compile(
     r"pipeline\s+(?:stage|script|step|run|execution)|"
     r"subagent|hardcoded|command[- ]line|stdout|stderr|regex|refactor\w*|"
     r"source_sha256|render_sha256|artifact_plan|schema_version|"
+    r"locked\s+(?:protocol(?:\s+facts)?|aggregate(?:\s+fact)?|baseline)|"
+    r"code\s+paths?|(?:fact|artifact)\s+provenance|to\s+comply\s+with\s+locked|"
     r"S(?:0[1-9]|1[0-9]|2[0-5])_(?:intake|feasibility|protocol|data|analysis|artifacts|methods|results|tables|figures|prewrite_review|reconcile|reflib|introduction|deepread|discussion|assemble|independent_review|human_review|journal|authors|polish|package|package_human_review|submission_audit)"
-    r")\b",
+    r")\b"
+    r"|\b[A-Za-z0-9_\-]+\.(?:json|csv|tsv|parquet|pkl|rds|rda|py)\b"
+    r")",
+    re.I,
+)
+
+# Internal shorthand tiers/analysis sequence tags without clinical meaning.
+INTERNAL_CODE_LABEL_RE = re.compile(r"\bTier\s+[A-Z0-9]\b")
+ISOLATED_PROTOCOL_SEQ_RE = re.compile(r"^\s*S\d+(?:\s*(?:\+|-|\u2013|,|vs\.?)\s*S\d+)+\s*$|^\s*S[1-9]\b\s*$", re.I)
+
+# Spelled-out clinical age brackets or time windows used to evade numeric checks.
+SPELLED_CLINICAL_NUMBER_RE = re.compile(
+    r"\b(?:eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
+    r"(?:[-\s](?:one|two|three|four|five|six|seven|eight|nine))?"
+    r"(?:\s+to\s+(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
+    r"(?:[-\s](?:one|two|three|four|five|six|seven|eight|nine))?)?"
+    r"(?=\s+(?:years?|yrs?|days?|months?|weeks?|hours?)\b)"
+    r"|\b(?:eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)"
+    r"(?:[-\s](?:one|two|three|four|five|six|seven|eight|nine))?"
+    r"-(?:day|year|month|week|hour)s?\b",
     re.I,
 )
 
@@ -412,6 +434,35 @@ def diagnose_label_token(
             context=raw,
         ))
 
+    if surface in {"title", "header", "stub", "cell", "footnote", "figure_text", "figure_axis", "figure_title", "flow_node"}:
+        if INTERNAL_CODE_LABEL_RE.search(cleaned):
+            out.append(_make_issue(
+                path,
+                locator,
+                "internal_code_label",
+                raw,
+                "Replace internal protocol tier code ('Tier A/B/...') with clinically meaningful category wording.",
+                context=raw,
+            ))
+        if surface in {"stub", "figure_text", "figure_axis"} and ISOLATED_PROTOCOL_SEQ_RE.match(cleaned):
+            out.append(_make_issue(
+                path,
+                locator,
+                "internal_code_label",
+                raw,
+                f"Replace isolated protocol analysis tag '{cleaned}' with descriptive clinical wording.",
+                context=raw,
+            ))
+        if SPELLED_CLINICAL_NUMBER_RE.search(cleaned):
+            out.append(_make_issue(
+                path,
+                locator,
+                "spelled_clinical_number",
+                raw,
+                "Use standard Arabic numerals for clinical intervals/windows (e.g. '18-64 years', '30-day') instead of spelled-out words.",
+                context=raw,
+            ))
+
     if surface == "figure_subtitle":
         out.append(_make_issue(
             path,
@@ -454,6 +505,42 @@ def diagnose_label_token(
                     context=raw,
                 ))
 
+    return out
+
+
+def _check_repeated_colon_prefixes(
+    path: str,
+    locator_prefix: str,
+    items: list[str],
+    threshold: int = 4,
+) -> list[dict]:
+    from collections import Counter
+    counts: Counter[str] = Counter()
+    examples: dict[str, str] = {}
+    ignore_prefixes = {"note", "notes", "abbreviation", "abbreviations", "source", "adjusted for"}
+    for raw in items:
+        s = str(raw or "").strip()
+        m = re.match(r"^([A-Za-z][A-Za-z0-9\s/\-]{1,32}?):\s+\S", s)
+        if not m:
+            continue
+        pref = re.sub(r"\s+", " ", m.group(1)).strip()
+        low = pref.casefold()
+        if low in ignore_prefixes or re.fullmatch(r"model\s+\w+", low):
+            continue
+        counts[low] += 1
+        examples.setdefault(low, pref)
+    out: list[dict] = []
+    for low, cnt in counts.items():
+        if cnt >= threshold:
+            disp = examples[low]
+            out.append(_make_issue(
+                path,
+                f"{locator_prefix} category labels",
+                "repeated_flat_prefix",
+                f"{disp}: ... ({cnt} rows)",
+                f"Prefix '{disp}:' is repeated {cnt} times across labels; restructure into a bold section header with indented categories (group_rows/indent_rows).",
+                context=f"{locator_prefix}:prefix:{low}",
+            ))
     return out
 
 
@@ -539,11 +626,14 @@ def inspect_xlsx_table(path: Path, rel: str | None = None, sheet_name: str | Non
                     is_first_header=(r == header_start and idx == 0 and c.ref.startswith("A")),
                 ))
 
+        stub_texts: list[str] = []
         for r in range(header_end + 1, last_body + 1):
             for c in row_cells.get(r, []):
                 if not c.value:
                     continue
                 is_stub = c.ref.startswith("A")
+                if is_stub:
+                    stub_texts.append(c.value)
                 body_and_header_texts.append(c.value)
                 issues.extend(diagnose_label_token(
                     c.value,
@@ -565,6 +655,7 @@ def inspect_xlsx_table(path: Path, rel: str | None = None, sheet_name: str | Non
                     surface="footnote",
                 ))
 
+        issues.extend(_check_repeated_colon_prefixes(rel_str, loc_base, stub_texts))
         issues.extend(_check_numbered_models(
             rel_str, loc_base, body_and_header_texts, "\n".join(footnote_texts)
         ))
@@ -844,6 +935,9 @@ def inspect_figure_entry(
         ))
 
     legend_body = _legend_for_figure(project, fid, layer=layer)
+    if archetype != "flow_diagram":
+        prefix_candidates = [txt for _, surf, txt in items if surf == "figure_text"]
+        issues.extend(_check_repeated_colon_prefixes(rel_str, fid, prefix_candidates))
     issues.extend(_check_numbered_models(
         rel_str, fid, all_texts, "\n".join([*all_texts, legend_body])
     ))
@@ -947,12 +1041,30 @@ def verify_plan_labels(project: Path, *, journal: bool = False) -> list[dict]:
     return _dedup(issues)
 
 
+def _entry_matches_only(entry: dict, only: str | None) -> bool:
+    if not only:
+        return True
+    needle = str(only).strip().casefold()
+    compact = needle.replace(" ", "")
+    candidates = [
+        str(entry.get("id", "")),
+        str(entry.get("file", "")),
+        str(entry.get("sheet", "")),
+        str(entry.get("slug", "")),
+    ]
+    return any(
+        needle in c.casefold() or compact in c.casefold().replace(" ", "")
+        for c in candidates if c
+    )
+
+
 def collect_project_issues(
     project: Path,
     kind: str = "all",
     *,
     layer: str = "science",
     final: bool = False,
+    only: str | None = None,
 ) -> list[dict]:
     """Collect structured clinical-label issues for `plan`, `table`, `figure`, or `all`."""
     journal = layer == "journal"
@@ -960,13 +1072,15 @@ def collect_project_issues(
     plan = load(project, plan_rel) if (project / plan_rel).is_file() else {}
     issues: list[dict] = []
 
-    if kind in {"plan", "all"}:
+    if kind in {"plan", "all"} and not only:
         issues.extend(verify_plan_labels(project, journal=journal))
 
     if kind in {"table", "all"}:
         seen_xlsx: set[tuple[str, str | None]] = set()
         for group in ("main_tables", "supp_tables"):
             for entry in plan.get(group, []):
+                if not _entry_matches_only(entry, only):
+                    continue
                 f_rel = str(entry.get("file", "")).strip()
                 if not f_rel:
                     continue
@@ -980,6 +1094,8 @@ def collect_project_issues(
     if kind in {"figure", "all"}:
         for group in ("main_figures", "supp_figures"):
             for entry in plan.get(group, []):
+                if not _entry_matches_only(entry, only):
+                    continue
                 issues.extend(inspect_figure_entry(project, entry, layer=layer))
 
     if final and (project / "08_submission/bundle/manifest.json").is_file():

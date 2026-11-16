@@ -109,9 +109,12 @@ uv run python tools/pubmed/client.py fetch --ids <...> --with-abstract
    plan a central Declarations and Statements glossary. Preserve local units/symbol meanings
    needed to read each display. S17 assembles and verifies the choice, not a planned table rebuild.
 
-6. Read `reference/efficient-quality.md` and create cheap semantic prototypes for every
-   planned display under `01_protocol/prototypes/`. Open them and conduct the one-minute
-   reader-comprehension screen. Record exact preview/source hashes, denominator/encoding
+6. Read `reference/efficient-quality.md` and create **lightweight structural previews** for each
+   planned display under `01_protocol/prototypes/` without duplicating full S10/S11 production:
+   table previews only need structural skeletons (column hierarchy, bold group headings, indented row
+   stubs, units, and footnote templates); figure previews use low-cost schematic layouts or initial
+   reusable scripts (`05_figures/out/`) saved to `01_protocol/prototypes/`. Open them and conduct
+   the one-minute reader-comprehension screen. Record exact preview/source hashes, denominator/encoding
    explanations, layout and reviewer identity in `01_protocol/display_review.json`; do not
    claim a human reviewed an agent simulation. Run `tools/manuscript/readiness.py displays`.
 

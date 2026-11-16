@@ -12,8 +12,12 @@ Missing R packages require repair, not an unannounced Python fallback.
 ## Procedure
 Choose the design-appropriate recipe using `reference/r-first.md`'s medical figure routes.
 The endpoint, measure and required uncertainty determine the graph; a theme cannot supply
-missing clinical content. Use `medpaper_forest_table` for an appropriate aligned numerical
-forest with explicit measure/null/scale; it formats existing estimates without refitting.
+missing clinical content. Use `medpaper_forest_panels` (`tools/figures/r_recipes.R`) for
+multi-column publication forest plots with bold group headings, indented subgroups, overflow
+arrows, and separate aligned numeric columns (preventing reference-line header collisions and
+cross-panel squeezing); keep `medpaper_forest_table` only for single-column plots. Always use
+the exact same statistical estimator and sparse/zero-cell rule shown in S10 tables, and use
+neutral grey + `NE (0/N)` for zero-event heatmap/matrix cells without smoothed positive shading.
 
 1. Confirm Rscript and the actual required packages/environment. Put renderer="R" in each
    new figure entry, plus its .R script, PNG/PDF paths, width, source_results and archetype.

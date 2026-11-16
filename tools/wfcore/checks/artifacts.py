@@ -397,8 +397,16 @@ def artifact_refs_consistent(ctx: Ctx) -> Result:
 @check("tables_match_plan")
 def tables_match_plan(ctx: Ctx) -> Result:
     plan = _plan(ctx)
+    only_filter = str(ctx.spec.get("_only") or "").strip().casefold()
+    only_compact = only_filter.replace(" ", "")
     problems = []
+    checked = 0
     for e in _entries(plan, ("main_tables", "supp_tables")):
+        if only_filter:
+            cands = [str(e.get("id", "")), str(e.get("file", "")), str(e.get("sheet", ""))]
+            if not any(only_filter in c.casefold() or only_compact in c.casefold().replace(" ", "") for c in cands if c):
+                continue
+        checked += 1
         f = e.get("file")
         if not f:
             continue
@@ -416,14 +424,24 @@ def tables_match_plan(ctx: Ctx) -> Result:
             if wb.sheet(sheet) is None:
                 problems.append(f"{f}: sheet '{sheet}' absent (has: {[s.name for s in wb.sheets]})")
     if problems:
-        return Result(False, "tables_match_plan", "; ".join(problems[:8]))
-    n = len(_entries(plan, ("main_tables", "supp_tables")))
+        limit = len(problems) if ctx.spec.get("_verbose") else 8
+        return Result(False, "tables_match_plan", "; ".join(problems[:limit]))
+    n = checked if only_filter else len(_entries(plan, ("main_tables", "supp_tables")))
     return Result(True, "tables_match_plan", f"{n} planned table(s) built at the planned locations")
 
 
 @check("tables_threeline")
 def tables_threeline(ctx: Ctx) -> Result:
+    only_filter = str(ctx.spec.get("_only") or "").strip().casefold()
+    only_compact = only_filter.replace(" ", "")
     files = ctx.glob("04_tables/main/*.xlsx") + ctx.glob("04_tables/supplementary/*.xlsx")
+    if only_filter:
+        matched = [
+            p for p in files
+            if only_filter in p.stem.casefold()
+            or only_compact in p.stem.replace(" ", "").casefold()
+        ]
+        files = matched or [p for p in files if "supplementary" in p.name.casefold()]
     if not files:
         return Result(False, "tables_threeline", "no xlsx tables found under 04_tables/")
     problems: list[str] = []
@@ -435,13 +453,16 @@ def tables_threeline(ctx: Ctx) -> Result:
             problems.append(f"{p.name}: unreadable ({exc})")
             continue
         for sh in wb.sheets:
+            if only_filter and only_filter not in p.stem.casefold() and only_filter not in sh.name.casefold() and only_compact not in sh.name.replace(" ", "").casefold():
+                continue
             checked += 1
             problems.extend(f"{p.name}[{sh.name}] {msg}" for msg in _audit_sheet(wb, sh))
     if problems:
+        limit = len(problems) if ctx.spec.get("_verbose") else 8
         return Result(
             False,
             "tables_threeline",
-            f"{len(problems)} defect(s): " + "; ".join(problems[:8]),
+            f"{len(problems)} defect(s): " + "; ".join(problems[:limit]),
             [
                 "Build tables with tools/tables/threeline.py, which enforces the rules automatically.",
                 "Three-line = rule above header, rule below header, rule below last data row. Nothing else.",
@@ -507,8 +528,20 @@ def _audit_sheet(wb: xlsxlite.Workbook, sh: xlsxlite.Sheet) -> list[str]:
 @check("figures_match_plan")
 def figures_match_plan(ctx: Ctx) -> Result:
     plan = _plan(ctx)
+    only_filter = str(ctx.spec.get("_only") or "").strip().casefold()
+    only_compact = only_filter.replace(" ", "")
     problems = []
     entries = _entries(plan, ("main_figures", "supp_figures"))
+    if only_filter:
+        entries = [
+            e for e in entries
+            if any(
+                only_filter in str(e.get(k, "")).casefold()
+                or only_compact in str(e.get(k, "")).casefold().replace(" ", "")
+                for k in ("id", "file", "slug")
+                if e.get(k)
+            )
+        ]
     for e in entries:
         for key, what in (("file", "preview"), ("script", "plot script")):
             v = e.get(key)
@@ -518,7 +551,8 @@ def figures_match_plan(ctx: Ctx) -> Result:
         if not master or not ctx.p(master).is_file():
             problems.append(f"{e.get('id')}: vector PDF (or existing TIFF) master missing")
     if problems:
-        return Result(False, "figures_match_plan", "; ".join(problems[:8]))
+        limit = len(problems) if ctx.spec.get("_verbose") else 8
+        return Result(False, "figures_match_plan", "; ".join(problems[:limit]))
     return Result(True, "figures_match_plan", f"{len(entries)} figure(s) rendered with print masters")
 
 
@@ -537,8 +571,21 @@ def figures_qc_pass(ctx: Ctx) -> Result:
         return Result(False, "figures_qc_pass", f"{QC} invalid JSON: {exc}")
     figs = {str(f.get("id")): f for f in rep.get("figures", [])}
     plan = _plan(ctx)
+    only_filter = str(ctx.spec.get("_only") or "").strip().casefold()
+    only_compact = only_filter.replace(" ", "")
+    entries = _entries(plan, ("main_figures", "supp_figures"))
+    if only_filter:
+        entries = [
+            e for e in entries
+            if any(
+                only_filter in str(e.get(k, "")).casefold()
+                or only_compact in str(e.get(k, "")).casefold().replace(" ", "")
+                for k in ("id", "file", "slug")
+                if e.get(k)
+            )
+        ]
     problems = []
-    for e in _entries(plan, ("main_figures", "supp_figures")):
+    for e in entries:
         eid = str(e.get("id"))
         from ..figurejobs import marker
         if marker(ctx.project,eid).exists():
@@ -572,10 +619,11 @@ def figures_qc_pass(ctx: Ctx) -> Result:
             if actual.get("engine") != "R" or not actual["ok"]:
                 problems.append(f"{eid}: current R output/source QC failed")
     if problems:
+        limit = len(problems) if ctx.spec.get("_verbose") else 8
         return Result(
             False,
             "figures_qc_pass",
-            "; ".join(problems[:8]),
+            "; ".join(problems[:limit]),
             [
                 "Fix the plotting code, re-render, re-run QC, then open the PNG and look at it.",
                 "Set visual_reviewed only after the rendered PNG was actually inspected.",

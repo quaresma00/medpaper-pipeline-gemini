@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 
@@ -77,9 +78,14 @@ def closure(project: Path, changed: list[str], *, change_type: str = "scientific
     link("01_protocol/artifact_plan.json", "01_protocol/display_review.json")
     table_manifest = read("04_tables/manifest.json")
     for entry in table_manifest.get("tables", []):
-        for source in [*entry.get("source_results", []), entry.get("script"),
-                       entry.get("built_by", table_manifest.get("built_by"))]:
+        builders = [entry["script"]] if entry.get("script") else [entry.get("built_by", table_manifest.get("built_by"))]
+        for source in [*entry.get("source_results", []), *builders]:
             link(source, entry.get("file"))
+        if entry.get("file"):
+            link(entry.get("file"), "04_tables/qc/table_qc_report.json")
+            tid = re.sub(r"[^A-Za-z0-9]+", "_", str(entry.get("id") or Path(entry["file"]).stem).strip()).strip("_")
+            if tid:
+                link(entry.get("file"), f"04_tables/previews/{tid}.png")
     producer_scripts = set()
     for path in results:
         rel = path.relative_to(project).as_posix()

@@ -43,7 +43,7 @@ ROUTES = {
 }
 
 ROUND_SCHEMA = 2
-REVIEW_STAGES = {"S19_human_review", "S24_package_human_review", "S25_submission_audit"}
+REVIEW_STAGES = {"S11b_prewrite_review", "S19_human_review", "S24_package_human_review", "S25_submission_audit"}
 
 # Only decisions whose evidence can be changed by the requested kind are invalidated in a
 # batch revision. Owner stages supply rules without resetting the stage tail.
@@ -258,7 +258,7 @@ def _cmd_batch(args, project: Path, pipe, state: State, kinds: list[str]) -> int
         review_stage = revision["review_stage"]
     else:
         if state.current not in REVIEW_STAGES:
-            raise ValueError("a new revision round can start only while the user is reviewing at S19 or S24")
+            raise ValueError("a new revision round can start only while reviewing at S11b, S19, or S24")
         review_stage = state.current
         round_id = _next_round_id(state)
         round_path = _round_path(state, round_id)
@@ -349,10 +349,24 @@ def _seal_round(state: State, pipe, why: str, confirm_scientific_route: bool = F
     revision.update({"status": "active", "sealed_at": _now(), "seal_instruction": why})
     _write_round(round_path, revision)
     review_stage = revision["review_stage"]
+    rebuild_set = set(revision.get("rebuild_files", []))
     invalidations: set[str] = set()
     for item in revision["items"]:
         if revision["presentation_candidate"]:
             continue  # Active batch blocks advance; actual content classification decides, not the label.
+        if review_stage == "S11b_prewrite_review":
+            invalidations.add("prewrite_review_approved")
+            if item["kind"] in {"study-design", "data", "analysis", "final-protocol"}:
+                invalidations.update({"analysis_converged", "go_nogo_2"})
+            if any(r.startswith("04_tables/") for r in rebuild_set) and item["kind"] in {
+                "study-design", "data", "analysis", "artifact-plan-or-legend", "tables", "table-layout",
+            }:
+                invalidations.add("tables_visually_confirmed")
+            if any(r.startswith("05_figures/") for r in rebuild_set) and item["kind"] in {
+                "study-design", "data", "analysis", "artifact-plan-or-legend", "figures", "figure-layout",
+            }:
+                invalidations.add("figures_visually_confirmed")
+            continue
         names = set(INVALIDATE_BY_KIND[item["kind"]])
         if item["change_type"] != "scientific":
             names.discard("independent_publishability")

@@ -69,11 +69,13 @@ def _norm(v) -> str:
     return repr(round(f, 10))
 
 
-def _pool(ctx: Ctx) -> tuple[set[float], set[str], list[str]]:
-    """-> (float pool, raw-string pool, source file names)"""
+def results_pool(project) -> tuple[set[float], set[str], list[str]]:
+    """-> (float pool, raw-string pool, source file names) for 03_analysis/results/*.json."""
     strings: set[str] = set()
     sources: list[str] = []
-    for p in ctx.glob(RESULTS_GLOB):
+    for p in sorted((project / "03_analysis" / "results").glob("*.json")):
+        if not p.is_file():
+            continue
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -89,9 +91,13 @@ def _pool(ctx: Ctx) -> tuple[set[float], set[str], list[str]]:
     return floats, strings, sources
 
 
-def _allowlist(ctx: Ctx) -> set[str]:
+def _pool(ctx: Ctx) -> tuple[set[float], set[str], list[str]]:
+    return results_pool(ctx.project)
+
+
+def load_allowlist(project) -> set[str]:
     allowed = set(CONVENTIONS)
-    p = ctx.p(ALLOWLIST)
+    p = project / ALLOWLIST
     if p.exists():
         for line in p.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -102,12 +108,16 @@ def _allowlist(ctx: Ctx) -> set[str]:
                 continue  # old free-number allowlists cannot authorize invented evidence
             from ..packagefreeze import _safe_path
             try:
-                _, source = _safe_path(ctx.project, columns[2])
+                _, source = _safe_path(project, columns[2])
                 if source.is_file() and columns[0] in source.read_text(encoding="utf-8"):
                     allowed.add(columns[0])
             except (OSError, ValueError):
                 pass
     return allowed
+
+
+def _allowlist(ctx: Ctx) -> set[str]:
+    return load_allowlist(ctx.project)
 
 
 def _matches(token: str, floats: set[float], strings: set[str]) -> bool:
@@ -131,7 +141,7 @@ def _matches(token: str, floats: set[float], strings: set[str]) -> bool:
     return False
 
 
-def _scrub(text: str) -> str:
+def _scrub(text: str, *, table_non_result: bool = False) -> str:
     text = normalize_grouping(text)
     from ..displayrefs import scrub
     text = scrub(text)
@@ -142,12 +152,46 @@ def _scrub(text: str) -> str:
     text = re.sub(r"^\s*#{1,6}\s.*$", " ", text, flags=re.M)
     text = re.sub(r"(?<![\d.])(?:80|85|90|95|97\.5|98|99)%\s*(?:CI|confidence\s+intervals?)\b", "CI", text, flags=re.I)
     text = re.sub(r"\b(19|20)\d{2}\s*[-\u2013]\s*(19|20)?\d{2}\b", " ", text)  # not scrubbed values
+    # Universal biomedical versioning, formal classification/registry codes, and hyphenated attributive windows.
+    text = re.sub(r"\b(?:version|ver\.?|v)\s*\d+(?:\.\d+)+\b", " ", text, flags=re.I)
+    text = re.sub(r"\b(?:ICD-(?:9|10|11)(?:-[A-Z0-9.]+)?|NCT\d{6,})\b", " ", text, flags=re.I)
+    text = re.sub(r"\b(?:PT|SMQ|HLT|HLGT|SOC|ATC|CPT|LOINC|SNOMED|Code|ID|Term)\s*[:#\- ]?\s*\d{4,}\b", " ", text, flags=re.I)
+    text = re.sub(
+        r"\b\d+(?:\.\d+)?-(?:day|week|month|year|yr|mo|wk|hour|hr|minute|min|"
+        r"fold|item|point|arm|group|stage|step|phase|level|tier|quartile|"
+        r"tertile|quintile|decile|center|centre|site|agent|drug|class|stratum|strata)s?\b",
+        " ",
+        text,
+        flags=re.I,
+    )
+    if table_non_result:
+        # Structural clinical category definitions (age brackets, time windows, model numbers) in
+        # table titles, headers, column-A row stubs, and footnotes only — NEVER in body data cells.
+        text = re.sub(
+            r"(?:<=|>=|<|>|≤|≥)\s*\d+\s*(?:years?|yrs?|yr|y|months?|mos?|mo|weeks?|wks?|wk|days?|d|hours?|hrs?|hr)?\b",
+            " ",
+            text,
+            flags=re.I,
+        )
+        text = re.sub(
+            r"\b\d+\s*[-\u2013~to]+\s*\d+\s*(?:years?|yrs?|yr|y|months?|mos?|mo|weeks?|wks?|wk|days?|d|hours?|hrs?|hr)\b",
+            " ",
+            text,
+            flags=re.I,
+        )
+        text = re.sub(
+            r"\bModels?\s+[1-9]\d*[A-Za-z]?(?:\s*[-\u2013,and]+\s*[1-9]?\d*[A-Za-z]?)*\b",
+            " ",
+            text,
+            flags=re.I,
+        )
+        text = re.sub(r"\b(?:version|ver\.?|v)\s*\d+\b", " ", text, flags=re.I)
     return text
 
 
-def _offenders(text: str, floats, strings, allowed, p_values=None) -> list[tuple[int, str]]:
+def _offenders(text: str, floats, strings, allowed, p_values=None, *, table_non_result: bool = False) -> list[tuple[int, str]]:
     bad: list[tuple[int, str]] = []
-    for lineno, raw in enumerate(_scrub(text).splitlines(), start=1):
+    for lineno, raw in enumerate(_scrub(text, table_non_result=table_non_result).splitlines(), start=1):
         def pvalue(match):
             op, token = match.groups()
             threshold = float(token)
@@ -198,36 +242,67 @@ def numbers_have_provenance(ctx: Ctx) -> Result:
             f"no result files under {RESULTS_GLOB}",
             ["Analysis code must dump every reported statistic to JSON before any prose is written."],
         )
-    allowed = _allowlist(ctx) if source not in {"tables", "figures"} and rel.endswith(("methods.md", "supplementary_methods.md")) else set()
+    allowed = _allowlist(ctx) if (source in {"tables", "figures"} or rel.endswith(("methods.md", "supplementary_methods.md"))) else set()
     if source == "tables":
+        only_filter = str(ctx.spec.get("_only") or "").strip().casefold()
+        verbose = bool(ctx.spec.get("_verbose"))
+        table_paths = ctx.glob("04_tables/main/*.xlsx") + ctx.glob("04_tables/supplementary/*.xlsx")
+        if only_filter:
+            only_compact = only_filter.replace(" ", "")
+            filtered = [
+                p for p in table_paths
+                if only_filter in p.stem.casefold()
+                or only_filter in p.relative_to(ctx.project).as_posix().casefold()
+                or only_compact in p.stem.replace(" ", "").casefold()
+            ]
+            table_paths = filtered or [p for p in table_paths if "supplementary" in p.name.casefold()]
         offenders = []
-        for p in ctx.glob("04_tables/main/*.xlsx") + ctx.glob("04_tables/supplementary/*.xlsx"):
+        for p in table_paths:
             try:
                 cells = xlsxlite.numeric_cell_values(p)
+                xls_wb = xlsxlite.Workbook(p)
             except PermissionError as exc:
                 return Result(False, "numbers_have_provenance", f"Workbook IO pending: {p.name}: {exc}",
                               ["Close or finish saving this workbook in Excel, then rerun the check; do not regenerate data or mark provenance passed."])
             except Exception as exc:  # noqa: BLE001 - report, do not crash the gate
                 return Result(False, "numbers_have_provenance", f"cannot read {p.name}: {exc}")
+            sheet_zones: dict[str, tuple[int, int]] = {}
+            for sh in xls_wb.sheets:
+                hdrs, last_body = xls_wb.header_rows(sh)
+                sheet_zones[sh.name] = (max(hdrs) if hdrs else 2, last_body)
             for sheet, ref, val in cells:
+                if only_filter:
+                    only_compact = only_filter.replace(" ", "")
+                    if (
+                        only_filter not in p.stem.casefold()
+                        and only_filter not in sheet.casefold()
+                        and only_compact not in sheet.replace(" ", "").casefold()
+                    ):
+                        continue
                 from ..claims import table_unit_constants
                 try:
                     constants = table_unit_constants(ctx.project, p, sheet, ref, val)
                 except (OSError, ValueError, KeyError, TypeError, StopIteration) as exc:
                     return Result(False, "numbers_have_provenance", f"{p.name}[{sheet}]!{ref}: {exc}")
-                if _offenders(str(val), floats, strings, allowed | constants):
+                pos = xlsxlite.parse_cell_ref(ref)
+                hdr_end, last_body = sheet_zones.get(sheet, (2, 10**9))
+                is_result_body = bool(pos is not None and (hdr_end < pos[0] <= last_body) and pos[1] > 1)
+                non_result = not is_result_body
+                cell_allowed = constants if is_result_body else (allowed | constants)
+                if _offenders(str(val), floats, strings, cell_allowed, table_non_result=non_result):
                     offenders.append(f"{p.name}[{sheet}]!{ref}={val}")
         from ..claims import validate_tables
-        offenders.extend(validate_tables(ctx.project, ctx.glob("04_tables/main/*.xlsx") + ctx.glob("04_tables/supplementary/*.xlsx")))
+        offenders.extend(validate_tables(ctx.project, table_paths, only=ctx.spec.get("_only")))
         if offenders:
             uniq = sorted(set(offenders))
+            limit = len(uniq) if verbose else 8
             return Result(
                 False,
                 "numbers_have_provenance",
-                f"{len(uniq)} table value(s) not traceable to results JSON: " + "; ".join(uniq[:8]),
+                f"{len(uniq)} table value(s) not traceable to results JSON: " + "; ".join(uniq[:limit]),
                 [
-                    "Tables must be generated from 03_analysis/results/*.json, not retyped.",
-                    f"If a value is a legitimate constant, add it to {ALLOWLIST} with a reason.",
+                    "Result-body cells must come directly from 03_analysis/results/*.json (via claim_bindings.json).",
+                    f"Only documented protocol/code constants in table titles, headers, col-A stubs, or footnotes may use {ALLOWLIST} (token \\t constant \\t source_path \\t reason).",
                 ],
             )
         return Result(True, "numbers_have_provenance", f"all table values trace to {len(sources)} result file(s)")
@@ -237,12 +312,13 @@ def numbers_have_provenance(ctx: Ctx) -> Result:
         journal = ctx.stage.id in {"S23_package", "S24_package_human_review", "S25_submission_audit"} and (
             ctx.project / "08_submission/integration/artifact_plan.json"
         ).is_file()
-        problems = validate_figures(ctx.project, journal=journal)
+        problems = validate_figures(ctx.project, journal=journal, only=ctx.spec.get("_only"))
         if problems:
+            limit = len(problems) if ctx.spec.get("_verbose") else 6
             return Result(
                 False,
                 "numbers_have_provenance",
-                f"{len(problems)} figure statistical annotation issue(s): " + "; ".join(problems[:6]),
+                f"{len(problems)} figure statistical annotation issue(s): " + "; ".join(problems[:limit]),
                 [
                     "Bind every explicit statistical label on rendered figures in claim_bindings.json figure_annotations.",
                     "Map each displayed number (estimate, CI bounds, P, n, AUC) to its executed result JSON pointer and field.",

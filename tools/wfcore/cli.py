@@ -311,14 +311,25 @@ def cmd_check(args) -> int:
             print(f"revision check: {exc}")
             return 2
     stage = pipe.resolve(args.stage) if args.stage else pipe.stage(st.current)
-    results = gates.run_stage(pipe, st, proj, stage, reuse=True, record=True)
+    only = getattr(args, "only", None)
+    all_checks = bool(getattr(args, "all_checks", False) or only)
+    verbose = bool(getattr(args, "verbose", False))
+    results = gates.run_stage(
+        pipe, st, proj, stage,
+        reuse=True, record=True,
+        break_on_blocker=not all_checks,
+        only=only,
+        verbose=verbose,
+    )
     ok, blocking, warned = gates.summarize(results)
-    st.data["last_check"] = {"stage": stage.id, "ok": ok,
-                             "failures": [f"{r.check}: {r.detail}" for r in results if not r.ok]}
-    st.save()
+    if not only:
+        st.data["last_check"] = {"stage": stage.id, "ok": ok,
+                                 "failures": [f"{r.check}: {r.detail}" for r in results if not r.ok]}
+        st.save()
     if args.json:
         print(json.dumps({
             "stage": stage.id, "gate_ok": ok, "blocking": blocking, "warnings": warned,
+            "partial_only": only,
             "results": [{"check": r.check, "ok": r.ok, "label": r.label,
                          "detail": r.detail, "hints": r.hints} for r in results],
         }, indent=2, ensure_ascii=False))
@@ -327,10 +338,12 @@ def cmd_check(args) -> int:
         if not (getattr(args, "quiet", False) and ok):
             print(f"{'GREEN' if ok else 'RED'}: {len(results)-blocking}/{len(results)}; failures: " + ", ".join(r.check for r in results if r.blocking))
         return 0 if ok else 2
-    print(f"gate: {stage.id} - {stage.title}")
+    print(f"gate: {stage.id} - {stage.title}" + (f" [only: {only}]" if only else ""))
     print(DASH)
     _gate_lines(results if getattr(args, "full", False) else [r for r in results if not r.ok])
     print(DASH)
+    if not ok and any(r.check == "dependent_checks_pending" for r in results) and not all_checks:
+        print("tip: pass `--all-checks` (and optionally `--only \"Table 1\" --verbose`) to evaluate all remaining checks in one pass.")
     if ok:
         print(f"GREEN ({warned} warning(s))" if warned else "GREEN")
         return 0
@@ -758,6 +771,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--quiet", action="store_true", help="suppress successful check output")
     p.add_argument("--summary", action="store_true", help="print counts and failed check names only")
     p.add_argument("--full", action="store_true", help="include passing checks")
+    p.add_argument("--all-checks", action="store_true", help="run all checks in stage without early cascade stop")
+    p.add_argument("--only", help="focus display/table/figure checks on one item (e.g. 'Table 1', 'Figure 2')")
+    p.add_argument("--verbose", "-v", action="store_true", help="show full diagnostic items instead of truncating")
     p.add_argument("stage", nargs="?")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_check)

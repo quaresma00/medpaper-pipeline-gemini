@@ -79,10 +79,17 @@ def audit_svg(path, metadata):
     bars = [l for l in layers if l.get("geom") in {"GeomBar", "GeomCol"}]
     bar_zero = all(p.get("bar_baseline_zero") is True if "bar_baseline_zero" in p else
                    all(l.get("ymin")==0 or l.get("xmin")==0 for l in sequence(p.get("layers")) if l.get("geom") in {"GeomBar","GeomCol"}) for p in panels)
-    labels_present = bool(panels) and all(p.get("x_label") and p.get("y_label") for p in panels)
+    non_axis_table_geoms = {"GeomText", "GeomLabel", "GeomHline", "GeomVline", "GeomSegment", "GeomRect"}
+    axis_panels = [
+        p for p in panels
+        if any(l.get("geom") not in non_axis_table_geoms and l.get("rows", 0) > 0 for l in sequence(p.get("layers")))
+    ] or panels
+    labels_present = bool(axis_panels) and all(p.get("x_label") and p.get("y_label") for p in axis_panels)
     null = any(v in (0, 1) for l in layers if l.get("geom") == "GeomVline" for v in sequence(l.get("xintercept")))
     diagonal = any(1 in sequence(l.get("slope")) and 0 in sequence(l.get("intercept")) for l in layers if l.get("geom") == "GeomAbline")
     ranges = [r for p in panels for r in sequence(p.get("ranges"))]
+    data_clipped = [item for p in panels for item in sequence(p.get("clipped_data"))]
+    orphan_legends = sorted({str(k) for p in panels for k in sequence(p.get("orphan_legend")) if str(k).strip()})
     equal = bool(ranges) and all(len(sequence(r.get("x"))) == 2 and len(sequence(r.get("y"))) == 2 and
                 all(abs(x-y) < 1e-8 for x, y in zip(sequence(r["x"]), sequence(r["y"]))) for r in ranges)
     stats = any(re.search(r"\b(?:HR|OR|RR|AUC|n|P|r)\s*(?:[=<>]|\d|\()", t, re.I) for t in texts)
@@ -110,5 +117,6 @@ def audit_svg(path, metadata):
     return {"engine": "R", "schema_version": 1, "min_font_pt": min(fonts) if fonts else None,"max_font_pt":max(fonts) if fonts else None,
             "min_line_pt": min(strokes) if strokes else None, "figure_text": sorted(set(texts)),
             "text_clipped_at_edge": clipped, "r_text_box_collisions": collisions,
+            "data_clipped_at_axes": data_clipped, "orphan_legend_keys": orphan_legends,
             "measurement_limits": unsupported + ["Text height/overlap are conservative estimates; PDF font fallback, clipping paths, glyph coverage and complex grid layout require visual inspection."],
             "n_axes": len(ranges), "elements": elements, "runtime": metadata}

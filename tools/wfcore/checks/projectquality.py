@@ -30,9 +30,10 @@ def medical_display_story(ctx):
 def medical_display_production(ctx):
     from ..displayquality import production_problems
     try:
-        problems=production_problems(ctx.project,ctx.spec["kind"])
+        problems=production_problems(ctx.project,ctx.spec["kind"],only=ctx.spec.get("_only"))
     except (OSError,ValueError,KeyError,TypeError) as exc: problems=[str(exc)]
-    return Result(not problems,"medical_display_production","; ".join(problems[:8]) or "Actual production renders bound to medical reading; structural checks do not certify scientific understanding")
+    limit = len(problems) if ctx.spec.get("_verbose") else 8
+    return Result(not problems,"medical_display_production","; ".join(problems[:limit]) or "Actual production renders bound to medical reading; structural checks do not certify scientific understanding")
 
 @check("research_context_known")
 def research_context_known(ctx):
@@ -167,9 +168,10 @@ def display_labels_clinical(ctx: Ctx) -> Result:
     from ..displaylabels import collect_project_issues
     layer = "journal" if ctx.stage.id.startswith(("S20_", "S21_", "S22_", "S23_", "S24_", "S25_")) else "science"
     final = bool(ctx.spec.get("final")) or ctx.stage.id in {"S23_package", "S24_package_human_review", "S25_submission_audit"}
-    issues = collect_project_issues(ctx.project, kind=kind, layer=layer, final=final)
+    issues = collect_project_issues(ctx.project, kind=kind, layer=layer, final=final, only=ctx.spec.get("_only"))
     if issues:
-        summary = "; ".join(f"{iss["path"]} {iss["locator"]}: {iss["message"]}" for iss in issues[:6])
+        limit = len(issues) if ctx.spec.get("_verbose") else 6
+        summary = "; ".join(f"{iss["path"]} {iss["locator"]}: {iss["message"]}" for iss in issues[:limit])
         return Result(
             False,
             "display_labels_clinical",

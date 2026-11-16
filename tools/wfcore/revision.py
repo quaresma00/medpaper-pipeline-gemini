@@ -14,9 +14,9 @@ SCIENTIFIC_KINDS = {"study-design", "data", "analysis", "final-protocol"}
 LIFECYCLE_CHECKS = {
     "no_future_artifacts", "single_section_written", "temp_clean", "revision_rounds_closed",
     "manuscript_review_package_current", "s19_review_release_explicit", "review_round_approved", "scientific_master_frozen",
-    "bundle_matches_freeze", "submission_audit_matches_freeze",
+    "bundle_matches_freeze", "submission_audit_matches_freeze", "prewrite_review_verified",
 }
-REVIEW_OUTPUTS = {"07_manuscript/human_review.md", "07_manuscript/scientific_master_freeze.json",
+REVIEW_OUTPUTS = {"04_displays/prewrite_review.md", "07_manuscript/human_review.md", "07_manuscript/scientific_master_freeze.json",
                   "08_submission/package_human_review.md", "08_submission/package_review_freeze.json"}
 
 
@@ -185,21 +185,25 @@ def plan_scope(project: Path, pipeline, revision: dict) -> None:
         stages.add("S23_package")
     if set(rebuild) & {"08_submission/integration/full_manuscript.md", "08_submission/integration/supplementary_methods.md"}:
         stages.add("S22_polish")
+    review_stage = revision["review_stage"]
+    review_index = pipeline.stage(review_stage).index
     for stage in pipeline.stages:
-        if stage.id in {"S18_independent_review", "S19_human_review", "S24_package_human_review", "S25_submission_audit"}:
+        if stage.id in {"S11b_prewrite_review", "S18_independent_review", "S19_human_review", "S24_package_human_review", "S25_submission_audit"}:
+            continue
+        if stage.index > review_index:
             continue
         if set(stage.outputs) & rebuild:
             stages.add(stage.id)
-    if any(r.startswith("07_manuscript/") for r in rebuild):
+    if review_stage != "S11b_prewrite_review" and any(r.startswith("07_manuscript/") for r in rebuild):
         stages.add("S17_assemble")
     substantive = any(i["change_type"] == "scientific" for i in revision["items"])
     scientific_inputs = substantive or any(r.startswith(("02_data/", "03_analysis/")) or r in {
         "01_protocol/protocol_v1.md", "01_protocol/protocol_final.md", "01_protocol/analysis_contract.json"} for r in sources)
-    if substantive and revision["review_stage"] == "S19_human_review":
+    if substantive and review_stage == "S19_human_review":
         stages.add("S18_independent_review")
         if any(r.startswith(("04_tables/", "05_figures/", "03_analysis/results/")) for r in rebuild):
             stages.add("S12_reconcile")
-    stages.discard(revision["review_stage"])
+    stages.discard(review_stage)
     stages.update(revision.get("extra_validation_stages", []))
     # A copyedit owned by S19 still uses content checks, not S19's approval lifecycle.
     checks = []
@@ -207,7 +211,7 @@ def plan_scope(project: Path, pipeline, revision: dict) -> None:
         for spec in pipeline.stage(sid).gate:
             if spec["check"] in LIFECYCLE_CHECKS:
                 continue
-            if spec["check"] == "journal_workspace_ready" and revision["review_stage"] == "S19_human_review":
+            if spec["check"] == "journal_workspace_ready" and review_stage in {"S11b_prewrite_review", "S19_human_review"}:
                 continue
             # Pristine means a first journal copy, not a revised integration layer.
             if spec["check"] == "journal_workspace_ready":
@@ -219,7 +223,11 @@ def plan_scope(project: Path, pipeline, revision: dict) -> None:
             checks.append({"stage": sid, "spec": spec})
     consistency = ("manuscript_structure", "assembly_matches_sources", "supplementary_methods_clean",
                    "citekeys_resolve", "numbers_have_provenance", "artifact_refs_consistent", "executor_acceptance")
-    if revision["review_stage"] == "S19_human_review":
+    if review_stage == "S11b_prewrite_review":
+        for spec in pipeline.stage("S11b_prewrite_review").gate:
+            if spec["check"] not in LIFECYCLE_CHECKS | {"outputs_exist", "decision_recorded"}:
+                checks.append({"stage": "S11b_prewrite_review", "spec": spec})
+    elif review_stage == "S19_human_review":
         for spec in pipeline.stage("S19_human_review").gate:
             if spec["check"] in consistency:
                 checks.append({"stage": "S19_human_review", "spec": spec})
@@ -251,6 +259,8 @@ def plan_scope(project: Path, pipeline, revision: dict) -> None:
         controls.add("08_submission/journal_context.json")
     if "S05_analysis" in stages:
         controls.update({"03_analysis/analysis_log.md", "03_analysis/notes.md", "03_analysis/method_scan.md"})
+    if "S10_tables" in stages:
+        controls.update({"04_tables/manifest.json", "04_tables/qc/table_qc_report.json"})
     if "S12_reconcile" in stages:
         controls.add("07_manuscript/reconciliation.md")
     if "S22_polish" in stages:

@@ -90,9 +90,35 @@ def _autowidth(header: list, rows: list, explicit: list | None) -> list[float]:
         return list(explicit)
     widths = []
     for i, head in enumerate(header):
-        longest = max([len(str(head))] + [len(str(r[i])) for r in rows] or [0])
-        widths.append(min(48.0, max(10.0, longest * 1.15 + 2)))
+        candidates = [str(head)] + [str(r[i]) if r[i] is not None else "" for r in rows]
+        longest_line = max(
+            (len(part) for raw in candidates for part in (raw.splitlines() or [""])),
+            default=0,
+        )
+        col_min = 14.0 if i == 0 else 11.0
+        col_max = 44.0 if i == 0 else 32.0
+        widths.append(min(col_max, max(col_min, longest_line * 1.15 + 3.5)))
     return widths
+
+
+def _configure_page_setup(ws, col_widths: list[float], ncol: int) -> None:
+    """Configure publication print defaults: fit width to 1 page, repeat header on page breaks."""
+    total_width = sum(col_widths)
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.paperSize = ws.PAPERSIZE_LETTER
+    ws.page_setup.orientation = (
+        ws.ORIENTATION_LANDSCAPE if (total_width > 95.0 or (ncol >= 6 and total_width > 78.0))
+        else ws.ORIENTATION_PORTRAIT
+    )
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.page_margins.left = 0.45
+    ws.page_margins.right = 0.45
+    ws.page_margins.top = 0.55
+    ws.page_margins.bottom = 0.55
+    ws.page_margins.header = 0.25
+    ws.page_margins.footer = 0.25
+    ws.print_title_rows = "1:2"
 
 
 def _write_sheet(ws, spec: dict) -> None:
@@ -123,7 +149,7 @@ def _write_sheet(ws, spec: dict) -> None:
         for c, value in enumerate(row, 1):
             cell = ws.cell(row=r, column=c, value=value)
             cell.font = Font(name=BASE_FONT, size=BODY_PT)
-            cell.alignment = Alignment(horizontal=align[c - 1], vertical="top", wrap_text=False)
+            cell.alignment = Alignment(horizontal=align[c - 1], vertical="top", wrap_text=True)
         index = r - first_data
         if index in spec.get("group_rows", []):
             ws.cell(r, 1).font = Font(name=BASE_FONT, size=BODY_PT, bold=True)
@@ -144,23 +170,53 @@ def _write_sheet(ws, spec: dict) -> None:
         if ncol > 1:
             ws.merge_cells(f"A{r}:{last_col}{r}")
 
-    for i, w in enumerate(_autowidth(header, rows, spec.get("col_widths")), 1):
+    col_widths = _autowidth(header, rows, spec.get("col_widths"))
+    for i, w in enumerate(col_widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
+    _configure_page_setup(ws, col_widths, ncol)
     ws.sheet_view.showGridLines = False
     ws.freeze_panes = f"A{first_data}"
 
 
 def _fit_merged_notes(ws, spec: dict) -> None:
-    """Excel does not autofit merged cells; reserve height without changing any text."""
-    width = sum(ws.column_dimensions[get_column_letter(i)].width for i in range(1, len(spec["header"]) + 1))
+    """Estimate and set wrapped row heights for title, headers, all data rows, and footnotes."""
+    ncol = len(spec["header"])
+    col_widths = [float(ws.column_dimensions[get_column_letter(i)].width or 12.0) for i in range(1, ncol + 1)]
+    total_width = sum(col_widths)
+
+    def _wrapped_lines(txt: object, capacity: int) -> int:
+        s = "" if txt is None else str(txt)
+        if not s.strip():
+            return 1
+        return sum(max(1, len(textwrap.wrap(part, width=max(6, capacity), break_long_words=False))) for part in s.split("\n"))
+
+    # Row 1 (title) and Footnote rows
     for row, size in [(1, TITLE_PT)] + [(3 + len(spec["rows"]) + i, FOOT_PT) for i in range(len(spec["footnotes"]))]:
-        capacity = max(8, int(width * BODY_PT / size * .80))
-        lines = sum(max(1, len(textwrap.wrap(part, width=capacity))) for part in str(ws.cell(row, 1).value).split("\n"))
-        height = max(15, lines * (size + 4) + 4)
+        capacity = max(8, int(total_width * BODY_PT / size * 0.80))
+        lines = _wrapped_lines(ws.cell(row, 1).value, capacity)
+        height = max(16.0, lines * (size + 4.5) + 4.0)
         if height > 409:
             import warnings
             warnings.warn(f"'{spec['sheet']}': title/note retained in full but may exceed Excel's row height; inspect the actual render and reorganize before visual acceptance")
-        ws.row_dimensions[row].height = min(409, height)
+        ws.row_dimensions[row].height = min(409.0, height)
+
+    # Row 2 (header)
+    hdr_lines = max(
+        _wrapped_lines(ws.cell(2, c).value, max(6, int((col_widths[c - 1] - 1.5) * 0.85)))
+        for c in range(1, ncol + 1)
+    )
+    ws.row_dimensions[2].height = min(409.0, max(18.0, hdr_lines * (BODY_PT + 4.5) + 5.0))
+
+    # Data rows 3..last_data
+    indent_set = set(spec.get("indent_rows", []))
+    for idx in range(len(spec["rows"])):
+        r = 3 + idx
+        row_lines = 1
+        for c in range(1, ncol + 1):
+            pad = 3.5 if (c == 1 and idx in indent_set) else 1.5
+            cap = max(6, int((col_widths[c - 1] - pad) * 0.85))
+            row_lines = max(row_lines, _wrapped_lines(ws.cell(r, c).value, cap))
+        ws.row_dimensions[r].height = min(409.0, max(16.0, row_lines * (BODY_PT + 4.2) + 4.0))
 
 
 def write_workbook(path: str | Path, tables: list[dict]) -> Path:

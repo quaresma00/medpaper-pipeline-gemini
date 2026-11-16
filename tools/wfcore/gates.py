@@ -7,11 +7,25 @@ from . import checks
 from .checks import Ctx, Result
 
 
-def run_stage(pipeline, state, project: Path, stage, *, reuse: bool = False, record: bool = False) -> list[Result]:
+def run_stage(
+    pipeline,
+    state,
+    project: Path,
+    stage,
+    *,
+    reuse: bool = False,
+    record: bool = False,
+    break_on_blocker: bool = True,
+    only: str | None = None,
+    verbose: bool = False,
+) -> list[Result]:
     checks.load_all()
     results: list[Result] = []
     from .gatecache import Receipts
-    receipts = Receipts(project, pipeline, state) if reuse or record else None
+    # Focused single-artifact runs bypass cache reads/writes so partial checks never poison stage receipts.
+    effective_reuse = reuse and not only and not verbose
+    effective_record = record and not only and not verbose
+    receipts = Receipts(project, pipeline, state) if (effective_reuse or effective_record) else None
     if state.data.get("active_revision_round"):
         guard = checks.get("feedback_batch_sealed")
         result = guard(Ctx(pipeline, state, project, stage, {}))
@@ -20,6 +34,12 @@ def run_stage(pipeline, state, project: Path, stage, *, reuse: bool = False, rec
     if not stage.gate:
         results.append(Result(True, "-", "stage declares no gate"))
         return results
+    cascade_blockers = {
+        "outputs_exist", "writing_ready", "feedback_batch_sealed", "medical_benchmark", "literature_coverage",
+        "executor_acceptance", "medical_display_story", "medical_display_production",
+        "journal_requirements_current", "display_labels_clinical",
+    }
+    saw_cascade_blocker = False
     for spec in stage.gate:
         name = spec.get("check")
         if name in {"prose_not_lists", "display_numbering_consistent", "journal_profile_valid",
@@ -34,10 +54,15 @@ def run_stage(pipeline, state, project: Path, stage, *, reuse: bool = False, rec
                        [f"Known checks: {', '.join(checks.known())}"])
             )
             continue
-        ctx = Ctx(pipeline=pipeline, state=state, project=project, stage=stage, spec=spec)
+        call_spec = dict(spec)
+        if only:
+            call_spec["_only"] = only
+        if verbose:
+            call_spec["_verbose"] = True
+        ctx = Ctx(pipeline=pipeline, state=state, project=project, stage=stage, spec=call_spec)
         try:
             identity = receipts.identity(stage, spec) if receipts else None
-            res = receipts.get(identity) if receipts and reuse else None
+            res = receipts.get(identity) if receipts and effective_reuse else None
             if res is None:
                 res = fn(ctx)
                 # Pure checks must not change the very inputs they certify.
@@ -48,10 +73,13 @@ def run_stage(pipeline, state, project: Path, stage, *, reuse: bool = False, rec
         if "severity" in spec and not res.ok:
             res.severity = spec["severity"]
         results.append(res)
-        if res.blocking and name in {"outputs_exist", "writing_ready", "feedback_batch_sealed", "medical_benchmark", "literature_coverage", "executor_acceptance",
-                                    "medical_display_story", "medical_display_production", "journal_requirements_current", "display_labels_clinical"}:
-            results.append(Result(False, "dependent_checks_pending", "Required inputs failed; dependent gates were not executed and cannot be forced."))
-            break  # Fix missing inputs before costly dependent checks; never mark them passed.
+        if res.blocking and name in cascade_blockers:
+            if break_on_blocker:
+                results.append(Result(False, "dependent_checks_pending", "Required inputs failed; dependent gates were not executed and cannot be forced."))
+                break  # Fix missing inputs before costly dependent checks; never mark them passed.
+            saw_cascade_blocker = True
+    if not break_on_blocker and saw_cascade_blocker:
+        results.append(Result(False, "dependent_checks_pending", "Upstream prerequisite failed; remaining gates were also evaluated because --all-checks was active (fix all before advance)."))
     if receipts:
         receipts.save()
         state.data["check_reuse"] = {"stage": stage.id, "reused": receipts.reused,
