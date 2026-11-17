@@ -23,15 +23,22 @@ neutral grey + `NE (0/N)` for zero-event heatmap/matrix cells without smoothed p
    new figure entry, plus its .R script, PNG/PDF paths, width, source_results and archetype.
    A Python exception declares renderer="Python" and a substantive renderer_reason.
    No additional routine user approval stop is introduced.
-2. Write one source per figure. Source tools/figures/r_style.R and read declared executed
-   results with medpaper_result(). Centralize theme, font, physical size, palette and panel
-   layout. Use medpaper_theme() and medpaper_save(); pass actual component ggplots in
-   panels=list(p1,p2,...) for composites. Use patchwork/grid instead of repeated pixel nudges.
-   The plot expression is the source of truth; labels and uncertainty come from real results.
-3. Run only the requested figure:
+2. Write one source per figure (promoting and refining any fast R prototype script created in
+   `01_protocol/prototypes/` during S07). Source `tools/figures/r_style.R` and read declared
+   executed results with `medpaper_result()`. Centralize theme, font, physical size, palette and
+   panel layout. Multi-panel letters are independent `A`/`B`/`C` at each component's outer
+   upper-left corner (`medpaper_compose(panels, ncol=N)`), separate from clinical titles/facet
+   strips, with `panel_layout.columns` declared in `artifact_plan.json`. Pass actual component
+   ggplots in `panels=list(p1,p2,...)` to `medpaper_save()`. Use patchwork/grid instead of
+   repeated pixel nudges.
+3. Render and run deterministic QC (batch/incremental or single-figure):
 ```powershell
+uv run python tools/figures/render_r.py --all --changed
+uv run python tools/figures/qc.py --all
+# Single-figure rebuild & focused check:
 uv run python tools/figures/render_r.py --figure "Figure 1"
 uv run python tools/figures/qc.py --figure "Figure 1"
+uv run python tools/wf.py check --all-checks --only "Figure 1"
 ```
    Python in the runner does not draw the plot. R uses explicit objects/physical sizes and
    generates PNG+vector PDF; TIFF is opt-in. Render warnings fail instead of silently
@@ -65,8 +72,7 @@ uv run python tools/figures/qc.py --figure "Figure 1"
 8. Write 05_figures/manifest.json with actual renderer, script, source_results, png/pdf,
    width/size_mm/dpi, R/package versions or the Python exception, and review_rounds.
    SVG/rmeta/artist sidecars are backstage QC, not submission uploads.
-9. Mark visual_reviewed in qc_report.json and record the figures_visually_confirmed decision
-   only after genuine image inspection. Automated QC never supplies this approval.
+9. Bind each production render in `01_protocol/display_review.json.final_reviews` (`reference/project-benchmarking.md`, `reference/medical-reader-presentation.md`; use `uv run python tools/manuscript/readiness.py sync-hashes` to sync objective hashes — drifted files reset to `PENDING_REINSPECTION`), mark `visual_reviewed: true` in `05_figures/qc/qc_report.json`, and record `figures_visually_confirmed` ONLY after genuine image inspection. Automated QC never supplies this approval.
 10. Clear task scratch. Journal-specific adaptations after S19 use integration copies and
     preserve the accepted scientific script/output.
 
@@ -93,37 +99,4 @@ No gratuitous 3-D/gridlines or unplanned figures. Missing inspection is pending,
 uv run python tools/wf.py check
 uv run python tools/wf.py advance --note "Declared R/Python outputs rendered; measured QC and actual visual review completed; unresolved items stated."
 ```
-
-
-## Medical-reader presentation
-
-Read `reference/medical-reader-presentation.md`: check actual clinical labels, counting units,
-denominators, statistical marks and state distinctions, table footnotes and figure decoding.
-Retain necessary methods; do not imply prespecification or change counts by renaming units.
-Use the existing acceptance/review, not an additional audit. At S23 verify actual rendered
-Word pages and journal-directed legend/figure placement; don't reintroduce forbidden controls.
-
-## Structural quality and bounded rework
-
-Read `reference/structural-quality.md`. Use clinical display names and physical-size assumptions
-before production. Percentage claims bind numerator, denominator and source percentage basis.
-Every actionable point in every review section needs a stable ID and disposition, not only
-the must-fix subset. Review neutral actual artifacts; don't prime with the writer's conclusion.
-Use read-only rework preview and actual scoped checks; never infer scientific change from a
-publication label number or silently invalidate author approval. Existing privacy, freezes,
-centralized abbreviations, Word cleanup and final actual-page inspection remain in force.
-
-
-
-# v1.22 independent panel tags and production reading
-
-R rendering is mandatory for new statistical figures unless an actual approved exception
-applies; R alone does not certify medical layout. Multi-panel letters are independent A/B/C
-at each component's outer upper-left corner, separate from clinical titles/facet strips.
-Use `medpaper_compose(panels,ncol=N)` and save the actual `panels` list with `medpaper_save`.
-Declare `panel_layout.columns` (and true bounds for irregular grids) in the plan. Inspect
-the actual PNG/PDF at planned physical size: unit, denominator, interval/statistical columns,
-clinical group labels and whitespace together. Use existing `display_review.json.final_reviews`
-to bind the actual production render, following `reference/project-benchmarking.md`.
-The SVG tag gate and typography checks support, and do not replace, this medical reading.
 

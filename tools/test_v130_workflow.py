@@ -803,6 +803,192 @@ class TestV130Workflow(unittest.TestCase):
         orphan_checks = {c["name"]: c for c in qc_orphan["checks"]}
         self.assertFalse(orphan_checks["no_orphan_legend_keys"]["ok"], qc_orphan["checks"])
 
+    def test_12_s11b_upstream_gates_table_previews_and_polish_diagnostics(self) -> None:
+        _progress("12/13 Checking S11b upstream gate coverage, table preview review visibility, and line-level polish diagnostics...")
+        import subprocess
+        from wfcore import gates, readiness, reviewrounds
+
+        s11b = self.pipe.stage("S11b_prewrite_review")
+        self.assertTrue(s11b.needs_user)
+        gate_names = [g["check"] for g in s11b.gate]
+        for req in ("writing_ready", "revision_rounds_closed", "tables_match_plan", "tables_threeline",
+                    "figures_match_plan", "figures_qc_pass", "numbers_have_provenance",
+                    "medical_display_production", "decision_recorded", "prewrite_review_verified"):
+            self.assertIn(req, gate_names)
+
+        # Active S11b must enforce upstream visual decisions and writing_ready
+        (self.project / "04_displays/prewrite_review.md").write_text("# Prewrite review\n", encoding="utf-8")
+        res_active = gates.run_stage(self.pipe, self.state, self.project, s11b, break_on_blocker=False)
+        failed_active = {r.check for r in res_active if not r.ok}
+        self.assertIn("writing_ready", failed_active)
+        self.assertIn("decision_recorded", failed_active)
+
+        # Pinned historical completed stage (1.30.0) skips 1.31.0 added checks cleanly
+        self.state.data["engine_pin"] = "1.30.0"
+        self.state.stage_info("S11b_prewrite_review")["status"] = "done"
+        self.state.save()
+        res_pinned = gates.run_stage(self.pipe, self.state, self.project, s11b, break_on_blocker=False)
+        by_msg = [r for r in res_pinned if "not retroactive" in r.detail]
+        self.assertGreaterEqual(len(by_msg), 8)
+        self.state.data["engine_pin"] = str(self.pipe.meta["version"])
+        self.state.stage_info("S11b_prewrite_review")["status"] = "active"
+        self.state.save()
+
+        # Table preview PNGs are exposed to both prewrite (S11b) and manuscript (S18) independent subagents
+        (self.project / "01_protocol/artifact_plan.json").write_text(json.dumps({
+            "main_tables": [{"id": "Table 1", "sheet": "Table 1", "file": "04_tables/main/Table1.xlsx"}],
+            "main_figures": [],
+        }), encoding="utf-8")
+        (self.project / "04_tables/main/Table1.xlsx").write_bytes(b"PK\x03\x04dummy")
+        (self.project / "04_tables/previews").mkdir(parents=True, exist_ok=True)
+        (self.project / "04_tables/previews/Table_1.png").write_bytes(b"\x89PNG\r\n\x1a\ndummy")
+        (self.project / "04_tables/qc").mkdir(parents=True, exist_ok=True)
+        (self.project / "04_tables/qc/table_qc_report.json").write_text('{"tables":[]}\n', encoding="utf-8")
+        (self.project / "07_manuscript/full_manuscript.md").write_text("# Manuscript\n", encoding="utf-8")
+        (self.project / "05_figures/legends.md").write_text("# Figure legends\n", encoding="utf-8")
+        (self.project / "04_tables/table_captions.md").write_text("# Table captions\n", encoding="utf-8")
+
+        pre_in = reviewrounds.inputs(self.project, "prewrite")
+        self.assertIn("04_tables/previews/Table_1.png", pre_in)
+        self.assertIn("04_tables/qc/table_qc_report.json", pre_in)
+        ms_in = readiness.reader_inputs(self.project)
+        self.assertIn("04_tables/previews/Table_1.png", ms_in)
+
+        # Optional supplementary_methods.md polish gate + line-level strict cliche vs legitimate clinical idiom
+        pol_gate = get_check("section_polished")
+        r_opt_absent = pol_gate(self._ctx("S08_methods", {"path": "07_manuscript/supplementary_methods.md", "optional": True, "since": "1.31.0"}))
+        self.assertTrue(r_opt_absent.ok, r_opt_absent.detail)
+
+        supp = self.project / "07_manuscript/supplementary_methods.md"
+        supp.write_text("# Supplementary Methods\n\nEndothelial injury plays a critical role in sepsis, and here we delve into cohort thresholds (n = 66).\n", encoding="utf-8")
+        tool = ROOT / "tools/text/polish.py"
+        subprocess.run([sys.executable, str(tool), "section", "--file", str(supp), "--snapshot"], cwd=self.tmp, check=True, capture_output=True)
+        v_cliche = subprocess.run([sys.executable, str(tool), "section", "--file", str(supp), "--verify"], cwd=self.tmp, capture_output=True, text=True)
+        self.assertNotEqual(v_cliche.returncode, 0)
+        self.assertIn("[L3]", v_cliche.stderr)
+        self.assertIn("delve into", v_cliche.stderr)
+
+        # Replace empty filler 'delve into' while keeping clinical 'plays a critical role' -> must PASS with advisory only
+        supp.write_text("# Supplementary Methods\n\nEndothelial injury plays a critical role in sepsis, and we evaluated cohort thresholds across strata (n = 66).\n", encoding="utf-8")
+        v_clean = subprocess.run([sys.executable, str(tool), "section", "--file", str(supp), "--verify"], cwd=self.tmp, capture_output=True, text=True)
+        self.assertEqual(v_clean.returncode, 0, v_clean.stderr + v_clean.stdout)
+        self.assertIn("advisory wording prompts", v_clean.stdout)
+        self.assertTrue(pol_gate(self._ctx("S08_methods", {"path": "07_manuscript/supplementary_methods.md", "optional": True, "since": "1.31.0"})).ok)
+
+    def test_13_sync_hashes_reinspection_and_incremental_r_render_qc_cache(self) -> None:
+        _progress("13/13 Checking S07 visual figure prototype guard, sync-hashes reinspection reset, and R --changed / QC pixel cache...")
+        import subprocess
+        from wfcore.readiness import sync_display_hashes, verify_displays
+
+        (self.project / "03_analysis/results/primary.json").write_text(json.dumps({
+            "groups": ["Group A", "Group B"],
+            "estimate": [1.35, 0.92],
+            "lower": [1.05, 0.70],
+            "upper": [1.74, 1.21],
+        }), encoding="utf-8")
+        fig_entry = {
+            "id": "Figure 1",
+            "title": "Primary subgroup forest",
+            "content": "Subgroup hazard ratios",
+            "source_results": ["03_analysis/results/primary.json"],
+            "renderer": "R",
+            "script": "05_figures/out/Figure1.R",
+            "file": "05_figures/out/Figure1.png",
+            "pdf": "05_figures/out/Figure1.pdf",
+            "width": "double",
+            "archetype": "forest_plot",
+            "reader_contract": {
+                "question": "Does treatment hazard vary across clinical subgroups?",
+                "population": "Eligible adult ICU admissions",
+                "comparison": "Treatment versus standard care",
+                "measure": "Adjusted hazard ratio (95% CI)",
+                "denominator_and_units": "Patients per subgroup stratum",
+                "interpretation_limit": "Observational associations do not prove causality",
+            },
+        }
+        (self.project / "01_protocol/artifact_plan.json").write_text(json.dumps({
+            "main_figures": [fig_entry],
+            "main_tables": [],
+        }), encoding="utf-8")
+        (self.project / "01_protocol/artifact_benchmark.md").write_text("# Benchmark\n", encoding="utf-8")
+        proto_dir = self.project / "01_protocol/prototypes"
+        proto_dir.mkdir(parents=True, exist_ok=True)
+
+        # Pure Markdown text prototype for a Figure MUST be rejected (visual draft required)
+        (proto_dir / "Figure1.md").write_text("Text description only\n", encoding="utf-8")
+        (self.project / "01_protocol/display_review.json").write_text(json.dumps({
+            "items": [{
+                "id": "Figure 1",
+                "preview": "01_protocol/prototypes/Figure1.md",
+                "reader_explanation": "Clear subgroup forest layout showing point estimates and confidence bounds.",
+                "denominator_units_missingness": "Counts per stratum stated clearly.",
+                "encoding_overlap": "Point and horizontal interval whiskers.",
+                "layout": "Double-column horizontal forest layout.",
+                "reviewer": "AI reader simulation",
+                "verdict": "PASS",
+            }],
+        }), encoding="utf-8")
+        sync_display_hashes(self.project)
+        errs_md = verify_displays(self.project)
+        self.assertTrue(any("cheap prototype" in e for e in errs_md), errs_md)
+
+        # Real visual prototype PNG + sync-hashes passes; modifying prototype downgrades verdict to PENDING_REINSPECTION
+        proto_png = proto_dir / "Figure1.png"
+        proto_png.write_bytes(b"\x89PNG\r\n\x1a\ndraft_v1")
+        rev_doc = json.loads((self.project / "01_protocol/display_review.json").read_text(encoding="utf-8"))
+        rev_doc["items"][0]["preview"] = "01_protocol/prototypes/Figure1.png"
+        rev_doc["items"][0].pop("preview_sha256", None)
+        rev_doc["items"][0]["verdict"] = "PASS"
+        (self.project / "01_protocol/display_review.json").write_text(json.dumps(rev_doc), encoding="utf-8")
+        sync_display_hashes(self.project)
+        self.assertEqual(verify_displays(self.project), [])
+
+        proto_png.write_bytes(b"\x89PNG\r\n\x1a\ndraft_v2_changed")
+        cli_sync = subprocess.run(
+            [sys.executable, str(ROOT / "tools/manuscript/readiness.py"), "sync-hashes", "--project", str(self.project)],
+            cwd=ROOT, check=True, capture_output=True, text=True,
+        )
+        sync_out = json.loads(cli_sync.stdout)
+        self.assertIn("prototype:Figure 1", sync_out["reinspection_needed"])
+        self.assertTrue(verify_displays(self.project), "drifted prototype must block until verdict is re-confirmed as PASS")
+
+        if not shutil.which("Rscript"):
+            self.skipTest("Rscript absent: incremental R render & QC cache test NOT EXECUTED")
+        from figures.render_r import is_up_to_date, render_many
+        from figures import qc as fig_qc
+
+        self.state.data["current"] = "S11_figures"
+        self.state.save()
+        r_code = (
+            'source(file.path(Sys.getenv("MEDPAPER_ROOT"), "tools/figures/r_style.R"))\n'
+            'source(file.path(Sys.getenv("MEDPAPER_ROOT"), "tools/figures/r_recipes.R"))\n'
+            'r <- medpaper_result("03_analysis/results/primary.json")\n'
+            'df <- data.frame(label = unlist(r$groups), estimate = unlist(r$estimate), lower = unlist(r$lower), upper = unlist(r$upper))\n'
+            'res <- medpaper_forest_panels(df, measure = "HR", null = 1, log_scale = TRUE)\n'
+            'medpaper_save(res$plot, "05_figures/out/Figure1", width = "double", height_mm = 70, panels = res$panels)\n'
+        )
+        (self.project / fig_entry["script"]).write_text(r_code, encoding="utf-8")
+        first_batch = render_many(self.project, only_changed=True)
+        self.assertFalse(first_batch[0].get("skipped", False))
+        self.assertTrue(is_up_to_date(self.project, "Figure 1"))
+
+        second_batch = render_many(self.project, only_changed=True)
+        self.assertTrue(second_batch[0].get("skipped", False))
+
+        # Editing script invalidates up-to-date status immediately
+        (self.project / fig_entry["script"]).write_text(r_code + "# comment edit\n", encoding="utf-8")
+        self.assertFalse(is_up_to_date(self.project, "Figure 1"))
+        third_batch = render_many(self.project, only_changed=True)
+        self.assertFalse(third_batch[0].get("skipped", False))
+
+        # QC pixel cache reuses expensive read_png when png_sha256 matches, while still running clinical checks
+        arch = fig_qc.load_archetypes()
+        qc1 = fig_qc.qc_figure(fig_entry, self.pipe.targets, arch, self.project)
+        self.assertTrue(qc1["ok"], qc1["checks"])
+        with mock.patch.object(fig_qc, "read_png", side_effect=AssertionError("read_png should not run on cached unchanged PNG")):
+            qc2 = fig_qc.qc_figure(fig_entry, self.pipe.targets, arch, self.project, cached_prev=qc1)
+        self.assertTrue(qc2["ok"], qc2["checks"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

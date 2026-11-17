@@ -46,6 +46,13 @@ def inputs(project: Path, scope: str, *, protocol_context: bool | None = None) -
                     rel = entry.get("file", "")
                     if rel and (project / rel).is_file():
                         files[rel] = project / rel
+        if (project / "04_tables/previews").is_dir():
+            for p in sorted((project / "04_tables/previews").glob("*.png")):
+                if p.is_file():
+                    files[p.relative_to(project).as_posix()] = p
+        for qc_rel in ("04_tables/qc/table_qc_report.json", "05_figures/qc/qc_report.json"):
+            if (project / qc_rel).is_file():
+                files[qc_rel] = project / qc_rel
         return {rel: _sha256(path) for rel, path in sorted(files.items())}
     if scope == "manuscript":
         if protocol_context is None:

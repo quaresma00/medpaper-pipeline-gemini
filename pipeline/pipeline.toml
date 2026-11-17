@@ -14,7 +14,7 @@
 
 [meta]
 name = "medpaper"
-version = "1.30.0"
+version = "1.31.0"
 schema = 1
 description = "Medical/clinical research pipeline: idea -> feasibility -> data -> analysis -> artifacts -> manuscript -> submission package."
 
@@ -54,11 +54,11 @@ invariants = [
   "No default public registration for database mining, secondary or retrospective institutional studies. A local protocol is not preregistration. Check study-specific registration only for applicable reviews/meta-analyses or actual interventional trials; do not fabricate, backdate or automatically submit a registration.",
   "Do not choose or produce reporting checklists before S20. Prepare only a checklist explicitly required by the selected journal, inside the journal integration/package, and never alter the frozen scientific master merely to satisfy paperwork. Scientific methods, ethics and internal upload-completeness QA remain required.",
   "Never upload patient-level, private or credential data to an external skill, plugin or service without explicit authorization.",
-  "The S23 package is not final until S24 records the user's explicit request for final review and freezes the exact files, then S25 obtains one independent PASS from reader, editor and journal-compliance perspectives. Any post-confirmation change returns to S24.",
+  "The S23 package is not final until S24 records the user's explicit request for final review, freezes the exact files, and obtains one independent PASS from reader, editor and journal-compliance perspectives bound to that freeze. Any post-confirmation change re-audits in place at S24.",
   "A user-requested revision never leaves the workflow. Route it with tools/rework.py to the earliest owning stage, update the source of truth, rebuild only true dependants, and invalidate downstream approvals. Word-only layout edits are allowed at S24 only when the S23 visible-text baseline is unchanged.",
-  "Repeated feedback is handled as a persisted revision round at S19 (scientific manuscript) or S24 (journal package). Interpret the feedback once into atomic items, route the batch to its earliest owner, read and rebuild only affected sources/dependants, preserve unaffected approved evidence, and still run every applicable quality gate. Token or context pressure is never permission to omit an item, shorten the scientific work or skip validation; resume from tools/rework.py status after compaction.",
-  "S19/S24 use version-bound independent read-only subagent review rounds, not review ZIPs. The executor applies safe scoped corrections, reports changed and unadopted findings once, then asks whether another round is needed. Only the exact user statement 我确认这一版, bound to current reviewed files, releases the checkpoint. Optional third-party exports require an explicit request.",
-  "After explicit S19 approval, freeze the journal-independent scientific master. S20-S25 edit only derived integration/package files. Real scientific changes invalidate approval and require scoped correction, a new review round, user confirmation and freeze; never replay unaffected stages.",
+  "Repeated feedback is handled as a persisted revision round at S11b (pre-writing audit), S19 (scientific manuscript) or S24 (journal package). Interpret the feedback once into atomic items, route the batch to its earliest owner, read and rebuild only affected sources/dependants, preserve unaffected approved evidence, and still run every applicable quality gate. Token or context pressure is never permission to omit an item, shorten the scientific work or skip validation; resume from tools/rework.py status after compaction.",
+  "S11b/S19/S24 use version-bound independent read-only subagent review rounds, not review ZIPs. The executor applies safe scoped corrections, reports changed and unadopted findings once, then asks whether another round is needed. Only the exact user statement 我确认这一版, bound to current reviewed files, releases the checkpoint. Optional third-party exports require an explicit request.",
+  "After explicit S19 approval, freeze the journal-independent scientific master. S20-S24 edit only derived integration/package files. Real scientific changes invalidate approval and require scoped correction, a new review round, user confirmation and freeze; never replay unaffected stages.",
   "If you are unsure where you are, run `uv run python tools\\wf.py status`. Never guess the current stage.",
 ]
 
@@ -384,6 +384,7 @@ since = "1.29.0"
 id = "S11b_prewrite_review"
 title = "Pre-writing independent audit of statistical methods, results, and displays for SCIE readiness"
 card = "stages/S11b_prewrite_review.md"
+needs_user = true
 outputs = ["04_displays/prewrite_review.md"]
 freeform = ["04_displays/prewrite_review.md"]
 description = """
@@ -395,6 +396,62 @@ rigor, SCIE Original Article viability (or triggers early NO-GO stop-loss), and 
 [[stage.gate]]
 check = "outputs_exist"
 since = "1.30.0"
+
+[[stage.gate]]
+check = "writing_ready"
+since = "1.31.0"
+
+[[stage.gate]]
+check = "revision_rounds_closed"
+since = "1.31.0"
+
+[[stage.gate]]
+check = "tables_match_plan"
+since = "1.31.0"
+
+[[stage.gate]]
+check = "tables_threeline"
+since = "1.31.0"
+
+[[stage.gate]]
+check = "figures_match_plan"
+since = "1.31.0"
+
+[[stage.gate]]
+check = "figures_qc_pass"
+since = "1.31.0"
+
+[[stage.gate]]
+check = "numbers_have_provenance"
+source = "tables"
+since = "1.31.0"
+
+[[stage.gate]]
+check = "numbers_have_provenance"
+source = "figures"
+since = "1.31.0"
+
+[[stage.gate]]
+check = "medical_display_production"
+kind = "table"
+since = "1.31.0"
+
+[[stage.gate]]
+check = "medical_display_production"
+kind = "figure"
+since = "1.31.0"
+
+[[stage.gate]]
+check = "decision_recorded"
+name = "tables_visually_confirmed"
+allowed = ["YES"]
+since = "1.31.0"
+
+[[stage.gate]]
+check = "decision_recorded"
+name = "figures_visually_confirmed"
+allowed = ["YES"]
+since = "1.31.0"
 
 [[stage.gate]]
 check = "prewrite_review_verified"
@@ -453,6 +510,12 @@ check = "reference_provenance"
 check = "section_polished"
 path = "07_manuscript/methods.md"
 since = "1.30.0"
+
+[[stage.gate]]
+check = "section_polished"
+path = "07_manuscript/supplementary_methods.md"
+optional = true
+since = "1.31.0"
 
 [[stage]]
 id = "S09_results"
@@ -819,6 +882,11 @@ since = "1.28.0"
 check = "discussion_review_verified"
 since = "1.28.0"
 
+[[stage.gate]]
+check = "display_labels_clinical"
+kind = "all"
+since = "1.31.0"
+
 [[stage]]
 id = "S20_journal"
 title = "Select the most realistic current SCIE journal and freeze its requirements"
@@ -1178,6 +1246,12 @@ since = "1.28.0"
 [[stage.gate]]
 check = "discussion_review_verified"
 since = "1.28.0"
+
+[[stage.gate]]
+check = "display_labels_clinical"
+kind = "all"
+final = true
+since = "1.31.0"
 
 # Directories where the agent may legitimately create many files.
 # Anything under project/ that matches neither a stage `outputs` entry nor one of

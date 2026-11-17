@@ -114,6 +114,19 @@ AI_TIER_A = [
     (r"\b(?:first(?:ly)?,\s+we\s+(?:ran|executed|loaded|parsed)|in\s+the\s+next\s+step,\s+we\s+(?:ran|processed|generated|built))\b", "lab-log chronology"),
 ]
 
+# Zero-information stock fillers blocked in per-section polish (medical idioms like
+# 'plays a key role' or 'multifaceted' remain contextual advisories, never word bans).
+STRICT_SECTION_AI_LABELS = frozenset({
+    "delve into",
+    "tapestry",
+    "in today's rapidly evolving",
+    "ever-evolving",
+    "in the realm of",
+    "game-changer",
+    "unlock the potential",
+    "a testament to",
+})
+
 # Tier B: conventional in real papers but overused by generators. Advisory.
 AI_TIER_B = [
     (r"\bit\s+(?:is|should\s+be)\s+(?:important|noted|noteworthy)\s+(?:to\s+note\s+)?that\b",
@@ -190,8 +203,8 @@ def flow(text: str) -> str:
     return re.sub(r"(?<!\n)\n(?!\n)", " ", body(text))
 
 
-def allowlist() -> dict[str, str]:
-    p = project_root() / ALLOWLIST
+def allowlist(proj: Path | None = None) -> dict[str, str]:
+    p = (proj or project_root()) / ALLOWLIST
     out: dict[str, str] = {}
     if p.exists():
         for line in p.read_text(encoding="utf-8").splitlines():
@@ -823,17 +836,25 @@ def cmd_section(args) -> int:
         if added:
             fact_problems.append(f"{label}(s) APPEARED: {', '.join(map(str, added[:6]))}")
 
-    allow = allowlist()
+    allow = allowlist(proj)
     ai = lint_ai(rel, text, allow)
+    strict_ai = [x for x in ai if x["tier"] == "A" and x["label"] in STRICT_SECTION_AI_LABELS]
+    advisory_ai_a = [x for x in ai if x["tier"] == "A" and x["label"] not in STRICT_SECTION_AI_LABELS]
     struct = lint_structure(rel, text) + lint_medical(rel, text)
     style = lint_style(rel, text)
     medical_risks = [r for r in diagnose(text, rel)
                      if r["kind"] in {"engineering_jargon", "lablog_chronology", "defensive_self_weakening", "assistant_voice", "workflow_metadata"}]
     blocking_struct = [x for x in struct if x["severity"] == "blocking"]
     blocking_style = [x for x in style if x["severity"] == "blocking"]
-    blocking_total = len(blocking_struct) + len(blocking_style) + len(medical_risks)
+    blocking_total = len(blocking_struct) + len(blocking_style) + len(medical_risks) + len(strict_ai)
     fact_ok = not fact_problems
 
+    summary_parts = (
+        fact_problems
+        + [f"{r['locator']}:{r['kind']}" for r in medical_risks]
+        + [f"L{x['line']}:ai_cliche({x['label']})" for x in strict_ai]
+        + [f"{x['kind']}" for x in blocking_struct + blocking_style]
+    )
     receipt = {
         "rel": rel,
         "verified_at": now(),
@@ -845,13 +866,25 @@ def cmd_section(args) -> int:
         "ai_tier_a": len([x for x in ai if x["tier"] == "A"]),
         "ai_tier_b": len([x for x in ai if x["tier"] == "B"]),
         "medical_style_risks": [r["kind"] for r in medical_risks],
-        "summary": "; ".join(fact_problems + [f"{r['kind']}" for r in medical_risks] + [x["kind"] for x in blocking_struct + blocking_style]),
+        "strict_ai_cliches": [f"L{x['line']}:{x['label']}" for x in strict_ai],
+        "summary": "; ".join(summary_parts),
     }
     atomic_json(receipt_path, receipt)
     if not fact_ok or blocking_total:
         print(f"Section polish verification FAILED for {rel}: {receipt['summary']}", file=sys.stderr)
+        for fp in fact_problems:
+            print(f"  [FACT DRIFT] {fp}", file=sys.stderr)
+        for r in medical_risks:
+            print(f"  [{r['locator']}] [{r['kind']}] {r['excerpt']!r} -> {r['message']}", file=sys.stderr)
+        for x in strict_ai:
+            print(f"  [L{x['line']}] [ai_cliche:{x['label']}] {x['match']!r} -> Replace empty stock filler with direct clinical prose.", file=sys.stderr)
+        for x in blocking_struct + blocking_style:
+            print(f"  [blocking:{x['kind']}] {x['detail']}", file=sys.stderr)
         return 2
     print(f"Section polish verified for {rel} (facts invariant, 0 blocking findings, AI tier-A={receipt['ai_tier_a']}).")
+    if advisory_ai_a:
+        locs = ", ".join(f"L{x['line']}({x['label']})" for x in advisory_ai_a[:6])
+        print(f"  [advisory wording prompts] review in clinical context if overused: {locs}")
     return 0
 
 

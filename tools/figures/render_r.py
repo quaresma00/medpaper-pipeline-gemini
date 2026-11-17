@@ -19,6 +19,11 @@ from wfcore.readiness import atomic_json
 from wfcore.revision import guard_outputs, record_build, permits
 from wfcore.dependencies import guard_build
 from wfcore.state import State
+import hashlib
+
+
+def _sha256_json(obj: object) -> str:
+    return hashlib.sha256(json.dumps(obj, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 def render(project, figure_id, timeout=180):
@@ -80,6 +85,7 @@ def _render(project, figure_id, timeout=180):
     for row in vocabulary(project,journal_mode): internal.setdefault(row["internal"],set()).add(row["label"])
     labels.update({key:next(iter(values)) for key,values in internal.items() if len(values)==1})
     policy = {**production,"labels":labels,"spelling": profile.get("spelling") or State(project).config().get("targets", {}).get("spelling", ""), "number_format": profile.get("number_format") or production.get("number_format", {})}
+    policy_sha = _sha256_json(policy)
     policy_files = [path for path in (project/"08_submission/target_journal.json", project/".wf/config.toml") if path.is_file()]
     from analysis.reproduce import renv_context
     context = renv_context(project)
@@ -119,9 +125,13 @@ def _render(project, figure_id, timeout=180):
             if suffix in {".pdf", ".tiff"}: normalize(Path(str(stem) + suffix))
             destination.parent.mkdir(parents=True, exist_ok=True)
             Path(str(stem) + suffix).replace(destination)
+        report["width_class"] = metadata.get("width_class")
         report["source_hashes"] = {r: before[str(p)] for r, p in sources.items()}
         report["script"] = script_rel
         report["script_sha256"] = before[str(script)]
+        report["helper_sha256"] = before[str(helper)]
+        report["recipes_sha256"] = before[str(recipes)]
+        report["policy_sha256"] = policy_sha
         report["renv"] = context
         report["render_hashes"] = {p.relative_to(project).as_posix(): _sha256(p) for p in destinations.values()}
         atomic_json(sidecar, report)
@@ -131,14 +141,131 @@ def _render(project, figure_id, timeout=180):
     return {"figure": figure_id, "engine": "R", "png": str(png), "pdf": str(pdf), "audit": str(sidecar)}
 
 
+def is_up_to_date(project: Path, figure_id: str) -> bool:
+    """Return True only when script, helpers, sources, policy, renv, and every rendered output match."""
+    project = project.resolve()
+    state = State(project).load()
+    journal_mode = state.current in {"S23_package", "S24_package_human_review"} or permits(project, "S23_package")
+    plan_path = project / ("08_submission/integration/artifact_plan.json" if journal_mode else "01_protocol/artifact_plan.json")
+    if not plan_path.is_file():
+        return False
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    matches = [e for g in ("main_figures", "supp_figures") for e in plan.get(g, []) if e.get("id") == figure_id]
+    if len(matches) != 1:
+        return False
+    entry = matches[0]
+    try:
+        script_rel, script = _safe_path(project, entry.get("script", ""))
+        png_rel, png = _safe_path(project, entry.get("file", ""))
+        _, pdf = _safe_path(project, entry.get("pdf", ""))
+    except (OSError, ValueError):
+        return False
+    if not script.is_file() or not png.is_file() or not pdf.is_file():
+        return False
+    qc_dir = project / ("08_submission/integration/figure_qc" if journal_mode else "05_figures/qc")
+    sidecar = qc_dir / (png.stem + ".artist.json")
+    if not sidecar.is_file():
+        return False
+    try:
+        art = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if art.get("width_class") != entry.get("width") or art.get("script") != script_rel:
+        return False
+    if art.get("script_sha256") != _sha256(script):
+        return False
+    helper = ROOT / "tools/figures/r_style.R"
+    recipes = ROOT / "tools/figures/r_recipes.R"
+    if art.get("helper_sha256") != _sha256(helper) or art.get("recipes_sha256") != _sha256(recipes):
+        return False
+    declared_sources = entry.get("source_results", [])
+    if set(art.get("source_hashes", {})) != set(declared_sources):
+        return False
+    for r in declared_sources:
+        _, sp = _safe_path(project, r)
+        if not sp.is_file() or art["source_hashes"].get(r) != _sha256(sp):
+            return False
+    from wfcore.journalspec import load as load_jspec
+    from wfcore.clinicalpresentation import profile as production_profile, vocabulary
+    profile = load_jspec(project)
+    production = production_profile(project, journal_mode)
+    labels = {row["key"]: row["label"] for row in vocabulary(project, journal_mode)}
+    internal: dict[str, set[str]] = {}
+    for row in vocabulary(project, journal_mode):
+        internal.setdefault(row["internal"], set()).add(row["label"])
+    labels.update({key: next(iter(vals)) for key, vals in internal.items() if len(vals) == 1})
+    policy = {
+        **production,
+        "labels": labels,
+        "spelling": profile.get("spelling") or state.config().get("targets", {}).get("spelling", ""),
+        "number_format": profile.get("number_format") or production.get("number_format", {}),
+    }
+    if art.get("policy_sha256") != _sha256_json(policy):
+        return False
+    from analysis.reproduce import renv_context
+    if art.get("renv") != renv_context(project):
+        return False
+    rhashes = art.get("render_hashes", {})
+    if not rhashes or png_rel not in rhashes:
+        return False
+    for rel, expected in rhashes.items():
+        _, out_p = _safe_path(project, rel)
+        if not out_p.is_file() or _sha256(out_p) != expected:
+            return False
+    return True
+
+
+def render_many(project: Path, figure_ids: list[str] | None = None, *, only_changed: bool = False, timeout: int = 180) -> list[dict]:
+    project = project.resolve()
+    state = State(project).load()
+    journal_mode = state.current in {"S23_package", "S24_package_human_review"} or permits(project, "S23_package")
+    plan_path = project / ("08_submission/integration/artifact_plan.json" if journal_mode else "01_protocol/artifact_plan.json")
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    if figure_ids:
+        targets = list(figure_ids)
+    else:
+        targets = [
+            str(e["id"])
+            for g in ("main_figures", "supp_figures")
+            for e in plan.get(g, [])
+            if str(e.get("renderer", "R")).upper() == "R" and e.get("id")
+        ]
+    if not targets:
+        raise ValueError("No R figures declared in artifact_plan.json")
+    out: list[dict] = []
+    total = len(targets)
+    for idx, fid in enumerate(targets, 1):
+        if only_changed and is_up_to_date(project, fid):
+            print(f"[R render {idx}/{total}] {fid} [SKIP unchanged]", flush=True)
+            out.append({"figure": fid, "engine": "R", "skipped": True})
+            continue
+        print(f"[R render {idx}/{total}] {fid} ...", flush=True)
+        res = render(project, fid, timeout)
+        out.append(res)
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--figure", required=True)
+    parser.add_argument("--figure", action="append", default=[], help="figure id to render (repeatable)")
+    parser.add_argument("--all", action="store_true", help="render all declared R figures")
+    parser.add_argument("--changed", action="store_true", help="skip figures whose script, data, policy, and outputs are unchanged")
     parser.add_argument("--project", type=Path, default=ROOT / "project")
     parser.add_argument("--timeout", type=int, default=180)
     args = parser.parse_args()
+    if not args.all and not args.figure:
+        parser.error("pass --figure <ID> or --all")
     try:
-        print(json.dumps(render(args.project, args.figure, args.timeout), ensure_ascii=False))
+        if not args.all and not args.changed and len(args.figure) == 1:
+            print(json.dumps(render(args.project, args.figure[0], args.timeout), ensure_ascii=False))
+        else:
+            results = render_many(
+                args.project,
+                figure_ids=args.figure if args.figure else None,
+                only_changed=args.changed,
+                timeout=args.timeout,
+            )
+            print(json.dumps({"figures": results}, ensure_ascii=False))
         return 0
     except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
         print(f"R figure: {exc}", file=sys.stderr)

@@ -11,7 +11,7 @@ Run `uv run python tools/wf.py status`, then `uv run python tools/wf.py card` (a
 If the environment is absent, run `uv run --python 3.13 python bootstrap.py`.
 After compaction use `uv run python tools/wf.py handoff` and the active card; reuse guidance already read.
 Complete active work, run `wf check`, then `wf advance --note "..."`. Gates are not turn
-boundaries; continue unblocked work. S10 tables -> S11 figures -> S09 Results -> S12 crosscheck
+boundaries; continue unblocked work. `S07_artifacts` -> `S10_tables` -> `S11_figures` -> `S11b_prewrite_review` -> `S08_methods` -> `S09_results` -> `S12_reconcile`
 is the execution order despite stable IDs. Use `card <stage> --details` only when needed.
 
 | Current task | Read when that operation is needed |
@@ -72,9 +72,9 @@ references each own their topic; this policy contains no historical supersession
 
 ## Medical outputs and production
 
-- Benchmark actual close medical full texts before writing or expensive production. Let the
-  scientific question and reader tasks determine references/displays, not universal quotas,
-  cost or a minimum viable set. Never pad references or weaken a target to pass. Applicable
+- Benchmark >=5 recent (<=5y) close medical full texts before writing or expensive production. Let the
+  scientific question, comparator standards and reader tasks determine references/displays above
+  configured pipeline floors, never padding references or weakening a target to pass. Applicable
   selection is main Figure 1 with real units/branches; show the population, primary findings
   and necessary comparisons. Resolve heading structure and display purposes before drafting.
 - Write a medical paper for readers: design, population, comparison, outcome, magnitude and
@@ -97,7 +97,7 @@ references each own their topic; this policy contains no historical supersession
   legend identifier/title once. Legends decode the display without repeating Results; consolidate
   crowded abbreviations in Declarations and Statements > Abbreviations unless current journal
   rules require local definitions. Keep essential units/symbol meanings locally understandable.
-- At S16, isolate Discussion inputs (`discussion_brief.md` contains prose-only findings, deep-read comparisons, mechanisms, and limitations—no result tables or display numbers), lock a concise 6-part `discussion_outline.md` before drafting `discussion.md`, avoid supplementary-callout overuse or near-duplicate Results sentences, and audit Discussion quality explicitly at S18/S19/S24/S25 (`Discussion audit`).
+- At S16, isolate Discussion inputs (`discussion_brief.md` contains prose-only findings, deep-read comparisons, mechanisms, and limitations—no result tables or display numbers), lock a concise 6-part `discussion_outline.md` before drafting `discussion.md`, avoid supplementary-callout overuse or near-duplicate Results sentences, and audit Discussion quality explicitly at S18/S19/S24 (`Discussion audit`).
 - Non-blinded journals render single-source `00_input/author_info.json` directly on page 1 of `manuscript.docx` (generating a separate `title_page.docx` from the same source ONLY when official guidelines explicitly mandate one; double-blind journals keep `manuscript.docx` anonymous and put authors only in `title_page.docx`). When guidelines are silent, figures upload as separate files (only `# Figure legends` in `manuscript.docx`) and main tables sit one per page after `# References`; inline embedding requires a verified verbatim guideline quote. Name supplemental uploads `Supplemental_File_<N>_<Specific_Description>.<ext>` (never `ESM1`).
 - Supplementary Methods is prose; tables go in separate three-line supplementary tables. No
   Markdown rules remain in Word. Actual journal typography governs size/spacing with medical
@@ -123,13 +123,14 @@ references each own their topic; this policy contains no historical supersession
   Read all actual main/supplement materials without backstage context, then verify their meaning
   against sources. Quantity ranges are advisory; source identity/support and explicit journal
   limits are mandatory. Style comparators use the public cache, not changes to accepted science.
-- S24 presents actual uploads for author edits and explicit final-review request. Freeze those
-  files; S25 uses exactly one independent read-only reader/editor/compliance reviewer with the
-  current official instructions. Missing review stays pending. An unchanged freeze is not
-  repeatedly audited. Immutable releases contain actual uploads only, not caches/evidence.
+- S24 runs exactly one independent read-only reader/editor/compliance reviewer with the current
+  official instructions, presents actual uploads for scoped fixes and explicit author confirmation
+  (`我确认这一版`), and freezes the verified `<Journal_Slug>_<YYYYMMDD_HHMMSS>` release together
+  with its bound audit. Missing review stays pending. An unchanged freeze is not repeatedly audited.
+  Immutable releases contain actual uploads only, not caches/evidence.
 - User revisions remain inside a persisted tools/rework.py batch with verbatim requests and
   acceptance criteria. Collect feedback before sealing; a complete apply-now request may seal.
-  Stay at S19/S24, call affected owner rules in place, update the earliest real source, and
+  Stay at S11b/S19/S24, call affected owner rules in place, update the earliest real source, and
   rebuild only true dependants. Never reset stages or use wf loop for local revisions. Extend
   newly discovered dependencies within the batch and distinguish inspected unchanged sources.
   Close only after actual scoped checks on final files; reuse only hash/rule/config-matched

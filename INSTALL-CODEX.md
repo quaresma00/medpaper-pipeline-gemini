@@ -70,9 +70,11 @@ uv run python tools\wf.py check
 uv run python tools\wf.py advance --note "specific handoff note"
 ```
 
-User feedback uses a scoped `tools/rework.py` batch at S19/S24, not a `loop` or reset of
-completed stages. Run owner rules in place and rebuild actual dependants. Use `clean` to
-report undeclared files; inspect the report before using `clean --apply`.
+User feedback uses a scoped `tools/rework.py` batch at S11b/S19/S24, not a `loop` or reset of
+completed stages. Run owner rules in place and rebuild actual dependants. Execution advances
+`S07_artifacts` -> `S10_tables` -> `S11_figures` -> `S11b_prewrite_review` -> `S08_methods` ->
+`S09_results` -> `S12_reconcile` so verified displays and SCIE audit precede prose drafting.
+Use `clean` to report undeclared files; inspect the report before using `clean --apply`.
 
 At S04, a raw file is not enough to prove complete acquisition. The stage creates and checks
 `02_data/acquisition_manifest.json`:
@@ -104,17 +106,16 @@ the active stage only. Follow `reference/codex-integration.md`:
   not redraw them; accepted fixes are made in plotting code and re-rendered;
 - one independent subagent reviews the frozen full manuscript, optional supplementary
   Methods, tables and actual rendered figures at S18; it reviews only and does not rewrite the source;
-- after S23 builds the journal package, S24 lets the user edit its content and formatting,
-  obtains an explicit request for the final review, and freezes the exact reviewed revision;
-  S25 then uses one separate read-only subagent to read the package as a first-time scientific
-  reader, screen low-level errors as an editor, and audit the freeze against the official
-  journal guide for omissions, noncompliance and cross-file mismatches;
+- after S23 builds the journal package, S24 runs one independent read-only subagent to read the
+  package as a first-time scientific reader, screen low-level errors as an editor, and audit
+  compliance against the official journal guide, applies scoped fixes, obtains the user's explicit
+  `我确认这一版`, and freezes the exact reviewed release (`<Journal_Slug>_<YYYYMMDD_HHMMSS>`);
 - patient-level/private data stay local unless the user explicitly authorizes transfer.
 
 Formal references are fail-closed. Candidate-search tools may suggest papers, but only
 `tools/pubmed/verify.py` may create the verification receipt. It performs a fresh PubMed
 EFetch and records the raw-XML hash, parsed-record fingerprint, and exact `library.json`
-hash. S13 and S25 always separately re-fetch the PMIDs live; intermediate gates can reuse
+hash. S13 and S24 always separately re-fetch the PMIDs live; intermediate gates can reuse
 hash-bound independent live XML for at most 24 hours while all identities still match.
 Expired or changed evidence requires another live request and fails closed if unavailable.
 A handwritten `verified: true`, a locally
@@ -137,9 +138,9 @@ and paragraph borders; headings use the Normal-based `SectionHeading` style. Fig
 have one section title and one title per figure. Supplementary Methods is prose-only: its
 tables are delivered in the separate three-line supplementary workbook and Markdown thematic
 rules are rejected before conversion.
-Initial S24 review requires current-version author confirmation and an explicit final-review
-request. S25 requires the genuine independent reader/editor/compliance verdict on that frozen
-package. Defects use scoped corrections at the same checkpoint. Proven meaning-preserving
+Initial S24 review requires the genuine independent reader/editor/compliance verdict, explicit
+current-version author confirmation (`我确认这一版`), and freeze verification on that package.
+Defects use scoped corrections at the same checkpoint. Proven meaning-preserving
 presentation amendments retain approval lineage; new science needs its affected scientific
 review and approval. A change is not an instruction to repeat the entire stage tail.
 

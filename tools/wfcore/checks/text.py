@@ -216,12 +216,14 @@ def section_polished(ctx: Ctx) -> Result:
         return Result(True, "section_polished", "section-level polish gate not retroactive to pinned completed stage")
     from ..packagefreeze import _sha256
     from ..medicalstyle import diagnose
-    from text.polish import AI_TIER_A, allowlist, facts, lint_structure
+    from text.polish import STRICT_SECTION_AI_LABELS, allowlist, lint_ai, lint_structure
     rel = ctx.spec.get("path", "")
     if not rel:
         return Result(False, "section_polished", "stage spec missing path for section_polished")
     target = ctx.p(rel)
     if not target.is_file():
+        if ctx.spec.get("optional", False):
+            return Result(True, "section_polished", f"{rel}: optional file absent")
         return Result(False, "section_polished", f"missing section {rel}")
     raw = target.read_text(encoding="utf-8")
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", rel.strip("/")).strip("_")
@@ -259,6 +261,17 @@ def section_polished(ctx: Ctx) -> Result:
             False,
             "section_polished",
             f"{rel} still contains clinical-style violations ({', '.join(sorted(set(risks)))}); polish in medical language and re-verify",
+        )
+    strict_ai_hits = [
+        f"L{x['line']}:{x['label']}"
+        for x in lint_ai(rel, raw, allowlist(ctx.project))
+        if x["tier"] == "A" and x["label"] in STRICT_SECTION_AI_LABELS
+    ]
+    if strict_ai_hits:
+        return Result(
+            False,
+            "section_polished",
+            f"{rel} contains empty stock AI filler ({', '.join(strict_ai_hits[:6])}); replace with direct clinical prose and re-verify",
         )
     struct_blocking = [x for x in lint_structure(rel, raw) if x.get("severity") == "blocking"]
     if struct_blocking:

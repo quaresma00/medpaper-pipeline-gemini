@@ -19,13 +19,14 @@ finding. Follow S19 for close, one report, one question and the actual user answ
 
 1. Freeze the inputs for this audit: `07_manuscript/full_manuscript.md`,
    `07_manuscript/supplementary_methods.md` when present, every workbook under
-   `04_tables/main/` and `04_tables/supplementary/`, every planned rendered figure, legends,
-   table captions, and `01_protocol/artifact_plan.json`.
+   `04_tables/main/` and `04_tables/supplementary/` plus rendered table preview PNGs under
+   `04_tables/previews/` (`04_tables/qc/table_qc_report.json` when present), every planned rendered
+   figure, legends, table captions, and `01_protocol/artifact_plan.json`.
    Include the source-bound `01_protocol/artifact_benchmark.md`. Evaluate whether the real
    comparator-derived plan adequately covers the clinical argument, not fixed numeric quotas.
    Use `tools/review_round.py start --scope manuscript` once for the exact paths/hashes. Supply
-   those real files, not a textual description of images. The reviewer opens figures and
-   inspects tables; if its tools cannot read them, mark the review incomplete, not PASS.
+   those real files, not a textual description of images. The reviewer opens rendered figure PNGs and
+   `04_tables/previews/*.png` directly via `read_file`; if its tools cannot read them, mark the review incomplete, not PASS.
    Do not change them while the reviewer is working.
 2. Spawn exactly one independent subagent. Give it the frozen paths and ask it to review
    only; it must not edit files or rewrite the paper except writing its designated

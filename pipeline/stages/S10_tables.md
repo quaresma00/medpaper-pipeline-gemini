@@ -73,12 +73,17 @@ uv run python tools/wf.py check --all-checks --only "Table 1"
    Excel/pdftoppm or deterministic Python booktabs rendering + layout QC in
    `04_tables/qc/table_qc_report.json` with zero `temp/` residue — do NOT write ad-hoc COM
    scripts in `project/temp/`). Check clipping, wrapping, column widths, row heights, title
-   and header hierarchy, adjacent right/left column gaps, multi-page header repeats, footnotes,
-   units, decimal precision, missing/zero-event symbols (`NE (0/N)` vs `-`), and page usability.
-   Fix the generating script, regenerate only that affected table, and visually inspect again;
-   never hand-edit a generated value.
+   and header hierarchy (`group_rows`/`indent_rows` with empty statistic cells on group rows),
+   adjacent right/left column gaps, multi-page header repeats, footnotes, units, decimal
+   precision, missing/zero-event symbols (`NE (0/N)` vs `-`), and page usability. Bind the
+   saved workbook AND rendered preview PNG in `01_protocol/display_review.json.final_reviews`
+   (`reference/project-benchmarking.md`, `reference/medical-reader-presentation.md`), using
+   `uv run python tools/manuscript/readiness.py sync-hashes` to sync objective hashes (drifted
+   files reset to `PENDING_REINSPECTION` until genuinely re-inspected). Fix the generating
+   script, regenerate only that affected table, and visually inspect again; never hand-edit a
+   generated value.
    - Table-figure estimator parity: Ensure every comparison shown in both a table and a figure uses the exact same statistical estimator and sparse-cell handling (never Wald in one display and Haldane/penalized in the other).
-6. After all workbooks pass visual review, record the gate:
+6. After all workbooks pass visual review and `final_reviews` verdicts are `PASS`, record the gate:
 ```
 uv run python tools/wf.py decide tables_visually_confirmed YES --why "<workbooks/sheets inspected and defects corrected>"
 ```
@@ -107,44 +112,14 @@ uv run python tools/wf.py decide tables_visually_confirmed YES --why "<workbooks
   consistency; regenerate only a table with an actual newly discovered defect.
 - Add a necessary table through a scoped S07-owned plan correction and its true consumers;
   stay at the revision checkpoint rather than looping or rebuilding unrelated tables.
-- Structural checks alone are insufficient; the visual-review decision is mandatory.
+- Structural checks alone are insufficient; both `display_review.json.final_reviews` (bound to
+  current workbook + preview hashes) and the `tables_visually_confirmed` decision are mandatory
+  before `S11b` / `S08` / `S09`. Percentage claims must bind numerator, denominator, and source
+  percentage basis (`reference/structural-quality.md`); keep source/counting-unit identities
+  accurate without renaming records as patients.
 
 ## Close
 ```
 uv run python tools/wf.py advance --note "K main + M supp tables built; all values traced to results JSON"
 ```
-
-
-## Medical-reader presentation
-
-Read `reference/medical-reader-presentation.md`: check actual clinical labels, counting units,
-denominators, statistical marks and state distinctions, table footnotes and figure decoding.
-Retain necessary methods; do not imply prespecification or change counts by renaming units.
-Use the existing acceptance/review, not an additional audit. At S23 verify actual rendered
-Word pages and journal-directed legend/figure placement; don't reintroduce forbidden controls.
-
-## Structural quality and bounded rework
-
-Read `reference/structural-quality.md`. Use clinical display names and physical-size assumptions
-before production. Percentage claims bind numerator, denominator and source percentage basis.
-Every actionable point in every review section needs a stable ID and disposition, not only
-the must-fix subset. Review neutral actual artifacts; don't prime with the writer's conclusion.
-Use read-only rework preview and actual scoped checks; never infer scientific change from a
-publication label number or silently invalidate author approval. Existing privacy, freezes,
-centralized abbreviations, Word cleanup and final actual-page inspection remain in force.
-
-
-
-# v1.22 medical content and actual production reading
-
-Use clinical variable headings and indented category rows, not repeated "Sex distribution:"
-or other exported field prefixes. Descriptive tables normally report n (%) with an explicit
-report/patient/available-case denominator and appropriate continuous summaries plus missingness.
-Use only actual exported numbers; do not calculate in prose. `write_table`/`write_workbook`
-support zero-based `group_rows` and `indent_rows` without changing supplied values or adding
-interior borders. Group rows have a label and empty statistic cells. Keep source/sender
-identity when relevant, with its real clinical purpose; do not rename records as patients.
-Follow `reference/project-benchmarking.md` to bind actual saved workbook AND rendered sheet
-pages in existing `display_review.json.final_reviews`. Prototype/three-line/numeric PASS
-cannot certify medical content. The v1.22 production gate must pass before Results writing.
 

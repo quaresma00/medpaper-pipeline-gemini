@@ -2,9 +2,9 @@
 
 [中文说明](README.md) | [English Documentation](README_EN.md)
 
-一套面向医学与临床研究的 Gemini / Google Antigravity 门禁式工作流（`v1.30.0` 架构）。它把“研究想法”推进为经过全量数据核验、真实文献溯源、语境与效应尺度绑定统计结果、R 优先临床图表、写前独立 SCIE 审稿（S11b）、全章节即写即去 AI/反防御润色、版本绑定独立子代理复核和目标期刊官方规则共同校验的投稿包，而不是让 AI 一次性凭记忆拼凑一篇看似完整的论文。
+一套面向医学与临床研究的 Gemini / Google Antigravity 门禁式工作流（`v1.31.0` 架构）。它把“研究想法”推进为经过全量数据核验、真实文献溯源、语境与效应尺度绑定统计结果、R 优先临床图表、写前独立 SCIE 审稿（S11b）、全章节即写即去 AI/反防御润色、版本绑定独立子代理复核和目标期刊官方规则共同校验的投稿包，而不是让 AI 一次性凭记忆拼凑一篇看似完整的论文。
 
-当前版本：`1.30.0`　｜　流程：25 个阶段（表图先行 + 写前 SCIE 审稿）　｜　运行环境：Windows `pwsh` + Google Antigravity / Gemini (`uv run python`)
+当前版本：`1.31.0`　｜　流程：25 个阶段（表图先行 + 写前 SCIE 审稿）　｜　运行环境：Windows `pwsh` + Google Antigravity / Gemini (`uv run python`)
 
 ## 当前版本的使用要点
 
@@ -16,7 +16,7 @@
 
 在表图呈现上（`v1.29.0`），全面杜绝计算机、工程和代码样描述：三线表与所有统计图内部文字（含坐标轴、图例、分面标题、图内注释、受试者入排流程图文本框及表头/单元格）必须符合医学同行评审阅读标准。S07 明确建立特征变量到临床专业标签的显示词典（`display_dictionary`），底层全面拦截 `snake_case`、模型公式语法、裸布尔值、统计包裸列名（`coef`、`fpr`）、分析报告式标题以及数据管道脚本流水账，通过不可旁路的 `display_labels_clinical` 门禁实施全流程质量防御。
 
-Discussion 阶段采用无表格、无图表编号的纯文字写作简报（`discussion_brief.md`），动笔前先锁定 6 要素简短提纲（`discussion_outline.md`），自动拦截过分引用补充图表与复述 Results 近似句，并在 S18/S19/S24/S25 专项审计讨论质量。确定期刊后，通过 `tools/journal.py` 锁定当前官方指南：非双盲期刊直接将单源作者信息（`00_input/author_info.json`）排入 `manuscript.docx` 第一页（仅期刊明确要求或双盲时生成同源 `title_page.docx`）；指南未规定时图片单独上传、正文末尾只留图注，主表每张单独一页置于参考文献之后（严禁 AI 自行决定嵌进正文）；补充文件统一按 `Supplemental_File_<序号>_<具体描述>.<ext>` 连续命名。换刊会自动归档隔离旧规则与投稿副本，S19 冻结的科学母稿始终只读保留。返工在 S19/S24 原地修改轮次中定位真实源文件及依赖闭包（`wf rebuild`），只重建和复核受影响的材料；普通回顾性/数据库研究不再默认要求公开注册，命名报告清单推迟至 S20 选刊后仅在目标期刊明确要求时生成。
+Discussion 阶段采用无表格、无图表编号的纯文字写作简报（`discussion_brief.md`），动笔前先锁定 6 要素简短提纲（`discussion_outline.md`），自动拦截过分引用补充图表与复述 Results 近似句，并在 S18/S19/S24 专项审计讨论质量。确定期刊后，通过 `tools/journal.py` 锁定当前官方指南：非双盲期刊直接将单源作者信息（`00_input/author_info.json`）排入 `manuscript.docx` 第一页（仅期刊明确要求或双盲时生成同源 `title_page.docx`）；指南未规定时图片单独上传、正文末尾只留图注，主表每张单独一页置于参考文献之后（严禁 AI 自行决定嵌进正文）；补充文件统一按 `Supplemental_File_<序号>_<具体描述>.<ext>` 连续命名。换刊会自动归档隔离旧规则与投稿副本，S19 冻结的科学母稿始终只读保留。返工在 S11b/S19/S24 原地修改轮次中定位真实源文件及依赖闭包（`wf rebuild`），只重建和复核受影响的材料；普通回顾性/数据库研究不再默认要求公开注册，命名报告清单推迟至 S20 选刊后仅在目标期刊明确要求时生成。
 
 在 Antigravity 中可直接调用全局技能 `medpaper-pipeline` 启动或恢复项目，后续直接用自然语言提出修改意见。作者确认当前版的明确口令统一为 **`我确认这一版`**。工作流不会代替作者执行外部投稿系统上传。
 
@@ -46,20 +46,21 @@ Discussion 阶段采用无表格、无图表编号的纯文字写作简报（`di
 ```text
 研究问题(S01) → 发表可行性(S02) → 初版方案(S03) → 全量数据获取/原地登记(S04) → 探索与全精度分析(S05)
         → 冻结研究事实契约与二次评估(S06) → 5–10篇近5年同类SCIE全文对标与图表规划(S07)
-        → Methods写完即润色(S08) → 三线表(S10) → R统计图(S11) → 写前独立SCIE与图表审计(S11b) → Results写完即润色(S09) → 跨文件对账(S12)
+        → 三线表与视觉预览(S10) → R统计图与像素/几何QC(S11) → 写前独立SCIE与图表审计(S11b)
+        → Methods写完即润色(S08) → Results写完即润色(S09) → 跨文件对账(S12)
         → 足量实时核验文献库(S13) → Introduction写完即润色(S14) → 多路由全文与用户补齐(S15) → Discussion写完即润色(S16) → 组装与摘要润色(S17)
         → 独立只读子代理可发表性审查(S18) → 审阅轮次修正与“我确认这一版”科学母稿冻结(S19)
         → 浏览器全量抓指南与选刊(S20) → 作者与声明采集(S21) → 跨章拼写缩写一致与期刊字数微调(S22) → 原生Word构建与Portal差异预警(S23)
-        → 投稿包审阅与<期刊名_时间戳>发布冻结(S24) → 独立读者/编辑/指南合规终审(S25)
+        → 独立读者/编辑/指南合规终审、用户确认与<期刊名_时间戳>只读发布包冻结(S24)
 ```
 
 贯穿全流程的硬约束包括：
 
 1. **全量数据普查（Full Census）**：默认覆盖 S03 定义的完整数据范围，逐源核对源端总数、实际接收数、末页/空游标证据、复杂连接（join）唯一分析单位及原始文件/脚本 SHA-256；严禁 `LIMIT`、`TOP`、`head()`、`sample()`、`nrows=` 或固定页数截断，不可通过 `--force` 豁免。
-2. **双保险文献真实性**：外部检索工具仅提供候选，正式引用必须由 `tools/pubmed/verify.py` 执行新鲜 EFetch 并绑定原始 XML 与文献库哈希，在 S13 和 S25 强制独立实时复核（中间关口支持 24 小时未变更哈希缓存）；无 PubMed 摘要的经典方法原始论文须凭已登记并核验身份的合法全文入库。
+2. **双保险文献真实性**：外部检索工具仅提供候选，正式引用必须由 `tools/pubmed/verify.py` 执行新鲜 EFetch 并绑定原始 XML 与文献库哈希，在 S13 和 S24 强制独立实时复核（中间关口支持 24 小时未变更哈希缓存）；无 PubMed 摘要的经典方法原始论文须凭已登记并核验身份的合法全文入库。
 3. **全场景语境、效应尺度与分母级数值溯源**：本研究数字在 `Results`、`Abstract`、`Discussion`、三线表单元格及图内显式统计标注中均必须来自已执行的 `03_analysis/results/*.json`，并绑定对应人群、终点、对比、受控效应尺度（区分 `HR`/`RR`/`OR`）、置信水平、时间窗、表格行列头语境、比例分子/分母及图上统计字段（`claim_bindings.json`）；引用既往文献数字必须绑定已登记原文段落（`source_claims`）。
-4. **去 ZIP 化独立审阅与原地局部返工**：S18/S19/S24/S25 通过 Antigravity 原生只读子代理（`invoke_subagent` + `tools/review_round.py`）开展版本绑定审阅，不再生成冗余审核 ZIP；修改意见持久化为 `tools/rework.py` 批次，在 S19/S24 原地调用上游规则并按真实依赖增量重建（`wf rebuild`），不清空后续阶段历史。
-5. **科学母稿冻结与换刊隔离**：S19 收到针对当前版本的 **`我确认这一版`** 后冻结 `scientific_master_freeze.json`；S20–S25 的期刊定制全部隔离在 `08_submission/integration/`，换刊时自动归档旧尝试，绝不污染已确认的科学母稿。
+4. **去 ZIP 化独立审阅与原地局部返工**：S11b/S18/S19/S24 通过 Antigravity 原生只读子代理（`invoke_subagent` + `tools/review_round.py`）开展版本绑定审阅，不再生成冗余审核 ZIP；修改意见持久化为 `tools/rework.py` 批次，在 S11b/S19/S24 原地调用上游规则并按真实依赖增量重建（`wf rebuild`），不清空后续阶段历史。
+5. **科学母稿冻结与换刊隔离**：S19 收到针对当前版本的 **`我确认这一版`** 后冻结 `scientific_master_freeze.json`；S20–S24 的期刊定制全部隔离在 `08_submission/integration/`，换刊时自动归档旧尝试，绝不污染已确认的科学母稿。
 6. **隐私与披露控制权**：未经明确授权，患者级数据、私密文件与密钥严禁外发；绝不擅自起草或插入 AI 使用声明。
 
 ## 在 Google Antigravity 中如何启动与恢复
@@ -78,7 +79,9 @@ uv run --python 3.13 python bootstrap.py       # 首次创建/校验 .venv、初
 uv run python tools/wf.py status               # 极简本地状态（加 --full 运行门禁诊断）
 uv run python tools/wf.py handoff              # 上下文压缩后的有界恢复摘要
 uv run python tools/wf.py card                 # 查看当前阶段卡片（加 --details 查看拆分详规）
-uv run python tools/wf.py check                # 执行当前阶段门禁检查
+uv run python tools/wf.py check                # 执行当前阶段门禁检查（支持 --all-checks --only "Table 1" -v 单点排错）
+uv run python tools/tables/render_preview.py --all            # 渲染三线表裁剪预览 PNG 并运行排版 QC
+uv run python tools/figures/render_r.py --all --changed       # 批量/增量渲染 R 临床统计图
 uv run python tools/wf.py rebuild --dry-run    # 预览受影响产物的增量重建闭包
 uv run python tools/wf.py advance --note "本阶段产出、关键决策与待决事项"
 uv run python tools/wf.py doctor               # 检查环境、依赖包、Rscript、Pandoc 与接线完整性

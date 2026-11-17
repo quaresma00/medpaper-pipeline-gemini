@@ -132,12 +132,13 @@ def grey_regions(rgb: np.ndarray, lo: int = 100, hi: int = 200,
 
 
 # ---------------------------------------------------------------------------
-def qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Path | None = None) -> dict:
+def qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Path | None = None, *,
+              cached_prev: dict | None = None) -> dict:
     from wfcore.figurejobs import job,FigureBusy
     project=project or project_root()
     try:
         with job(project,str(entry.get("id","?")),"QC"):
-            return _qc_figure(entry,tgt,arch_reg,project)
+            return _qc_figure(entry,tgt,arch_reg,project,cached_prev=cached_prev)
     except FigureBusy as exc:
         return {"id":str(entry.get("id","?")),"pending":True,"ok":False,"visual_reviewed":False,
                 "checks":[{"name":"figure_job_pending","ok":False,"severity":"fail","detail":str(exc)}]}
@@ -159,9 +160,11 @@ def _check_clinical_labels(add, project: Path, entry: dict, art: dict | None, jo
         add("clinical_labels_readable", not label_issues,
             "; ".join(f"{iss["locator"]}: {iss["message"]}" for iss in label_issues[:3]) or "figure internal text uses reader-facing clinical labels")
 
-def _qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Path | None = None) -> dict:
+def _qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Path | None = None, *,
+               cached_prev: dict | None = None) -> dict:
     project = project or project_root()
     from wfcore.clinicalpresentation import profile
+    from wfcore.packagefreeze import _sha256 as _fast_sha256
     journal=str(entry.get("file","")).startswith("08_submission/")
     production=profile(project,journal)
     tgt={**tgt,**{k:v for k,v in production.items() if k not in {"basis","number_format"}}}
@@ -178,53 +181,75 @@ def _qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Pa
         return {"id": fid, "png": png_rel, "checks": checks, "ok": False, "visual_reviewed": False}
     add("png_exists", True, png_rel)
 
-    rgb = read_png(png)
-    h_px, w_px = rgb.shape[:2]
-
     width_class = entry.get("width", "single")
     target_mm = float(tgt.get("column_width_mm_"+width_class,WIDTHS_MM.get(width_class,90.0)))
-    eff_dpi = w_px / (target_mm / MM_PER_IN)
     dpi_min = float(tgt.get("figure_dpi_min", 300))
-    add("effective_dpi", eff_dpi >= dpi_min,
-        f"{w_px}x{h_px} px at {width_class} width ({target_mm:.0f} mm) = {eff_dpi:.0f} dpi "
-        f"(floor {dpi_min:.0f})")
+    png_hash = _fast_sha256(png)
 
-    bbox = content_bbox(rgb)
-    if bbox is None:
-        add("has_content", False, "the image is blank")
+    pure_pixel_names = ("has_content", "not_clipped", "no_excess_whitespace", "margins_symmetric", "no_grey_footnote_text")
+    prev_checks_map = {c.get("name"): c for c in (cached_prev or {}).get("checks", []) if isinstance(c, dict)}
+    can_reuse_pixels = bool(
+        cached_prev
+        and cached_prev.get("png_sha256") == png_hash
+        and isinstance(cached_prev.get("pixels"), list)
+        and len(cached_prev["pixels"]) == 2
+        and "has_content" in prev_checks_map
+    )
+
+    if can_reuse_pixels:
+        w_px, h_px = int(cached_prev["pixels"][0]), int(cached_prev["pixels"][1])
+        eff_dpi = w_px / (target_mm / MM_PER_IN)
+        add("effective_dpi", eff_dpi >= dpi_min,
+            f"{w_px}x{h_px} px at {width_class} width ({target_mm:.0f} mm) = {eff_dpi:.0f} dpi "
+            f"(floor {dpi_min:.0f})")
+        for pname in pure_pixel_names:
+            if pname in prev_checks_map:
+                checks.append(dict(prev_checks_map[pname]))
+        greys = list(cached_prev.get("grey_regions", []))
     else:
-        x0, y0, x1, y1 = bbox
-        m = {"left": x0, "top": y0, "right": w_px - 1 - x1, "bottom": h_px - 1 - y1}
-        pct = {k: 100.0 * v / (w_px if k in ("left", "right") else h_px) for k, v in m.items()}
-        add("has_content", True,
-            "margins px " + ", ".join(f"{k}={v}" for k, v in m.items())
-            + " | % " + ", ".join(f"{k}={v:.1f}" for k, v in pct.items()))
-        add("not_clipped", all(v >= 1 for v in m.values()),
-            "content touches the canvas edge on: "
-            + ", ".join(k for k, v in m.items() if v < 1) if any(v < 1 for v in m.values())
-            else "content clear of all four edges")
-        worst = max(pct.values())
-        add("no_excess_whitespace", worst <= 8.0,
-            f"largest margin {worst:.1f}% of the canvas"
-            + ("" if worst <= 8.0 else " - constrained layout is probably not doing its job"))
-        pairs = [("left", "right"), ("top", "bottom")]
-        asym = []
-        for a, b in pairs:
-            lo, hi = sorted((m[a], m[b]))
-            if hi > 6 and lo > 0 and hi / lo > 2.0:
-                asym.append(f"{a}/{b} = {m[a]}/{m[b]} px")
-            elif hi > 6 and lo == 0:
-                asym.append(f"{a}/{b} = {m[a]}/{m[b]} px")
-        add("margins_symmetric", not asym,
-            "asymmetric: " + "; ".join(asym) if asym else "opposing margins within 2x")
+        rgb = read_png(png)
+        h_px, w_px = rgb.shape[:2]
+        eff_dpi = w_px / (target_mm / MM_PER_IN)
+        add("effective_dpi", eff_dpi >= dpi_min,
+            f"{w_px}x{h_px} px at {width_class} width ({target_mm:.0f} mm) = {eff_dpi:.0f} dpi "
+            f"(floor {dpi_min:.0f})")
 
-    greys = grey_regions(rgb)
-    textish = [g for g in greys if g.get("text_like")]
-    add("no_grey_footnote_text", not textish,
-        f"{len(textish)} text-shaped mid-grey region(s), largest at "
-        f"({textish[0]['x']},{textish[0]['y']}) {textish[0]['w']}x{textish[0]['h']} px"
-        if textish else "no text-shaped mid-grey regions",
-        severity="warn")
+        bbox = content_bbox(rgb)
+        if bbox is None:
+            add("has_content", False, "the image is blank")
+        else:
+            x0, y0, x1, y1 = bbox
+            m = {"left": x0, "top": y0, "right": w_px - 1 - x1, "bottom": h_px - 1 - y1}
+            pct = {k: 100.0 * v / (w_px if k in ("left", "right") else h_px) for k, v in m.items()}
+            add("has_content", True,
+                "margins px " + ", ".join(f"{k}={v}" for k, v in m.items())
+                + " | % " + ", ".join(f"{k}={v:.1f}" for k, v in pct.items()))
+            add("not_clipped", all(v >= 1 for v in m.values()),
+                "content touches the canvas edge on: "
+                + ", ".join(k for k, v in m.items() if v < 1) if any(v < 1 for v in m.values())
+                else "content clear of all four edges")
+            worst = max(pct.values())
+            add("no_excess_whitespace", worst <= 8.0,
+                f"largest margin {worst:.1f}% of the canvas"
+                + ("" if worst <= 8.0 else " - constrained layout is probably not doing its job"))
+            pairs = [("left", "right"), ("top", "bottom")]
+            asym = []
+            for a, b in pairs:
+                lo, hi = sorted((m[a], m[b]))
+                if hi > 6 and lo > 0 and hi / lo > 2.0:
+                    asym.append(f"{a}/{b} = {m[a]}/{m[b]} px")
+                elif hi > 6 and lo == 0:
+                    asym.append(f"{a}/{b} = {m[a]}/{m[b]} px")
+            add("margins_symmetric", not asym,
+                "asymmetric: " + "; ".join(asym) if asym else "opposing margins within 2x")
+
+        greys = grey_regions(rgb)
+        textish = [g for g in greys if g.get("text_like")]
+        add("no_grey_footnote_text", not textish,
+            f"{len(textish)} text-shaped mid-grey region(s), largest at "
+            f"({textish[0]['x']},{textish[0]['y']}) {textish[0]['w']}x{textish[0]['h']} px"
+            if textish else "no text-shaped mid-grey regions",
+            severity="warn")
 
     tiff_rel = entry.get("pdf") or entry.get("tiff", "")
     tiff = project / tiff_rel if tiff_rel else None
@@ -494,6 +519,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="deterministic figure QC")
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--figure", help="one figure id, e.g. \"Figure 1\"")
+    ap.add_argument("--force-pixel", action="store_true", help="re-decode PNG pixels even when png_sha256 is unchanged")
     ap.add_argument("--crop", help="figure id to crop")
     ap.add_argument("--rows", type=int, default=1)
     ap.add_argument("--cols", type=int, default=2)
@@ -523,8 +549,12 @@ def main() -> int:
 
     arch_reg = load_archetypes()
     results = []
-    for e in entries:
-        res = qc_figure(e, tgt, arch_reg)
+    total = len(entries)
+    for idx, e in enumerate(entries, 1):
+        fid_cur = str(e.get("id", "?"))
+        print(f"[figure QC {idx}/{total}] {fid_cur} ({e.get('file', '')})", flush=True)
+        cached_item = None if args.force_pixel else previous.get(fid_cur)
+        res = qc_figure(e, tgt, arch_reg, cached_prev=cached_item)
         if res.get("pending"):
             print("PENDING: "+res["checks"][0]["detail"])
             print("Previous QC report preserved; no new validation or visual acceptance recorded.")

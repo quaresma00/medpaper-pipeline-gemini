@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from wfcore.readiness import freeze_writing, verify_writing, verify_displays, reader_inputs
+from wfcore.readiness import freeze_writing, verify_writing, verify_displays, reader_inputs, sync_display_hashes
 
 
 def _preview(value):
@@ -23,7 +23,7 @@ def _preview(value):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["freeze", "verify", "displays", "review-inputs", "facts"])
+    parser.add_argument("command", choices=["freeze", "verify", "displays", "review-inputs", "facts", "sync-hashes"])
     parser.add_argument("--project", type=Path, default=Path("project"))
     parser.add_argument("--fact-id",action="append",default=[])
     parser.add_argument("--fields",nargs="+",help="specific fact fields to display")
@@ -51,6 +51,10 @@ def main():
             return 0
         if args.command == "review-inputs":
             print(json.dumps({"reviewed_artifacts": reader_inputs(args.project)}, indent=2, ensure_ascii=False))
+            return 0
+        if args.command == "sync-hashes":
+            summary = sync_display_hashes(args.project)
+            print(json.dumps(summary, indent=2, ensure_ascii=False))
             return 0
         if args.command == "freeze":
             freeze_writing(args.project)

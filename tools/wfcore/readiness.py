@@ -263,7 +263,119 @@ def reader_inputs(project: Path, *, protocol_context: bool = False) -> dict[str,
             if not rel:
                 raise ValueError(f"{entry.get('id')}: no rendered display file")
             files.add(rel)
+    if (project / "04_tables/previews").is_dir():
+        for p in sorted((project / "04_tables/previews").glob("*.png")):
+            if p.is_file():
+                files.add(p.relative_to(project).as_posix())
+    if (project / "04_tables/qc/table_qc_report.json").is_file():
+        files.add("04_tables/qc/table_qc_report.json")
     return {rel: _sha256(_safe_path(project, rel)[1]) for rel in sorted(files)}
+
+
+def sync_display_hashes(project: Path) -> dict:
+    """Synchronize objective hashes in display_review.json without fabricating PASS verdicts.
+
+    If a prototype preview or production workbook/render hash changed since its last review,
+    its existing PASS verdict is downgraded to PENDING_REINSPECTION so a fresh visual check
+    must occur before advancing.
+    """
+    from .benchmark import contract_hash
+
+    plan = load(project, "01_protocol/artifact_plan.json")
+    expected = {
+        entry["id"]: entry
+        for group in ("main_figures", "main_tables", "supp_figures", "supp_tables")
+        for entry in plan.get(group, [])
+    }
+    rev_path = project / PROTOTYPES
+    review = load(project, PROTOTYPES) if rev_path.is_file() else {}
+    updated_prototypes: list[str] = []
+    reinspection_needed: list[str] = []
+
+    for row in review.get("items", []):
+        if not isinstance(row, dict):
+            continue
+        did = str(row.get("id", ""))
+        entry = expected.get(did)
+        if not entry:
+            continue
+        contract = entry.get("reader_contract", {})
+        new_chash = contract_hash(entry)
+        new_q = contract.get("question", row.get("question", ""))
+        sources = entry.get("source_results", [])
+        new_src_hashes = {
+            r: _sha256(_safe_path(project, r)[1])
+            for r in sources
+            if _safe_path(project, r)[1].is_file()
+        }
+        prev_rel = str(row.get("preview", "")).strip()
+        new_prev_hash = None
+        if prev_rel:
+            try:
+                _, prev_file = _safe_path(project, prev_rel)
+                if prev_file.is_file():
+                    new_prev_hash = _sha256(prev_file)
+            except (OSError, ValueError):
+                pass
+        visual_drifted = bool(
+            (new_prev_hash and row.get("preview_sha256") and row.get("preview_sha256") != new_prev_hash)
+            or (row.get("contract_hash") and row.get("contract_hash") != new_chash)
+        )
+        row["contract_hash"] = new_chash
+        if new_q:
+            row["question"] = new_q
+        if len(new_src_hashes) == len(sources):
+            row["source_hashes"] = new_src_hashes
+        if new_prev_hash:
+            row["preview_sha256"] = new_prev_hash
+        if visual_drifted and row.get("verdict") == "PASS":
+            row["verdict"] = "PENDING_REINSPECTION"
+            reinspection_needed.append(f"prototype:{did}")
+        updated_prototypes.append(did)
+
+    final_reviews = review.get("final_reviews")
+    updated_finals: list[str] = []
+    if isinstance(final_reviews, dict):
+        for did, row in final_reviews.items():
+            if not isinstance(row, dict):
+                continue
+            entry = expected.get(did, {})
+            f_rel = str(row.get("reviewed_file") or entry.get("file") or "").strip()
+            p_rel = str(row.get("rendered_preview") or "").strip()
+            drifted = False
+            if f_rel:
+                try:
+                    _, f_path = _safe_path(project, f_rel)
+                    if f_path.is_file():
+                        nh = _sha256(f_path)
+                        if row.get("sha256") and row.get("sha256") != nh:
+                            drifted = True
+                        row["reviewed_file"] = f_rel
+                        row["sha256"] = nh
+                except (OSError, ValueError):
+                    pass
+            if p_rel:
+                try:
+                    _, p_path = _safe_path(project, p_rel)
+                    if p_path.is_file():
+                        nph = _sha256(p_path)
+                        if row.get("rendered_sha256") and row.get("rendered_sha256") != nph:
+                            drifted = True
+                        row["rendered_sha256"] = nph
+                except (OSError, ValueError):
+                    pass
+            if drifted and row.get("verdict") == "PASS":
+                row["verdict"] = "PENDING_REINSPECTION"
+                reinspection_needed.append(f"production:{did}")
+            updated_finals.append(did)
+
+    if rev_path.is_file() or review:
+        atomic_json(rev_path, review)
+    return {
+        "updated_prototypes": updated_prototypes,
+        "updated_final_reviews": updated_finals,
+        "reinspection_needed": reinspection_needed,
+    }
 
 
 def verify_reader_review(project: Path) -> list[str]:

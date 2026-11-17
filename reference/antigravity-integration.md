@@ -27,38 +27,39 @@ pipeline's state (`project/.wf/state.json`), declared output paths, or determini
      `F:\workspace\medpapaer\gemini`, ensure `.venv` (`uv run --python 3.13 python bootstrap.py`),
      and begin at `S01_intake`.
 
-## Subagent delegation for independent reviews (S18, S19, S24, S25)
+## Subagent delegation for independent reviews (S11b, S18, S19, S24)
 
 Antigravity provides native read-only subagent isolation via `invoke_subagent`:
 
 1. **Start the hash-bound round before delegating**:
+   - At S11b: `uv run python tools/review_round.py start --scope prewrite` (or `--delta`).
    - At S18 / S19: `uv run python tools/review_round.py start --scope manuscript` (use `--delta`
      on subsequent user-requested rounds).
-   - At S24: `uv run python tools/review_round.py start --scope package` (or `--delta`).
-   - At S25: freeze and verify exact uploads first (`uv run python tools/package_review.py freeze`
-     and `verify`), then extract `freeze_id` and `audit_context_id`.
+   - At S24: `uv run python tools/review_round.py start --scope package` (or `--delta`), and upon
+     user approval (`我确认这一版`), freeze and verify exact uploads (`uv run python tools/package_review.py freeze`
+     and `verify`) binding `freeze_id` and `audit_context_id` into `08_submission/independent_submission_audit.md`.
 2. **Launch exactly one independent read-only subagent**:
    - Prefer `invoke_subagent(TypeName="research", Role="...", Prompt="...")` because the `research`
      subagent runs in a read-only sandbox and has `read_file` support for Markdown, PNG rendered
-     figures/pages, and workspace artifacts without risk of mutating frozen sources.
+     figures/table previews/pages (`04_tables/previews/*.png`, `05_figures/out/*.png`), and workspace artifacts without risk of mutating frozen sources.
    - Pass the exact file paths and `reviewed_artifacts` JSON block printed by `review_round.py start`
-     (or the frozen bundle + cached official journal guide at S25). Instruct the reviewer to inspect
-     actual tables and rendered figure/page PNGs directly, write all required headings, include the
-     exact `reviewed_artifacts` JSON fenced block, and return the complete verbatim Markdown report.
+     (plus cached official journal guide at S24). Instruct the reviewer to inspect actual table preview
+     PNGs and rendered figure/page PNGs directly, write all required headings, include the exact
+     `reviewed_artifacts` JSON fenced block, and return the complete verbatim Markdown report.
 3. **Persist and attach the verbatim report**:
    - Because `research` is read-only, save its returned verbatim Markdown to a UTF-8 file in
      `project/temp/` and ingest it cleanly via:
      ```powershell
      uv run python tools/review_round.py ingest --scope manuscript --from-file project/temp/raw_review.md
      ```
-     (or `--scope package` at S24; at S25 write the verbatim returned report directly to
-     `project/08_submission/independent_submission_audit.md` without modifying frozen uploads).
+     (or `--scope prewrite` at S11b, `--scope package` at S24 alongside writing the final audit report
+     to `project/08_submission/independent_submission_audit.md` without modifying frozen uploads).
    - Never fabricate a subagent report, reuse a stale hash block, or substitute the main agent's
      own self-check as an independent review. If subagent delegation is genuinely unavailable,
      keep the independent review pending and report the blocker honestly.
 4. **Scoped fixes and explicit version-bound approval**:
-   - Apply safe, evidence-supported fixes through a sealed `tools/rework.py batch` in place at S19
-     or S24 without rewinding stage history, recheck true dependants, close the review round with
+   - Apply safe, evidence-supported fixes through a sealed `tools/rework.py batch` in place at S11b,
+     S19, or S24 without rewinding stage history, recheck true dependants, close the review round with
      exact `--change` and `--kept` dispositions, report once, and wait for the user's explicit
      statement **`我确认这一版`** (pass non-ASCII user wording safely via `--words-file` UTF-8 file).
 
@@ -85,7 +86,7 @@ Antigravity provides native read-only subagent isolation via `invoke_subagent`:
   - Interactive sidecars (`biomolecular-structure-viewer`), `pymol`, or `generative_ui` may help
     explore molecular structures or explain results in chat, and `image-generator` may act solely
     as an optional visual critic, **never** to redraw or edit statistical plots.
-- **Word builds, native tables, and journal switching (S20–S25)**:
+- **Word builds, native tables, and journal switching (S20–S24)**:
   - Scientific freeze (`07_manuscript/scientific_master_freeze.json`) locks S19 sources.
   - All journal tailoring lives under `08_submission/integration/` managed by `tools/journal.py`
     and `tools/manuscript/journal_workspace.py`. Switching target journals archives prior

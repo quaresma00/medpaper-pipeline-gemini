@@ -11,7 +11,7 @@ denominator, placement, overlap with other displays and likely reader misunderst
 Required scientific reader tasks determine displays. Do not treat "focused", "compact" or
 "nonredundant" as grounds to omit an applicable main selection flow or primary-result view.
 Map actual comparator figure/table pages to adopted/modified/omitted roles in the existing
-benchmark. Use **lightweight structural prototypes** under `01_protocol/prototypes/` to verify reader comprehension without duplicating full S10/S11 production: table prototypes need only column headers, hierarchical row stubs, units, and footnote templates (not full numeric dumps); figure prototypes use schematic/representative drafts or reusable initial scripts.
+benchmark. Use **lightweight prototypes** under `01_protocol/prototypes/` to verify reader comprehension without writing duplicate production code: table prototypes use `.md`/`.csv` structural skeletons (headers, group/indent stubs, units, footnote templates); figure prototypes MUST be real low-DPI visual drafts (`.png`/`.svg`/`.pdf` from fast prototype scripts in `01_protocol/prototypes/` promoted to `05_figures/out/` in S11 — never write to `05_figures/out/` at S07). Use `readiness.py sync-hashes` to sync objective hashes.
 New statistical graphics default to managed R; record a real exception for Python.
 
 Write substantive legends/captions that decode the actual display without repeating Results.

@@ -401,7 +401,8 @@ def check_round(project: Path, pipeline, state, path: Path, revision: dict) -> i
     if (previous.get("ok") and 0 <= age < 86400 and
             previous.get("input_signature") == input_signature(project,revision) and
             previous.get("renewable_evidence") == evidence and
-            not any(r["stage"] in {"S13_reflib","S25_submission_audit"} for r in revision["checks"])):
+            not any(r["stage"] in {"S13_reflib", "S24_package_human_review", "S25_submission_audit"}
+                    or r.get("spec", {}).get("live") for r in revision["checks"])):
         print("Scoped checks reused: exact files/rules/configuration/evidence unchanged; freshness not extended")
         return 0
     check_identities = {}

@@ -42,8 +42,8 @@ executed methods. Use the existing notes/acceptance; no extra report is required
    tuning grids, full imputation or sensitivity specifications, interview guides and a full
    statistical analysis plan. Do not move a core design decision or primary analysis there.
    Supplementary Methods is prose only: do not embed Markdown, HTML or grid tables. Any
-   genuinely tabular material must already be planned as `Table S*`, built later under
-   `04_tables/supplementary/` with the three-line table writer, and referenced from the prose.
+   genuinely tabular material must already be planned as `Table S*` and built in the preceding
+   `S10_tables` stage under `04_tables/supplementary/supplementary_tables.xlsx`, then referenced from the prose.
    Do not use `---`, `***` or `___` as visual separators; use ordinary paragraph spacing.
 6. Cite methodological choices with pandoc markers `[@key]`—the cutoff you adopted, the
    scoring system and model. Keys must come from records already
@@ -71,14 +71,14 @@ executed methods. Use the existing notes/acceptance; no extra report is required
   under `numbers_have_provenance`.
 - No placeholders. `TODO`, `TBD`, `xx.x` and friends fail the gate.
 - Past tense, declarative. No "we aimed to comprehensively investigate".
-- **Immediate per-section polish (mandatory)**: As soon as `methods.md` is drafted, consult
+- **Immediate per-section polish (mandatory)**: As soon as `methods.md` (and `supplementary_methods.md`, if created) is drafted, consult
   `reference/clinical-deai-antidefensive-writing.md` and run `polish.py section --file project/07_manuscript/methods.md --snapshot`
-  -> clinical/de-AI rewrite (adopt clear claim-driven structure and eliminate work-report/lab-log narration or code/pipeline jargon, while preserving all design constraints, sensitivity specifications, and methodological limitations) -> `--verify` BEFORE advancing (`section_polished`).
+  -> clinical/de-AI rewrite (adopt clear claim-driven structure and eliminate work-report/lab-log narration or code/pipeline jargon, while preserving all design constraints, sensitivity specifications, and methodological limitations) -> `--verify` BEFORE advancing (`section_polished`; run the same `--snapshot`/`--verify` cycle on `supplementary_methods.md` when present).
 
 ## Close
 ```
-uv run python tools\wf.py check
-uv run python tools\wf.py advance --note "methods drafted; heading map: <...>; supplementary Methods: <not needed/path and why>; citations used: <n>"
+uv run python tools/wf.py check
+uv run python tools/wf.py advance --note "methods drafted; heading map: <...>; supplementary Methods: <not needed/path and why>; citations used: <n>"
 ```
 
 

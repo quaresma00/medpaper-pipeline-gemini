@@ -17,7 +17,7 @@ uv run python tools/review_round.py start --scope prewrite
 2. Launch ONE independent read-only subagent with NO orchestration/backstage history. Provide ONLY:
    - `01_protocol/analysis_contract.json`, `01_protocol/protocol_final.md`, `01_protocol/artifact_benchmark.md`
    - `03_analysis/results/*.json`, `03_analysis/method_scan.md`
-   - `04_tables/` rendered `.xlsx`/captions and `05_figures/` rendered images + `legends.md`
+   - `04_tables/` workbooks, **rendered table preview PNGs (`04_tables/previews/*.png` via `read_file`)**, `04_tables/qc/table_qc_report.json`, `table_captions.md`, and `05_figures/` rendered PNGs + `05_figures/qc/qc_report.json` + `legends.md`
    - Required JSON evidence hash map `reviewed_artifacts` from step 1.
 3. The independent reviewer MUST deliver substantive findings (>=80 chars each) under these exact `##` headings plus the JSON `reviewed_artifacts` + `findings` fence:
    - `## Statistical methods & results rigor` (design alignment, confounding, sensitivity checks, effect precision, null/borderline honesty)

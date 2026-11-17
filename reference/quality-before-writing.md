@@ -60,11 +60,11 @@ basis checked 2026-10-24: [ICMJE participant protection](https://www.icmje.org/r
 [OHRP coded-information guidance](https://www.hhs.gov/ohrp/regulations-and-policy/guidance/research-involving-coded-private-information/index.html).
 OHRP is a jurisdiction-specific example, not the default rule for all studies.
 
-## Tables -> figures -> Results -> crosscheck
+## Tables -> figures -> pre-writing audit -> Methods -> Results -> crosscheck
 
-Execution order is S08 -> S10 tables -> S11 figures -> S09 Results -> S12 crosscheck.
+Execution order is `S07_artifacts` -> `S10_tables` -> `S11_figures` -> `S11b_prewrite_review` -> `S08_methods` -> `S09_results` -> `S12_reconcile`.
 Stable stage IDs preserve historical ownership; ordinal position follows pipeline.toml.
-S09 uses finished actual tables and rendered figures plus executed facts. S12 checks rather
+S08 and S09 use finished, SCIE-audited actual tables and rendered figures plus executed facts. S12 checks rather
 than intentionally rewriting all three. Rebuild only a genuinely inconsistent affected source.
 New table bindings belong at S10; S09 extends, never discards them. Upgrades skip completed
 stages instead of redoing completed Results merely because its position moved.
