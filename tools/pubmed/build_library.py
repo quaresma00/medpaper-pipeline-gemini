@@ -66,7 +66,7 @@ def used_citekeys() -> set[str]:
 def _entry_from_record(rec: dict, taken: set[str]) -> dict:
     key = eu.make_citekey(rec, taken)
     taken.add(key)
-    return {
+    out = {
         "citekey": key,
         "pmid": rec.get("pmid", ""),
         "doi": rec.get("doi", ""),
@@ -87,18 +87,30 @@ def _entry_from_record(rec: dict, taken: set[str]) -> dict:
         "cache_file": rec.get("cache_file", ""),
         "retrieved_at": rec.get("retrieved_at", eu.now()),
     }
+    for opt_key in ("url", "r_package", "authority_kind", "bib_type", "pool_role"):
+        if rec.get(opt_key):
+            out[opt_key] = rec[opt_key]
+    return out
 
 
 def add_records(lib: dict, records: list[dict]) -> tuple[int, int, int]:
     by_pmid = {e.get("pmid"): e for e in lib["entries"] if e.get("pmid")}
-    by_doi = {e.get("doi"): e for e in lib["entries"] if e.get("doi")}
+    by_doi = {str(e.get("doi")).casefold(): e for e in lib["entries"] if e.get("doi")}
+    by_rpkg = {e.get("r_package"): e for e in lib["entries"] if e.get("r_package")}
+    by_auth_url = {e.get("url"): e for e in lib["entries"] if e.get("source") == "authority" and e.get("url") and not e.get("r_package")}
     taken = {e["citekey"] for e in lib["entries"]}
     added = dropped = dup = 0
     for rec in records:
         if rec.get("pmid") and rec["pmid"] in by_pmid:
             dup += 1
             continue
-        if rec.get("doi") and rec["doi"] in by_doi:
+        if rec.get("doi") and str(rec["doi"]).casefold() in by_doi:
+            dup += 1
+            continue
+        if rec.get("r_package") and rec["r_package"] in by_rpkg:
+            dup += 1
+            continue
+        if rec.get("source") == "authority" and not rec.get("r_package") and rec.get("url") and rec["url"] in by_auth_url:
             dup += 1
             continue
         entry = _entry_from_record(rec, taken)
@@ -106,7 +118,11 @@ def add_records(lib: dict, records: list[dict]) -> tuple[int, int, int]:
         if entry["pmid"]:
             by_pmid[entry["pmid"]] = entry
         if entry["doi"]:
-            by_doi[entry["doi"]] = entry
+            by_doi[str(entry["doi"]).casefold()] = entry
+        if entry.get("r_package"):
+            by_rpkg[entry["r_package"]] = entry
+        if entry.get("source") == "authority" and not entry.get("r_package") and entry.get("url"):
+            by_auth_url[entry["url"]] = entry
         added += 1
     return added, dropped, dup
 
@@ -127,6 +143,7 @@ def _bib_escape(s: str) -> str:
 def to_bibtex(entries: list[dict]) -> str:
     chunks = ["% Generated from library.json. Do not edit by hand - regenerate with --export.\n"]
     for e in entries:
+        btype = e.get("bib_type") or "article"
         authors = " and ".join(
             ("{" + _bib_escape(a["last"]) + "}" if a.get("collective") else
              "{" + _bib_escape(a["last"]) + "}, " +
@@ -137,26 +154,29 @@ def to_bibtex(entries: list[dict]) -> str:
         fields = [
             ("author", authors),
             ("title", _bib_escape(e.get("title", ""))),
-            ("journal", _bib_escape(e.get("journal", ""))),
+            ("journal" if btype == "article" else "organization", _bib_escape(e.get("journal", ""))),
             ("year", e.get("year", "")),
             ("volume", e.get("volume", "")),
             ("number", e.get("issue", "")),
             ("pages", (e.get("pages", "") or "").replace("-", "--")),
             ("doi", e.get("doi", "")),
             ("pmid", e.get("pmid", "")),
+            ("url", e.get("url", "")),
         ]
         body = ",\n".join(f"  {k} = {{{v}}}" for k, v in fields if v)
         note = ""
         if e.get("flags"):
             note = f",\n  note = {{FLAGS: {', '.join(e['flags'])}}}"
-        chunks.append(f"@article{{{e['citekey']},\n{body}{note}\n}}\n")
+        chunks.append(f"@{btype}{{{e['citekey']},\n{body}{note}\n}}\n")
     return "\n".join(chunks)
 
 
 def to_ris(entries: list[dict]) -> str:
     out = []
     for e in entries:
-        lines = ["TY  - JOUR"]
+        btype = e.get("bib_type") or "article"
+        ty = "COMP" if btype == "manual" else "GEN" if btype == "misc" else "JOUR"
+        lines = [f"TY  - {ty}"]
         for a in e.get("authors", []):
             if a.get("last"):
                 name = a["last"] if a.get("collective") else (
@@ -168,7 +188,7 @@ def to_ris(entries: list[dict]) -> str:
             f"JO  - {e.get('journal', '')}",
             f"PY  - {e.get('year', '')}",
         ]
-        for tag, key in (("VL", "volume"), ("IS", "issue"), ("SP", "pages"), ("DO", "doi")):
+        for tag, key in (("VL", "volume"), ("IS", "issue"), ("SP", "pages"), ("DO", "doi"), ("UR", "url")):
             if e.get(key):
                 lines.append(f"{tag}  - {e[key]}")
         if e.get("abstract"):
@@ -219,6 +239,24 @@ def main() -> int:
     ap.add_argument("--topic", help="primary topic; runs a small family of queries")
     ap.add_argument("--add-query", action="append", default=[], help="one extra query (repeatable)")
     ap.add_argument("--add-ids", help="comma-separated PMIDs to add directly")
+    ap.add_argument("--add-dois", help="comma-separated DOIs resolved via Crossref for non-PubMed references")
+    ap.add_argument("--methodology", action="store_true",
+                    help="mark --add-dois records as foundational statistical/methodological DOI citations")
+    ap.add_argument("--add-r-citation", action="append", default=[], metavar="PACKAGE",
+                    help="add verified R software/package citation via Rscript citation() (use 'R' for base R)")
+    ap.add_argument("--add-authority-url", help="add official guideline/dictionary/regulatory URL snapshot")
+    ap.add_argument("--authority-title", default="", help="exact official document title for --add-authority-url")
+    ap.add_argument("--authority-year", default="", help="publication/release year for --add-authority-url")
+    ap.add_argument("--authority-author", default="", help="issuing authority/organization for --add-authority-url")
+    ap.add_argument("--authority-journal", default="Official Guideline / Regulatory Standard",
+                    help="container/series label for --add-authority-url")
+    ap.add_argument("--pool-role", choices=["candidate", "core"], default="",
+                    help="tag newly added entries with pool_role ('candidate' entries do not require per-item uncited prose reasons)")
+    ap.add_argument("--archive-uncited", action="store_true",
+                    help="record batch candidate-pool explanation in 06_refs/usage.json for all uncited library entries without touching library.json")
+    ap.add_argument("--archive-reason",
+                    default="Screened in verified candidate literature/benchmark pool; retained un-cited in final prose to avoid citation padding.",
+                    help="explanation string (>=20 chars) used by --archive-uncited")
     ap.add_argument("--target", type=int, help="legacy advisory planning hint; never skips remaining coverage queries")
     ap.add_argument("--retmax", type=int, default=60, help="records to pull per query")
     ap.add_argument("--years", type=int, help="restrict searches to the last N years")
@@ -229,8 +267,34 @@ def main() -> int:
     args = ap.parse_args()
 
     lib = load_library()
+    if args.archive_uncited:
+        if args.topic or args.add_query or args.add_ids or args.add_dois or args.add_r_citation or args.add_authority_url or args.drop or args.export:
+            raise ValueError("Run --archive-uncited separately from metadata acquisition/export")
+        reason_str = args.archive_reason.strip()
+        if len(reason_str) < 20:
+            raise ValueError("--archive-reason must be at least 20 characters")
+        from wfcore.readiness import atomic_json
+        cited = set()
+        for sec in ("introduction", "methods", "results", "discussion", "abstract", "supplementary_methods"):
+            sec_path = eu.project_root() / f"07_manuscript/{sec}.md"
+            if sec_path.is_file():
+                for m in re.finditer(r"\[([^\]]*@[^\]]*)\]", sec_path.read_text(encoding="utf-8", errors="replace")):
+                    cited.update(CITE_RE.findall(m.group(1)))
+        usage = eu.project_root() / "06_refs/usage.json"
+        record = json.loads(usage.read_text(encoding="utf-8")) if usage.is_file() else {"uncited_reasons": {}}
+        reasons = record.setdefault("uncited_reasons", {})
+        recorded_n = 0
+        for e in lib.get("entries", []):
+            ck = e.get("citekey", "")
+            if ck and ck not in cited and len(str(reasons.get(ck, "")).strip()) < 20:
+                reasons[ck] = reason_str
+                recorded_n += 1
+        atomic_json(usage, record)
+        print(f"Archived {recorded_n} uncited candidate entry/entries in 06_refs/usage.json; library.json unchanged.")
+        return 0
+
     if args.uncited_reason:
-        if args.topic or args.add_query or args.add_ids or args.drop or args.export:
+        if args.topic or args.add_query or args.add_ids or args.add_dois or args.add_r_citation or args.add_authority_url or args.drop or args.export:
             raise ValueError("Record usage separately from metadata acquisition/export")
         from wfcore.readiness import atomic_json
         usage=eu.project_root()/"06_refs/usage.json"
@@ -262,6 +326,9 @@ def main() -> int:
     for q in queries:
         res = eu.esearch(q, retmax=args.retmax, years=args.years)
         recs = eu.efetch(res["ids"])
+        if args.pool_role:
+            for r in recs:
+                r["pool_role"] = args.pool_role
         added, dropped, dup = add_records(lib, recs)
         lib.setdefault("queries", []).append(
             {"query": q, "at": eu.now(), "hits": res["count"], "added": added,
@@ -274,17 +341,62 @@ def main() -> int:
     if args.add_ids:
         ids = [x for x in args.add_ids.replace(" ", "").split(",") if x]
         recs = eu.efetch(ids)
+        if args.pool_role:
+            for r in recs:
+                r["pool_role"] = args.pool_role
         added, dropped, dup = add_records(lib, recs)
         print(f"[--add-ids] +{added} added, {dup} already present; no-abstract records require registered full text")
+
+    if args.add_dois:
+        dois = [x.strip() for x in args.add_dois.split(",") if x.strip()]
+        recs = []
+        for doi in dois:
+            rec = eu.crossref_fetch(doi, fresh=False, purpose="discovery")
+            if rec is None:
+                eu.die(f"DOI not resolvable via Crossref: {doi}")
+            if args.methodology:
+                rec["authority_kind"] = "methodology_doi"
+            if args.pool_role:
+                rec["pool_role"] = args.pool_role
+            recs.append(rec)
+        added, _, dup = add_records(lib, recs)
+        print(f"[--add-dois] +{added} Crossref DOI record(s) added, {dup} already present")
+
+    if args.add_r_citation:
+        recs = []
+        for pkg in args.add_r_citation:
+            rec = eu.r_citation_record(pkg, fresh=False, purpose="discovery")
+            if args.pool_role:
+                rec["pool_role"] = args.pool_role
+            recs.append(rec)
+        added, _, dup = add_records(lib, recs)
+        print(f"[--add-r-citation] +{added} R software citation(s) added, {dup} already present")
+
+    if args.add_authority_url:
+        if not (args.authority_title.strip() and args.authority_year.strip() and args.authority_author.strip()):
+            eu.die("--add-authority-url requires --authority-title, --authority-year, and --authority-author")
+        rec = eu.authority_url_record(
+            args.add_authority_url,
+            title=args.authority_title,
+            year=args.authority_year,
+            author=args.authority_author,
+            journal=args.authority_journal,
+            fresh=False,
+            purpose="discovery",
+        )
+        if args.pool_role:
+            rec["pool_role"] = args.pool_role
+        added, _, dup = add_records(lib, [rec])
+        print(f"[--add-authority-url] +{added} official authority snapshot added, {dup} already present")
 
     missing = used_citekeys() - {e["citekey"] for e in lib["entries"]}
     if missing:
         print(f"\n!! {len(missing)} citekey(s) are cited in the project but not in the library:")
         print("   " + ", ".join(sorted(missing)))
-        print("   Add them with --add-ids <pmid>, or fix the citation. Never leave a dangling key.")
+        print("   Add them with --add-ids <pmid> / --add-dois <doi>, or fix the citation. Never leave a dangling key.")
 
     save_library(lib)
-    if args.export or queries or args.add_ids or args.drop:
+    if args.export or queries or args.add_ids or args.add_dois or args.add_r_citation or args.add_authority_url or args.drop:
         export(lib)
     if args.report:
         report(lib)

@@ -114,18 +114,32 @@ def reference_usage(ctx):
             if path.is_file(): cited.update(citekeys(path.read_text(encoding="utf-8")))
         usage=ctx.project/"06_refs/usage.json"
         reasons=json.loads(usage.read_text(encoding="utf-8")).get("uncited_reasons",{}) if usage.is_file() else {}
-        absent=[key for key in entries.keys()-cited if len(str(reasons.get(key,"")))<20]
-        if absent: return Result(False,"reference_usage","Each unused library entry needs a concrete non-use reason: "+", ".join(sorted(absent)))
+        absent=[
+            key for key in entries.keys()-cited
+            if entries[key].get("pool_role")!="candidate" and len(str(reasons.get(key,"")))<20
+        ]
+        if absent:
+            return Result(
+                False,
+                "reference_usage",
+                "Each unused non-candidate library entry needs a concrete non-use reason (or archive candidate pool via `tools/pubmed/build_library.py --archive-uncited`): "
+                + ", ".join(sorted(absent)),
+            )
     except (OSError,ValueError,KeyError) as exc: return Result(False,"reference_usage",str(exc))
-    return Result(True,"reference_usage",f"library={len(entries)}, actually cited={len(cited)}, unused explained={len(entries.keys()-cited)}; never pad citations")
+    return Result(True,"reference_usage",f"library={len(entries)}, actually cited={len(cited)}, unused/candidate accounted={len(entries.keys()-cited)}; never pad citations")
 
 @check("manuscript_size_health")
 def manuscript_size_health(ctx):
     from .refs import citekeys
+    from .readiness import _resolve_genre_profile
     try:
+        genre_name, genre_prof, _ = _resolve_genre_profile(ctx)
         text=ctx.read("07_manuscript/full_manuscript.md"); count=len(set(citekeys(text)))
         words=len(re.findall(r"\b[A-Za-z][A-Za-z'-]*\b",text))
-        return Result(45<=count<=60,"manuscript_size_health",f"Advisory assembly health: {count} cited sources (45–60 reference band, not a quota), {words} words incl. all sections. Explain project/benchmark fit; never add irrelevant papers.",severity="warn")
+        lo, hi = ((12, 30) if genre_name in {"brief_report", "short_communication"}
+                  else (5, 12) if genre_name == "research_letter"
+                  else (45, 60))
+        return Result(lo<=count<=hi,"manuscript_size_health",f"Advisory assembly health ({genre_name}): {count} cited sources ({lo}–{hi} reference band, not a quota), {words} words incl. all sections. Explain project/benchmark fit; never add irrelevant papers.",severity="warn")
     except OSError as exc: return Result(False,"manuscript_size_health",str(exc))
 
 @check("journal_display_fit")

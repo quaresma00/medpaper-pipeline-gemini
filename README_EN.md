@@ -1,10 +1,10 @@
-# medpaper-pipeline-gemini — Gated Medical Research Paper Workflow (v1.31.0)
+# medpaper-pipeline-gemini — Gated Medical Research Paper Workflow (v1.32.0)
 
 [中文说明](README.md) | [English Documentation](README_EN.md)
 
-A 25-stage, fail-closed medical and clinical research paper workflow optimized for **Google Antigravity / Gemini** (`uv run python` + `pwsh`), running the `v1.31.0` verification architecture. It drives a clinical research idea from feasibility and full-census data acquisition through R-first statistical graphics, pre-writing SCIE audit (`S11b`), immediate per-section clinical de-AI/anti-defensive polishing, context- and scale-bound IMRAD writing, version-bound read-only subagent review, frozen scientific master isolation, and browser-verified journal submission bundles.
+A 25-stage, fail-closed medical and clinical research paper workflow optimized for **Google Antigravity / Gemini** (`uv run python` + `pwsh`), running the `v1.32.0` verification architecture. It drives a clinical research idea from feasibility and full-census data acquisition through R-first statistical graphics, pre-writing SCIE audit (`S11b`), immediate per-section clinical de-AI/anti-defensive polishing, context- and scale-bound IMRAD writing, version-bound read-only subagent review, frozen scientific master isolation, and browser-verified journal submission bundles.
 
-## Architectural Highlights (`v1.31.0`)
+## Architectural Highlights (`v1.32.0`)
 
 | Risk / Failure Mode | Architectural Enforcement |
 |---|---|

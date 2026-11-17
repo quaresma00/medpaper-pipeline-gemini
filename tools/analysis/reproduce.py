@@ -45,11 +45,51 @@ def results(project):
             for p in sorted((project / "03_analysis/results").glob("*.json"))}
 
 
+MAX_FLOAT_RTOL = 1e-11
+
+
 def canonical(value):
     value = copy.deepcopy(value)
     if isinstance(value.get("environment"), dict):
         value["environment"].pop("written_at", None)  # NOT scientific date/time fields.
     return value
+
+
+def _declared_float_rtol(value) -> float:
+    env = value.get("environment", {}) if isinstance(value, dict) else {}
+    raw = env.get("float_rtol", 0.0) if isinstance(env, dict) else 0.0
+    if raw in (None, 0, 0.0):
+        return 0.0
+    rtol = float(raw)
+    if rtol < 0 or rtol > MAX_FLOAT_RTOL:
+        raise ValueError(f"environment.float_rtol ({rtol}) must be in [0, {MAX_FLOAT_RTOL:g}]; fix nondeterminism/seeds instead of widening tolerance")
+    return rtol
+
+
+def _values_equal(left, right, float_rtol: float) -> bool:
+    import math
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, int) and isinstance(right, int):
+        return left == right
+    if isinstance(left, float) and isinstance(right, float):
+        if math.isnan(left) or math.isnan(right):
+            return False
+        if float_rtol > 0:
+            return math.isclose(left, right, rel_tol=float_rtol, abs_tol=1e-14)
+        return left == right
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(_values_equal(left[k], right[k], float_rtol) for k in left)
+    if isinstance(left, list):
+        return len(left) == len(right) and all(_values_equal(a, b, float_rtol) for a, b in zip(left, right))
+    return left == right
+
+
+def canonical_equal(left, right) -> bool:
+    rtol = _declared_float_rtol(right)
+    return _values_equal(canonical(left), canonical(right), rtol)
 
 
 def identity(project, rel, value):
@@ -134,14 +174,15 @@ def verify(project):
             retained = _safe_path(project, proof.get("replayed", "missing"))[1]
             if proof.get("identity") != current or not retained.is_file() or _sha256(retained) != proof.get("replay_sha256"):
                 defects.append(f"{rel}: missing/stale replay proof")
-            elif canonical(json.loads(retained.read_text(encoding="utf-8"))) != canonical(value):
+            elif not canonical_equal(json.loads(retained.read_text(encoding="utf-8")), value):
                 defects.append(f"{rel}: retained replay disagrees with actual scientific results/environment")
         return defects
     except (OSError, ValueError, KeyError, TypeError) as exc:
         return [str(exc)]
 
 
-def replay(project, only=None, timeout=3600, copy_limit_bytes=200*1024*1024):
+def replay(project, only=None, timeout=3600, copy_limit_bytes=200*1024*1024, *,
+           readonly_derived: bool = False):
     project = project.resolve()
     from wfcore.engineintegrity import verify_engine
     verify_engine(ROOT)
@@ -160,7 +201,7 @@ def replay(project, only=None, timeout=3600, copy_limit_bytes=200*1024*1024):
         prior = report.get(rel, {})
         retained = _safe_path(project, prior.get("replayed", "missing"))[1]
         if (prior.get("identity") == current and retained.is_file() and _sha256(retained) == prior.get("replay_sha256")
-                and canonical(json.loads(retained.read_text(encoding="utf-8"))) == canonical(value)):
+                and canonical_equal(json.loads(retained.read_text(encoding="utf-8")), value)):
             continue
         by_script.setdefault(value["environment"]["script"], []).append(rel)
     for script, outputs in by_script.items():
@@ -169,27 +210,37 @@ def replay(project, only=None, timeout=3600, copy_limit_bytes=200*1024*1024):
         declared = set().union(*(original[r]["environment"]["inputs"] for r in outputs))
         before = {r: _sha256(input_path(project,r)) for r in [script, *declared, *outputs]}
         local=[script,*sorted(r for r in declared if not r.startswith("data:"))]
-        required=sum(input_path(project,r).stat().st_size for r in local)
+        copy_items = [r for r in local if not (readonly_derived and r.startswith("02_data/derived/"))]
+        derived_ro = [r for r in local if readonly_derived and r.startswith("02_data/derived/")]
+        required=sum(input_path(project,r).stat().st_size for r in copy_items)
         if copy_limit_bytes<0 or copied+required>copy_limit_bytes:
-            raise ValueError("Replay input-copy budget exceeded before copying. Register the full original dataset with data_sources.py and read its data: reference; never truncate, hard-link, overwrite originals or silently fall back to a large copy.")
+            raise ValueError("Replay input-copy budget exceeded before copying. Register the full original dataset with data_sources.py and read its data: reference (or pass --readonly-derived for verified 02_data/derived/ matrices); never truncate, overwrite originals or silently fall back to a large copy.")
         from wfcore.replayjobs import sandbox as owned_sandbox
         with owned_sandbox(project) as temporary:
             sandbox = Path(temporary)
             if any(r.startswith("data:") for r in declared):
                 registry=_safe_path(sandbox,REGISTRY)[1]; registry.parent.mkdir(parents=True,exist_ok=True)
                 shutil.copy2(project/REGISTRY,registry)
-            for rel in local:
+            for rel in copy_items:
                 source = input_path(project,rel)
                 dest = _safe_path(sandbox, rel)[1]
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, dest)
+            for rel in derived_ro:
+                source = input_path(project, rel)
+                dest = _safe_path(sandbox, rel)[1]
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.link(source, dest)
+                except OSError:
+                    shutil.copy2(source, dest)
             copied+=required
             run(sandbox, script, timeout,log_project=project)
             replayed = results(sandbox)
             if any(not input_path(project,r).is_file() or _sha256(input_path(project,r)) != h for r, h in before.items()):
                 raise ValueError("Real study changed during replay; evidence not accepted")
             for rel in outputs:
-                if rel not in replayed or canonical(replayed[rel]) != canonical(original[rel]):
+                if rel not in replayed or not canonical_equal(replayed[rel], original[rel]):
                     raise ValueError(f"{rel}: replay differs (including exact counts); inspect nondeterminism or undeclared inputs")
                 # A later producer failure must not overwrite an earlier proof's replay.
                 digest=_sha256(sandbox/rel)
@@ -211,6 +262,8 @@ def main():
     ap.add_argument("--project", type=Path, default=paths.project_dir())
     ap.add_argument("--timeout", type=int, default=3600,help="explicit producer deadline; long tasks use managed waits and heartbeat, not shell polling")
     ap.add_argument("--copy-limit-mb",type=int,default=200,help="local sandbox-copy budget; data: references copy zero dataset bytes")
+    ap.add_argument("--readonly-derived", action="store_true",
+                    help="mount 02_data/derived/ inputs into replay sandbox without counting against copy budget (SHA-256 verified before and after)")
     ap.add_argument("--apply",action="store_true",help="cleanup only owned sandboxes whose parent/recorded child are no longer alive")
     args = ap.parse_args()
     try:
@@ -220,7 +273,9 @@ def main():
             run(args.project, args.script, args.timeout)
             print("Producer executed; validate scientific outputs before replay")
         elif args.command == "replay":
-            print(json.dumps({"executed": replay(args.project, args.output, args.timeout,copy_limit_bytes=args.copy_limit_mb*1024*1024)}))
+            print(json.dumps({"executed": replay(args.project, args.output, args.timeout,
+                                                 copy_limit_bytes=args.copy_limit_mb*1024*1024,
+                                                 readonly_derived=args.readonly_derived)}))
         elif args.command=="cleanup":
             from wfcore.replayjobs import cleanup
             print(json.dumps(cleanup(args.project,args.apply)))

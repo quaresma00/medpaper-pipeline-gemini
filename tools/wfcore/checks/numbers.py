@@ -152,10 +152,20 @@ def _scrub(text: str, *, table_non_result: bool = False) -> str:
     text = re.sub(r"^\s*#{1,6}\s.*$", " ", text, flags=re.M)
     text = re.sub(r"(?<![\d.])(?:80|85|90|95|97\.5|98|99)%\s*(?:CI|confidence\s+intervals?)\b", "CI", text, flags=re.I)
     text = re.sub(r"\b(19|20)\d{2}\s*[-\u2013]\s*(19|20)?\d{2}\b", " ", text)  # not scrubbed values
-    # Universal biomedical versioning, formal classification/registry codes, and hyphenated attributive windows.
+    # Universal biomedical versioning, formal classification/registry codes, standard clinical units/stagings, and hyphenated attributive windows.
     text = re.sub(r"\b(?:version|ver\.?|v)\s*\d+(?:\.\d+)+\b", " ", text, flags=re.I)
+    text = re.sub(r"\b1\.73\s*m(?:²|2|\^2)\b", " ", text, flags=re.I)
+    text = re.sub(r"\b(?:CHA2DS2-VASc|CHA₂DS₂-VASc|CHADS2|HAS-BLED)\b", " ", text, flags=re.I)
+    text = re.sub(r"\b(?:c|p|yp)?T[0-4a-cisx]+N[0-3a-cx]+M[0-1a-cx]+\b", " ", text)
+    text = re.sub(r"\b(?:ECOG|NYHA|ASA|Killip)\s+(?:class\s+|status\s+|grade\s+|score\s+)?[0-5IV]+(?:\s*[-\u2013]\s*[0-5IV]+)?\b", " ", text, flags=re.I)
     text = re.sub(r"\b(?:ICD-(?:9|10|11)(?:-[A-Z0-9.]+)?|NCT\d{6,})\b", " ", text, flags=re.I)
     text = re.sub(r"\b(?:PT|SMQ|HLT|HLGT|SOC|ATC|CPT|LOINC|SNOMED|Code|ID|Term)\s*[:#\- ]?\s*\d{4,}\b", " ", text, flags=re.I)
+    text = re.sub(
+        r"\b\d+-(?:\s*,\s*\d+-)*(?:\s*,?\s*(?:and|or)\s+\d+-)\s*(?:day|week|month|year|yr|mo|wk|hour|hr)s?\b",
+        " ",
+        text,
+        flags=re.I,
+    )
     text = re.sub(
         r"\b\d+(?:\.\d+)?-(?:day|week|month|year|yr|mo|wk|hour|hr|minute|min|"
         r"fold|item|point|arm|group|stage|step|phase|level|tier|quartile|"
@@ -326,14 +336,20 @@ def numbers_have_provenance(ctx: Ctx) -> Result:
             )
         return Result(True, "numbers_have_provenance", "explicit figure statistical annotations trace to bound result fields")
 
+    only_md = str(ctx.spec.get("_only") or "").strip().casefold()
+    if only_md and only_md not in rel.casefold() and Path(rel).stem.casefold() != only_md.removesuffix(".md"):
+        return Result(True, "numbers_have_provenance", f"{rel}: skipped outside --only {ctx.spec.get('_only')}")
+    verbose = bool(ctx.spec.get("_verbose"))
     from ..journalspec import admin_scrub
     from ..sourceclaims import mask
     masked, external_problems = mask(ctx.project, rel, ctx.read(rel))
     if external_problems:
-        return Result(False, "numbers_have_provenance", "; ".join(external_problems[:8]))
+        limit = len(external_problems) if verbose else 8
+        return Result(False, "numbers_have_provenance", "; ".join(external_problems[:limit]))
     bad = _offenders(admin_scrub(masked, ctx.project, rel), floats, strings, allowed)
     if bad:
-        shown = "; ".join(f"line {ln}: {tok}" for ln, tok in bad[:10])
+        limit = len(bad) if verbose else 10
+        shown = "; ".join(f"line {ln}: {tok}" for ln, tok in bad[:limit])
         return Result(
             False,
             "numbers_have_provenance",
@@ -346,7 +362,8 @@ def numbers_have_provenance(ctx: Ctx) -> Result:
         )
     from ..claims import validate_prose
     problems = validate_prose(ctx.project, rel, masked, already_masked=True)
-    return Result(not problems, "numbers_have_provenance", "; ".join(problems[:8]) or
+    p_limit = len(problems) if verbose else 8
+    return Result(not problems, "numbers_have_provenance", "; ".join(problems[:p_limit]) or
                   f"{rel}: numeric source checks passed; clinical interpretation still requires scientific review")
 
 

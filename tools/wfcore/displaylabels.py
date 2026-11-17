@@ -70,7 +70,7 @@ BINARY_KV_ALLOWED_KEYS = {
     "cha2ds2-vasc", "has-bled", "child-pugh", "meld", "aki", "ckd", "gold", "bi-rads",
 }
 NUMBERED_GROUP_CODE_RE = re.compile(
-    r"\b(?:Group|Arm|Cluster|Cohort|Treat(?:ment)?|Exposure|Stratum)\s+[01]\b",
+    r"\b(?:Group|Arm|Cluster|Cohort|Treat(?:ment)?|Exposure|Stratum)\s+(?:[01]|[2-9](?!\s*[:(\u2013\-]))\b",
     re.I,
 )
 
@@ -123,12 +123,12 @@ ANALYTICS_TITLE_RE = re.compile(
 
 # Shorthand model object names and numbered models.
 SHORTHAND_MODEL_RE = re.compile(r"^\s*(?:m[1-9]|mod[1-9]|fit[1-9]|mdl[1-9])(?:\b|\s*\()", re.I)
-NUMBERED_MODEL_RE = re.compile(r"\bModel\s+([1-9]\d*|I{1,3}|IV|V)\b")
+NUMBERED_MODEL_RE = re.compile(r"\bModel\s+([1-9]\d*[A-Za-z]?|I{1,3}|IV|V)\b")
 MODEL_ADJUSTMENT_EXPLANATION_RE = re.compile(
     r"\b(?:"
     r"unadjusted|crude|adjusted\s+for|adjusting\s+for|controlling\s+for|"
     r"covariates?|stratified\s+by|includes?\b|including\b|plus\b|"
-    r"model\s+(?:[1-9]\d*|i{1,3}|iv|v)\s*[:=,;(]"
+    r"model\s+(?:[1-9]\d*[a-z]?|i{1,3}|iv|v)\s*[:=,;(]"
     r")\b",
     re.I,
 )

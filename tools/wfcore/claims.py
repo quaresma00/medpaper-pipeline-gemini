@@ -84,6 +84,57 @@ MEASURE_FAMILIES: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         "abbr": (),
     },
+    "regression_slope": {
+        "phrases": (
+            "linear regression coefficient", "regression coefficient",
+            "regression slope", "adjusted beta", "beta coefficient",
+        ),
+        "abbr": ("β",),
+    },
+    "rmst_difference": {
+        "phrases": (
+            "restricted mean survival time difference",
+            "difference in restricted mean survival time",
+            "rmst difference",
+        ),
+        "abbr": ("ΔRMST", "dRMST"),
+    },
+    "geometric_mean_ratio": {
+        "phrases": (
+            "geometric mean ratio", "geometric mean ratios", "fold change",
+        ),
+        "abbr": ("GMR",),
+    },
+    "diagnostic_sensitivity": {
+        "phrases": ("diagnostic sensitivity", "true positive rate"),
+        "abbr": (),
+    },
+    "diagnostic_specificity": {
+        "phrases": ("diagnostic specificity", "true negative rate"),
+        "abbr": (),
+    },
+    "predictive_value": {
+        "phrases": ("positive predictive value", "negative predictive value"),
+        "abbr": ("PPV", "NPV"),
+    },
+    "reclassification": {
+        "phrases": (
+            "net reclassification improvement",
+            "integrated discrimination improvement",
+        ),
+        "abbr": ("NRI", "IDI"),
+    },
+    "heterogeneity_i2": {
+        "phrases": ("heterogeneity statistic", "between-study variance", "i-squared"),
+        "abbr": ("I²", "I2"),
+    },
+    "mendelian_randomization_ivw": {
+        "phrases": (
+            "inverse-variance weighted estimate", "ivw estimate",
+            "mr-egger slope", "weighted median estimate",
+        ),
+        "abbr": ("IVW",),
+    },
 }
 
 UNIT_SYNONYMS: dict[str, tuple[str, ...]] = {

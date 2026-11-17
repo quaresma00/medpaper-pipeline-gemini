@@ -122,12 +122,21 @@ def append_tables(doc, project: Path, entries: list[dict], style: dict) -> None:
             values = [[display(value) for value in row] for row in values]
             if any(isinstance(value, str) and value.startswith("=") for row in values for value in row):
                 raise ValueError("formula cells require an explicitly calculated value source; never render formulas as results")
+            from openpyxl.utils import get_column_letter
             chars = [min(40, max(6, max(len(str(row[c] or "")) for row in values))) for c in range(ncol)]
+            src_col_widths = []
+            for c in range(ncol):
+                dim = sheet.column_dimensions.get(get_column_letter(c + 1))
+                w_val = float(dim.width) if (dim is not None and dim.width is not None and float(dim.width) > 0) else 0.0
+                src_col_widths.append(w_val)
             estimated = sum(char * float(style["body_font_pt"]) * 10 + 216 for char in chars)
             portrait_width = Inches((8.5 if str(style["paper_size"]).upper() == "LETTER" else 8.2677) - 2 * float(style["margins_in"])).twips
             orientation = entry.get("orientation", "auto")
             if orientation == "auto":
-                orientation = "landscape" if ncol > 7 or estimated > portrait_width else "portrait"
+                if getattr(sheet.page_setup, "orientation", None) == "landscape":
+                    orientation = "landscape"
+                else:
+                    orientation = "landscape" if ncol > 7 or estimated > portrait_width else "portrait"
             section = doc.add_section(WD_SECTION_START.NEW_PAGE)
             _geometry(section, orientation, style)
             doc.add_paragraph(caption)
@@ -142,7 +151,7 @@ def append_tables(doc, project: Path, entries: list[dict], style: dict) -> None:
                 node = OxmlElement(f"w:{edge}"); node.set(qn("w:val"), "nil"); borders.append(node)
             table._tbl.tblPr.append(borders)
             width = section.page_width.twips - section.left_margin.twips - section.right_margin.twips
-            weights = [char + 3 for char in chars]
+            weights = [src_col_widths[c] if src_col_widths[c] > 0 else (chars[c] + 3) for c in range(ncol)]
             widths = [int(width * weight / sum(weights)) for weight in weights]
             widths[-1] += width - sum(widths)
             # Protect unbreakable medical tokens; grow their column before shrinking text.
@@ -153,15 +162,28 @@ def append_tables(doc, project: Path, entries: list[dict], style: dict) -> None:
             widths[-1] += width - sum(widths)
             for column, amount in zip(table.columns, widths):
                 column.width = Twips(amount)
+            align_map = {
+                "left": WD_ALIGN_PARAGRAPH.LEFT,
+                "center": WD_ALIGN_PARAGRAPH.CENTER,
+                "centerContinuous": WD_ALIGN_PARAGRAPH.CENTER,
+                "right": WD_ALIGN_PARAGRAPH.RIGHT,
+            }
             for r, row in enumerate(values):
                 for c, value in enumerate(row):
+                    src_cell = sheet.cell(start + r, c + 1)
                     cell = table.cell(r, c)
                     cell.text = "" if value is None else str(value)
                     cell.width = Twips(widths[c])
                     paragraph = cell.paragraphs[0]
-                    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT if c == 0 else WD_ALIGN_PARAGRAPH.CENTER
+                    horiz = getattr(src_cell.alignment, "horizontal", None) if src_cell.alignment else None
+                    paragraph.alignment = align_map.get(horiz, WD_ALIGN_PARAGRAPH.LEFT if c == 0 else WD_ALIGN_PARAGRAPH.CENTER)
+                    indent_lvl = int(getattr(src_cell.alignment, "indent", 0) or 0) if src_cell.alignment else 0
+                    if c == 0 and indent_lvl > 0:
+                        paragraph.paragraph_format.left_indent = Inches(0.16 * min(indent_lvl, 4))
+                    src_bold = bool(src_cell.font and src_cell.font.bold)
+                    is_bold = (r <= end - start) or src_bold
                     for run in paragraph.runs:
-                        run.bold = r <= end - start
+                        run.bold = is_bold
                 if r <= end - start:
                     repeat = OxmlElement("w:tblHeader")
                     table.rows[r]._tr.get_or_add_trPr().append(repeat)
@@ -171,12 +193,19 @@ def append_tables(doc, project: Path, entries: list[dict], style: dict) -> None:
                 if (merged.min_row < start or merged.max_row > last or merged.max_col > ncol
                         or merged.min_row <= end < merged.max_row):
                     raise ValueError("merged cell crosses a header/body or table boundary")
-                value = sheet.cell(merged.min_row, merged.min_col).value
+                src_mcell = sheet.cell(merged.min_row, merged.min_col)
+                value = src_mcell.value
                 cell = table.cell(merged.min_row - start, merged.min_col - 1).merge(
                     table.cell(merged.max_row - start, merged.max_col - 1))
                 cell.text = "" if value is None else str(display(value))
+                m_horiz = getattr(src_mcell.alignment, "horizontal", None) if src_mcell.alignment else None
+                cell.paragraphs[0].alignment = align_map.get(
+                    m_horiz,
+                    WD_ALIGN_PARAGRAPH.LEFT if merged.min_col == 1 and merged.max_col == 1 else WD_ALIGN_PARAGRAPH.CENTER,
+                )
+                m_bold = (merged.max_row <= end) or bool(src_mcell.font and src_mcell.font.bold)
                 for run in cell.paragraphs[0].runs:
-                    run.bold = merged.max_row <= end
+                    run.bold = m_bold
             for r, row in enumerate(table.rows):
                 from docx.table import _Cell
                 for tc in row._tr.tc_lst:

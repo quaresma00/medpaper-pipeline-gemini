@@ -313,6 +313,14 @@ def _qc_figure(entry: dict, tgt: dict, arch_reg: dict | None = None, project: Pa
             add("no_orphan_legend_keys", not orphans,
                 f"unused/orphan legend key(s) with zero rendered observations: {orphans[:4]}" if orphans
                 else "every displayed legend key corresponds to plotted observations")
+            subs = art.get("subtitles_found") or []
+            add("no_figure_subtitle", not subs,
+                f"prohibited figure subtitle/caption rendered inside plot: {subs[:2]}" if subs
+                else "no figure subtitle or plot-canvas caption present")
+            line_pierce = art.get("r_line_text_collisions") or []
+            add("r_line_text_clear", not line_pierce,
+                f"vertical line pierces rendered text box(es): {line_pierce[:3]}" if line_pierce
+                else "vertical reference/axis lines clear of header and label text boxes")
             add("r_visual_measurement_limits", False, "; ".join(art.get("measurement_limits", [])), severity="warn")
             elements_found = art.get("elements", {})
             if archetype and arch_reg:

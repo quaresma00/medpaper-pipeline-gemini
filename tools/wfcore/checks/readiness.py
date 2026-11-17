@@ -1,4 +1,5 @@
 """Writing, prototype, feedback and final-file gates."""
+import re
 from . import Ctx, Result, check
 from ..readiness import verify_writing, verify_displays
 
@@ -75,14 +76,75 @@ def portal_fields_current(ctx: Ctx) -> Result:
                   "portal fields were computed from the current final DOCX and administrative facts")
 
 
+GENRE_PROFILES: dict[str, dict[str, int]] = {
+    "brief_report": {
+        "min_comparators": 3,
+        "min_main_figures_floor": 1,
+        "min_total_main_displays": 2,
+        "min_reflib_entries": 15,
+        "min_intro_refs": 4,
+        "min_discussion_refs": 6,
+        "min_manuscript_refs": 10,
+    },
+    "short_communication": {
+        "min_comparators": 3,
+        "min_main_figures_floor": 1,
+        "min_total_main_displays": 2,
+        "min_reflib_entries": 15,
+        "min_intro_refs": 4,
+        "min_discussion_refs": 6,
+        "min_manuscript_refs": 10,
+    },
+    "research_letter": {
+        "min_comparators": 3,
+        "min_main_figures_floor": 0,
+        "min_total_main_displays": 1,
+        "min_reflib_entries": 8,
+        "min_intro_refs": 2,
+        "min_discussion_refs": 3,
+        "min_manuscript_refs": 5,
+    },
+}
+
+
+def _resolve_genre_profile(ctx: Ctx) -> tuple[str, dict[str, int] | None, str | None]:
+    """Return (normalized_genre, profile_or_None, error_if_invalid)."""
+    from ..readiness import load
+    raw_genre = str(ctx.target("article_genre", "") or "").strip()
+    rationale = str(ctx.target("genre_rationale", "") or "").strip()
+    for rel in ("01_protocol/analysis_contract.json", "01_protocol/idea.json", "01_protocol/artifact_benchmark.json"):
+        p = ctx.p(rel)
+        if p.is_file():
+            try:
+                doc = load(ctx.project, rel)
+                if not raw_genre and doc.get("article_genre"):
+                    raw_genre = str(doc["article_genre"]).strip()
+                if not rationale and doc.get("genre_rationale"):
+                    rationale = str(doc["genre_rationale"]).strip()
+            except (OSError, ValueError, TypeError):
+                pass
+    norm_genre = re.sub(r"[\s\-]+", "_", raw_genre.casefold()) if raw_genre else "original_article"
+    if norm_genre in {"", "original_article", "systematic_review", "meta_analysis"}:
+        return norm_genre or "original_article", None, None
+    prof = GENRE_PROFILES.get(norm_genre)
+    if prof is None:
+        return norm_genre, None, f"unsupported article_genre '{raw_genre}' (expected Original_Article, Brief_Report, Short_Communication, or Research_Letter)"
+    if len(rationale) < 30:
+        return norm_genre, None, f"article_genre='{raw_genre}' requires a substantive genre_rationale (>=30 chars) explaining why a concise format fits this clinical study"
+    return norm_genre, prof, None
+
+
 @check("benchmark_display_sufficiency")
 def benchmark_display_sufficiency(ctx: Ctx) -> Result:
-    """Require >=5 recent (<=5y) SCIE comparators and benchmark-aligned figure count/types."""
+    """Require >=5 recent (<=5y) SCIE comparators and benchmark-aligned figure count/types (genre-aware)."""
     if ctx.state.pin_excludes(ctx.stage.id, ctx.spec.get("since")):
         return Result(True, "benchmark_display_sufficiency", "comparator sufficiency gate not retroactive to pinned completed stage")
     from datetime import datetime, timezone
     import statistics
     from ..readiness import load
+    genre_name, genre_prof, genre_err = _resolve_genre_profile(ctx)
+    if genre_err:
+        return Result(False, "benchmark_display_sufficiency", genre_err)
     layer = ctx.spec.get("layer", "science")
     bench_rel = "01_protocol/artifact_benchmark.json" if layer == "science" else "08_submission/integration/artifact_benchmark.json"
     plan_rel = "01_protocol/artifact_plan.json" if layer == "science" else "08_submission/integration/artifact_plan.json"
@@ -101,12 +163,12 @@ def benchmark_display_sufficiency(ctx: Ctx) -> Result:
         except (OSError, ValueError, TypeError):
             pass
     rows = bench.get("comparators", [])
-    min_comp = int(ctx.target("min_comparators", 5))
+    min_comp = genre_prof["min_comparators"] if genre_prof else int(ctx.target("min_comparators", 5))
     recency_years = int(ctx.target("comparator_recency_years", 5))
     min_year = datetime.now(timezone.utc).year - recency_years
     problems = []
     if len(rows) < min_comp:
-        problems.append(f"need at least {min_comp} recent (5-10 recommended) close SCIE Original Article full-text comparators (found {len(rows)})")
+        problems.append(f"need at least {min_comp} recent SCIE full-text comparators for genre '{genre_name}' (found {len(rows)})")
     comp_figs = []
     recent_count = 0
     for row in rows:
@@ -122,9 +184,9 @@ def benchmark_display_sufficiency(ctx: Ctx) -> Result:
         elif y_int >= min_year:
             recent_count += 1
         mf = obs.get("main_figures")
-        if not isinstance(mf, int) or mf <= 0:
+        if not isinstance(mf, int) or mf < 0 or (genre_prof is None and mf <= 0):
             problems.append(f"{key}: record integer observations.main_figures from the real full text")
-        else:
+        elif mf > 0:
             comp_figs.append(mf)
         ftypes = obs.get("figure_types") or obs.get("display_archetypes")
         if not ftypes or (isinstance(ftypes, str) and len(ftypes.strip()) < 8):
@@ -133,16 +195,23 @@ def benchmark_display_sufficiency(ctx: Ctx) -> Result:
     if len(rows) >= min_comp and recent_count < min_comp and len(recency_exc) < 40:
         problems.append(
             f"only {recent_count}/{len(rows)} comparators were published in the last {recency_years} years (>={min_year}); "
-            "use 5-10 recent SCIE articles instead of outdated papers (or record a substantive >=40-char recency_exception)"
+            "use recent SCIE articles instead of outdated papers (or record a substantive >=40-char recency_exception)"
         )
     main_figs = plan.get("main_figures", [])
-    floor = int(ctx.target("min_main_figures_floor", 4))
-    ratio = float(ctx.target("min_figure_ratio_to_benchmark", 0.7))
-    expected_min = floor
-    if comp_figs:
-        expected_min = max(3, min(floor, round(statistics.median(comp_figs) * ratio)))
-        if statistics.median(comp_figs) >= 5:
-            expected_min = max(expected_min, 4)
+    main_tabs = plan.get("main_tables", [])
+    if genre_prof is not None:
+        expected_min = genre_prof["min_main_figures_floor"]
+        min_total_disp = genre_prof["min_total_main_displays"]
+        if len(main_figs) + len(main_tabs) < min_total_disp:
+            problems.append(f"genre '{genre_name}' requires at least {min_total_disp} main display item(s) (found {len(main_figs)} figure(s) + {len(main_tabs)} table(s))")
+    else:
+        floor = int(ctx.target("min_main_figures_floor", 4))
+        ratio = float(ctx.target("min_figure_ratio_to_benchmark", 0.7))
+        expected_min = floor
+        if comp_figs:
+            expected_min = max(3, min(floor, round(statistics.median(comp_figs) * ratio)))
+            if statistics.median(comp_figs) >= 5:
+                expected_min = max(expected_min, 4)
     rationale = str((bench.get("adaptation") or {}).get("displays", {}).get("figure_count_rationale") or plan.get("figure_count_rationale") or "").strip()
     sparse_exc = str(plan.get("sparse_figure_justification") or (bench.get("adaptation") or {}).get("displays", {}).get("sparse_figure_justification") or "").strip()
     if len(rationale) < 30:
@@ -153,16 +222,19 @@ def benchmark_display_sufficiency(ctx: Ctx) -> Result:
             "expand figures with comparator-matched archetypes or provide substantive clinical sparse_figure_justification (>=50 chars)"
         )
     return Result(not problems, "benchmark_display_sufficiency", "; ".join(problems[:6]) or
-                  f"{len(rows)} SCIE comparators and {len(main_figs)} planned main figure(s) satisfy benchmark display sufficiency")
+                  f"{len(rows)} SCIE comparators and {len(main_figs)} planned main figure(s) satisfy benchmark display sufficiency ({genre_name})")
 
 
 @check("literature_sufficiency")
 def literature_sufficiency(ctx: Ctx) -> Result:
-    """Enforce configurable non-zero reference-pool and manuscript/section citation floors."""
+    """Enforce configurable genre-aware reference-pool and manuscript/section citation floors."""
     if ctx.state.pin_excludes(ctx.stage.id, ctx.spec.get("since")):
         return Result(True, "literature_sufficiency", "literature sufficiency gate not retroactive to pinned completed stage")
     from ..readiness import load
     from .refs import citekeys
+    genre_name, genre_prof, genre_err = _resolve_genre_profile(ctx)
+    if genre_err:
+        return Result(False, "literature_sufficiency", genre_err)
     mode = ctx.spec.get("mode", "library")
     problems = []
     try:
@@ -172,11 +244,12 @@ def literature_sufficiency(ctx: Ctx) -> Result:
     entries = {e.get("citekey"): e for e in lib.get("entries", []) if e.get("citekey")}
 
     if mode == "library":
-        floor = int(ctx.spec.get("min_entries") or ctx.target("min_reflib_entries", 40))
+        floor = (genre_prof["min_reflib_entries"] if genre_prof
+                 else int(ctx.spec.get("min_entries") or ctx.target("min_reflib_entries", 40)))
         if len(entries) < floor:
-            problems.append(f"06_refs/library.json has {len(entries)} entries, below required reference pool minimum ({floor})")
+            problems.append(f"06_refs/library.json has {len(entries)} entries, below required reference pool minimum ({floor}) for {genre_name}")
         return Result(not problems, "literature_sufficiency", "; ".join(problems) or
-                      f"reference pool size ({len(entries)} >= {floor}) meets sufficiency floor")
+                      f"reference pool size ({len(entries)} >= {floor}) meets sufficiency floor ({genre_name})")
 
     rel = ctx.spec.get("path", "07_manuscript/full_manuscript.md")
     if not ctx.p(rel).is_file():
@@ -185,13 +258,15 @@ def literature_sufficiency(ctx: Ctx) -> Result:
     if mode == "section":
         sec_key = "min_intro_refs" if "introduction" in rel else "min_discussion_refs"
         default_val = 10 if "introduction" in rel else 18
-        floor = int(ctx.spec.get("min_refs") or ctx.target(sec_key, default_val))
+        floor = (genre_prof[sec_key] if genre_prof
+                 else int(ctx.spec.get("min_refs") or ctx.target(sec_key, default_val)))
         if len(used) < floor:
-            problems.append(f"{rel} cites {len(used)} verified unique reference(s), below required minimum ({floor})")
+            problems.append(f"{rel} cites {len(used)} verified unique reference(s), below required minimum ({floor}) for {genre_name}")
     else:
-        floor = int(ctx.spec.get("min_refs") or ctx.target("min_manuscript_refs", 30))
+        floor = (genre_prof["min_manuscript_refs"] if genre_prof
+                 else int(ctx.spec.get("min_refs") or ctx.target("min_manuscript_refs", 30)))
         bench_path = ctx.p("01_protocol/artifact_benchmark.json")
-        if bench_path.is_file():
+        if genre_prof is None and bench_path.is_file():
             import statistics
             bench = load(ctx.project, "01_protocol/artifact_benchmark.json")
             comp_refs = [r.get("observations", {}).get("references") for r in bench.get("comparators", [])
@@ -201,6 +276,6 @@ def literature_sufficiency(ctx: Ctx) -> Result:
                 if not str((bench.get("adaptation") or {}).get("references_rationale", "")).strip():
                     floor = max(floor, min(derived, floor + 15))
         if len(used) < floor:
-            problems.append(f"{rel} cites {len(used)} unique reference(s), below required manuscript floor ({floor})")
+            problems.append(f"{rel} cites {len(used)} unique reference(s), below required manuscript floor ({floor}) for {genre_name}")
     return Result(not problems, "literature_sufficiency", "; ".join(problems) or
-                  f"{rel}: {len(used)} verified unique citations meet minimum floor")
+                  f"{rel}: {len(used)} verified unique citations meet minimum floor ({genre_name})")

@@ -20,10 +20,14 @@ from xml.etree import ElementTree as ET
 SCHEMA = 3
 GENERATOR = "tools/pubmed/verify.py"
 SOURCE = "ncbi_pubmed_efetch"
+CROSSREF_SOURCE = "crossref_doi_work"
+AUTHORITY_SOURCE = "official_authority_snapshot"
 TITLE_THRESHOLD = 0.92
 JOURNAL_THRESHOLD = 0.85
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 CACHE_RE = re.compile(r"^06_refs/cache/verify_efetch_pubmed_[A-Za-z0-9_.-]+\.xml$")
+CROSSREF_CACHE_RE = re.compile(r"^06_refs/cache/verify_crossref_[A-Za-z0-9_.-]+\.json$")
+AUTHORITY_CACHE_RE = re.compile(r"^06_refs/cache/verify_authority_(?:rcitation|url)_[A-Za-z0-9_.-]+\.(?:json|raw)$")
 
 
 def file_sha256(path: Path) -> str:
@@ -120,6 +124,118 @@ def parse_pubmed_payload(blob: bytes | str) -> dict[str, dict]:
     return records
 
 
+def parse_crossref_payload(blob: bytes | str) -> dict:
+    raw_text = blob.decode("utf-8", "replace") if isinstance(blob, bytes) else blob
+    try:
+        msg = json.loads(raw_text).get("message", {})
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid Crossref JSON: {exc}") from exc
+    if not isinstance(msg, dict) or not msg.get("DOI"):
+        raise ValueError("Crossref payload lacks message.DOI")
+    issued = msg.get("issued", {}).get("date-parts", [[None]])[0]
+    if not (issued and issued[0]):
+        issued = msg.get("published-print", {}).get("date-parts", [[None]])[0]
+    if not (issued and issued[0]):
+        issued = msg.get("published-online", {}).get("date-parts", [[None]])[0]
+    authors = []
+    for a in msg.get("author", []):
+        if a.get("family"):
+            authors.append({"last": str(a.get("family", "")).strip(),
+                            "first": str(a.get("given", "")).strip(),
+                            "initials": "",
+                            "suffix": str(a.get("suffix", "")).strip(),
+                            "collective": False})
+        elif a.get("name"):
+            authors.append({"last": str(a.get("name", "")).strip(),
+                            "first": "", "initials": "", "suffix": "", "collective": True})
+    raw_abs = str(msg.get("abstract") or "").strip()
+    if raw_abs:
+        raw_abs = re.sub(r"<[^>]+>", " ", raw_abs)
+        raw_abs = re.sub(r"\s+", " ", raw_abs).strip()
+    container = msg.get("container-title") or msg.get("publisher") or [""]
+    journal = container[0] if isinstance(container, list) else str(container)
+    return {
+        "pmid": "",
+        "doi": str(msg.get("DOI", "")).strip().casefold(),
+        "pmcid": "",
+        "authors": authors,
+        "title": re.sub(r"\s+", " ", (msg.get("title") or [""])[0]).strip().rstrip("."),
+        "journal": re.sub(r"\s+", " ", journal).strip(),
+        "year": str(issued[0]) if issued and issued[0] else "",
+        "first_author": authors[0]["last"] if authors else "",
+        "abstract": raw_abs,
+        "flags": ["PREPRINT"] if msg.get("type") == "posted-content" else [],
+        "source": "crossref",
+    }
+
+
+def parse_authority_payload(cache_path: Path, blob: bytes) -> dict:
+    if cache_path.suffix.lower() == ".json" and "rcitation_" in cache_path.name:
+        try:
+            data = json.loads(blob.decode("utf-8", "replace"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid R citation JSON: {exc}") from exc
+        pkg = str(data.get("r_package") or "").strip()
+        if not pkg:
+            raise ValueError("R citation payload lacks r_package")
+        authors = []
+        for a in data.get("authors") or []:
+            last = str(a.get("last") or "").strip()
+            first = str(a.get("first") or "").strip()
+            if last or first:
+                authors.append({
+                    "last": last or first,
+                    "first": first if last else "",
+                    "initials": "",
+                    "suffix": "",
+                    "collective": bool(a.get("collective")) or not first,
+                })
+        if not authors:
+            authors = [{"last": "R Core Team" if pkg == "R" else pkg, "first": "", "initials": "", "suffix": "", "collective": True}]
+        return {
+            "pmid": "",
+            "doi": "",
+            "pmcid": "",
+            "r_package": pkg,
+            "url": str(data.get("url") or "").strip(),
+            "authors": authors,
+            "title": re.sub(r"\s+", " ", str(data.get("title") or "")).strip().rstrip("."),
+            "journal": re.sub(r"\s+", " ", str(data.get("journal") or "")).strip(),
+            "year": re.sub(r"[^0-9]", "", str(data.get("year") or ""))[:4],
+            "first_author": authors[0]["last"],
+            "abstract": "",
+            "flags": [],
+            "source": "authority",
+            "authority_kind": "r_software",
+        }
+    if len(blob) < 64:
+        raise ValueError("official authority payload is empty or truncated")
+    meta_path = cache_path.parent / (cache_path.name + ".meta.json")
+    if not meta_path.is_file():
+        raise ValueError("official authority metadata sidecar is missing")
+    meta = _load_json(meta_path)
+    actual_sha = hashlib.sha256(blob).hexdigest()
+    if str(meta.get("payload_sha256", "")).casefold() != actual_sha:
+        raise ValueError("official authority metadata sidecar disagrees with raw payload hash")
+    author_name = str(meta.get("author") or "").strip()
+    authors = [{"last": author_name, "first": "", "initials": "", "suffix": "", "collective": True}] if author_name else []
+    return {
+        "pmid": "",
+        "doi": "",
+        "pmcid": "",
+        "url": str(meta.get("url") or "").strip(),
+        "authors": authors,
+        "title": re.sub(r"\s+", " ", str(meta.get("title") or "")).strip().rstrip("."),
+        "journal": re.sub(r"\s+", " ", str(meta.get("journal") or "")).strip(),
+        "year": str(meta.get("year") or "").strip(),
+        "first_author": author_name,
+        "abstract": "",
+        "flags": [],
+        "source": "authority",
+        "authority_kind": "official_standard",
+    }
+
+
 def canonical_source(record: dict) -> dict:
     return {
         "pmid": str(record.get("pmid", "")),
@@ -163,6 +279,10 @@ def readable_source_errors(project: Path, entry: dict, source: dict | None = Non
     metadata-only XML and empty documents, not claim to understand or prove full coverage.
     """
     if normalized_abstract((source if source is not None else entry).get("abstract")):
+        return []
+    if entry.get("source") == "authority" and entry.get("authority_kind") in {"r_software", "official_standard"}:
+        return []
+    if entry.get("source") == "crossref" and entry.get("authority_kind") == "methodology_doi":
         return []
     from .packagefreeze import _safe_path
     from pubmed.identity import errors as identity_errors
@@ -225,8 +345,41 @@ def readable_source_errors(project: Path, entry: dict, source: dict | None = Non
 
 def compare_entry_to_source(entry: dict, source: dict) -> list[str]:
     """Recompute all checks that determine whether a library entry is real."""
+    src_kind = str(entry.get("source") or source.get("source") or "pubmed")
+    raw_source = source
     source = canonical_source(source)
     problems = []
+    if src_kind == "crossref":
+        entry_doi = str(entry.get("doi", "")).strip().casefold()
+        if not entry_doi:
+            problems.append("Crossref entry lacks a DOI")
+        elif entry_doi != source["doi"]:
+            problems.append("DOI differs from Crossref payload")
+        if ratio(entry.get("title", ""), source["title"]) < TITLE_THRESHOLD:
+            problems.append("title differs from Crossref payload")
+        if source["journal"] and ratio(entry.get("journal", ""), source["journal"]) < JOURNAL_THRESHOLD:
+            problems.append("journal/container differs from Crossref payload")
+        if str(entry.get("year", "")) != source["year"]:
+            problems.append("year differs from Crossref payload")
+        first_author = ((entry.get("authors") or [{}])[0].get("last", ""))
+        if norm(first_author) != norm(source["first_author"]):
+            problems.append("first author differs from Crossref payload")
+        if source["flags"]:
+            problems.append("non-citable Crossref flag(s): " + ", ".join(source["flags"]))
+        return problems
+    if src_kind == "authority":
+        if ratio(entry.get("title", ""), source["title"]) < TITLE_THRESHOLD:
+            problems.append("title differs from verified authority snapshot")
+        if str(entry.get("year", "")) != source["year"]:
+            problems.append("year differs from verified authority snapshot")
+        first_author = ((entry.get("authors") or [{}])[0].get("last", ""))
+        if norm(first_author) != norm(source["first_author"]):
+            problems.append("author/organization differs from verified authority snapshot")
+        if raw_source.get("r_package") and str(entry.get("r_package", "")).strip() != str(raw_source.get("r_package", "")).strip():
+            problems.append("r_package differs from verified R citation snapshot")
+        if raw_source.get("authority_kind") == "official_standard" and str(entry.get("url", "")).strip() != str(raw_source.get("url", "")).strip():
+            problems.append("URL differs from verified official authority snapshot")
+        return problems
     if not re.fullmatch(r"\d+", str(entry.get("pmid", ""))):
         problems.append("library PMID is missing or non-numeric")
     elif str(entry.get("pmid")) != source["pmid"]:
@@ -255,8 +408,12 @@ def compare_entry_to_source(entry: dict, source: dict) -> list[str]:
 
 
 def evidence_for_live_record(record: dict) -> dict:
+    rec_src = str(record.get("source") or "pubmed")
+    ev_source = (CROSSREF_SOURCE if rec_src == "crossref"
+                 else AUTHORITY_SOURCE if rec_src == "authority"
+                 else SOURCE)
     return {
-        "source": SOURCE,
+        "source": ev_source,
         "cache_file": str(record.get("cache_file", "")),
         "payload_sha256": str(record.get("cache_sha256", "")),
         "record_sha256": record_sha256(record),
@@ -304,7 +461,7 @@ def validate_local_proof(project: Path, required_keys: set[str] | None = None,
     if verified.get("schema") != SCHEMA:
         problems.append(f"verified.json schema must be {SCHEMA}; a boolean-only file is not evidence")
     if not isinstance(generator, dict) or generator.get("tool") != GENERATOR or \
-            generator.get("mode") != "fresh_ncbi_pubmed_efetch":
+            generator.get("mode") not in {"fresh_ncbi_pubmed_efetch", "fresh_multi_authority_verify"}:
         problems.append("verified.json lacks the bundled fresh-EFetch generator receipt")
     expected_library_hash = file_sha256(library_path)
     if verified.get("library_sha256") != expected_library_hash:
@@ -336,12 +493,16 @@ def validate_local_proof(project: Path, required_keys: set[str] | None = None,
             problems.append(f"{key}: verified=true receipt is absent")
             continue
         evidence = receipt.get("evidence", {})
-        if not isinstance(evidence, dict) or evidence.get("source") != SOURCE or \
+        ev_source = evidence.get("source") if isinstance(evidence, dict) else None
+        if not isinstance(evidence, dict) or ev_source not in {SOURCE, CROSSREF_SOURCE, AUTHORITY_SOURCE} or \
                 evidence.get("fresh_fetch") is not True:
-            problems.append(f"{key}: no fresh NCBI PubMed EFetch evidence")
+            problems.append(f"{key}: no fresh verified source evidence")
             continue
         rel = str(evidence.get("cache_file", "")).replace("\\", "/")
-        if not CACHE_RE.fullmatch(rel):
+        expected_re = (CACHE_RE if ev_source == SOURCE
+                       else CROSSREF_CACHE_RE if ev_source == CROSSREF_SOURCE
+                       else AUTHORITY_CACHE_RE)
+        if not expected_re.fullmatch(rel):
             problems.append(f"{key}: verification cache path is not a bundled verifier output")
             continue
         cache_path = (project / rel).resolve()
@@ -353,32 +514,69 @@ def validate_local_proof(project: Path, required_keys: set[str] | None = None,
         if not cache_path.is_file():
             problems.append(f"{key}: verification payload is missing: {rel}")
             continue
-        if cache_path not in payload_cache:
+        if ev_source == SOURCE:
+            if cache_path not in payload_cache:
+                try:
+                    digest = file_sha256(cache_path)
+                    payload_cache[cache_path] = (digest, parse_pubmed_payload(cache_path.read_bytes()))
+                except (OSError, ValueError) as exc:
+                    problems.append(f"{key}: cannot parse verification payload ({exc})")
+                    continue
+            digest, source_records = payload_cache[cache_path]
+            claimed = str(evidence.get("payload_sha256", "")).casefold()
+            if not SHA_RE.fullmatch(claimed) or claimed != digest:
+                problems.append(f"{key}: PubMed payload hash mismatch")
+                continue
+            pmid = str(entries[key].get("pmid", ""))
+            source = source_records.get(pmid)
+            if source is None:
+                problems.append(f"{key}: PMID {pmid or '(missing)'} is absent from its PubMed payload")
+                continue
+            source_hash = record_sha256(source)
+            if evidence.get("record_sha256") != source_hash:
+                problems.append(f"{key}: parsed PubMed record fingerprint mismatch")
+            for issue in compare_entry_to_source(entries[key], source):
+                problems.append(f"{key}: {issue}")
+            for issue in readable_source_errors(project, entries[key], source):
+                problems.append(f"{key}: {issue}")
+            if str(receipt.get("pmid", "")) != source["pmid"]:
+                problems.append(f"{key}: receipt PMID differs from its PubMed payload")
+            if str(receipt.get("doi", "")).strip().casefold() != source["doi"]:
+                problems.append(f"{key}: receipt DOI differs from its PubMed payload")
+        elif ev_source == CROSSREF_SOURCE:
             try:
                 digest = file_sha256(cache_path)
-                payload_cache[cache_path] = (digest, parse_pubmed_payload(cache_path.read_bytes()))
+                source = parse_crossref_payload(cache_path.read_bytes())
             except (OSError, ValueError) as exc:
-                problems.append(f"{key}: cannot parse verification payload ({exc})")
+                problems.append(f"{key}: cannot parse Crossref verification payload ({exc})")
                 continue
-        digest, source_records = payload_cache[cache_path]
-        claimed = str(evidence.get("payload_sha256", "")).casefold()
-        if not SHA_RE.fullmatch(claimed) or claimed != digest:
-            problems.append(f"{key}: PubMed payload hash mismatch")
-            continue
-        pmid = str(entries[key].get("pmid", ""))
-        source = source_records.get(pmid)
-        if source is None:
-            problems.append(f"{key}: PMID {pmid or '(missing)'} is absent from its PubMed payload")
-            continue
-        source_hash = record_sha256(source)
-        if evidence.get("record_sha256") != source_hash:
-            problems.append(f"{key}: parsed PubMed record fingerprint mismatch")
-        for issue in compare_entry_to_source(entries[key], source):
-            problems.append(f"{key}: {issue}")
-        for issue in readable_source_errors(project, entries[key], source):
-            problems.append(f"{key}: {issue}")
-        if str(receipt.get("pmid", "")) != source["pmid"]:
-            problems.append(f"{key}: receipt PMID differs from its PubMed payload")
-        if str(receipt.get("doi", "")).strip().casefold() != source["doi"]:
-            problems.append(f"{key}: receipt DOI differs from its PubMed payload")
+            claimed = str(evidence.get("payload_sha256", "")).casefold()
+            if not SHA_RE.fullmatch(claimed) or claimed != digest:
+                problems.append(f"{key}: Crossref payload hash mismatch")
+                continue
+            if evidence.get("record_sha256") != record_sha256(source):
+                problems.append(f"{key}: parsed Crossref record fingerprint mismatch")
+            for issue in compare_entry_to_source(entries[key], source):
+                problems.append(f"{key}: {issue}")
+            for issue in readable_source_errors(project, entries[key], source):
+                problems.append(f"{key}: {issue}")
+            if str(receipt.get("doi", "")).strip().casefold() != source["doi"]:
+                problems.append(f"{key}: receipt DOI differs from its Crossref payload")
+        else:
+            try:
+                digest = file_sha256(cache_path)
+                source = parse_authority_payload(cache_path, cache_path.read_bytes())
+            except (OSError, ValueError) as exc:
+                problems.append(f"{key}: cannot parse authority verification payload ({exc})")
+                continue
+            claimed = str(evidence.get("payload_sha256", "")).casefold()
+            if not SHA_RE.fullmatch(claimed) or claimed != digest:
+                problems.append(f"{key}: authority payload hash mismatch")
+                continue
+            if evidence.get("record_sha256") != record_sha256(source):
+                problems.append(f"{key}: parsed authority record fingerprint mismatch")
+            for issue in compare_entry_to_source(entries[key], source):
+                problems.append(f"{key}: {issue}")
+            for issue in readable_source_errors(project, entries[key], source):
+                problems.append(f"{key}: {issue}")
     return not problems, problems, len(wanted & set(entries))

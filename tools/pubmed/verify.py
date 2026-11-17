@@ -44,12 +44,85 @@ def ratio(a: str, b: str) -> float:
 
 def verify_entry(entry: dict, live: dict | None, strict: bool, project: Path | None = None) -> dict:
     checks: list[dict] = []
+    src_kind = str(entry.get("source") or "pubmed")
     if live is None:
+        ident = entry.get("pmid") or entry.get("doi") or entry.get("r_package") or entry.get("url") or "(none)"
         return {
-            "verified": False, "via": "pubmed", "at": eu.now(),
-            "reason": f"PMID {entry.get('pmid') or '(none)'} returned no record on re-fetch",
+            "verified": False, "via": src_kind, "at": eu.now(),
+            "reason": f"Source identifier {ident} returned no record on fresh re-fetch",
             "checks": [],
         }
+
+    if src_kind == "crossref":
+        entry_doi = str(entry.get("doi", "")).strip().casefold()
+        live_doi = str(live.get("doi", "")).strip().casefold()
+        checks.append({"field": "doi", "ok": bool(entry_doi) and entry_doi == live_doi, "expected": live_doi})
+        t = ratio(entry.get("title", ""), live.get("title", ""))
+        checks.append({"field": "title", "score": round(t, 3), "ok": t >= TITLE_THRESHOLD,
+                       "expected": live.get("title", "")})
+        if live.get("journal"):
+            j = ratio(entry.get("journal", ""), live.get("journal", ""))
+            checks.append({"field": "journal", "score": round(j, 3), "ok": j >= JOURNAL_THRESHOLD,
+                           "expected": live.get("journal", "")})
+        checks.append({"field": "year", "ok": str(entry.get("year", "")) == str(live.get("year", "")),
+                       "expected": live.get("year", "")})
+        ea = (entry.get("authors") or [{}])[0].get("last", "")
+        la = (live.get("authors") or [{}])[0].get("last", "")
+        checks.append({"field": "first_author", "ok": norm(ea) == norm(la), "expected": la})
+        access_errors = refproof.readable_source_errors(project or eu.project_root(), entry, live)
+        checks.append({"field": "readable_source", "ok": not access_errors,
+                       "detail": "; ".join(access_errors) or "methodology DOI or registered full text verified"})
+        checks.append({"field": "citable_status", "ok": not live.get("flags"),
+                       "expected": "no preprint or retraction flag"})
+        result = {
+            "verified": all(c["ok"] for c in checks),
+            "via": "crossref",
+            "at": eu.now(),
+            "pmid": "",
+            "doi": live.get("doi", ""),
+            "cache_file": live.get("cache_file", ""),
+            "checks": checks,
+            "flags": live.get("flags", []),
+            "evidence": refproof.evidence_for_live_record(live),
+        }
+        if not result["verified"]:
+            result["reason"] = "mismatch on: " + ", ".join(c["field"] for c in checks if not c["ok"])
+        return result
+
+    if src_kind == "authority":
+        t = ratio(entry.get("title", ""), live.get("title", ""))
+        checks.append({"field": "title", "score": round(t, 3), "ok": t >= TITLE_THRESHOLD,
+                       "expected": live.get("title", "")})
+        checks.append({"field": "year", "ok": str(entry.get("year", "")) == str(live.get("year", "")),
+                       "expected": live.get("year", "")})
+        ea = (entry.get("authors") or [{}])[0].get("last", "")
+        la = (live.get("authors") or [{}])[0].get("last", "")
+        checks.append({"field": "first_author", "ok": norm(ea) == norm(la), "expected": la})
+        if live.get("r_package"):
+            checks.append({"field": "r_package",
+                           "ok": str(entry.get("r_package", "")).strip() == str(live.get("r_package", "")).strip(),
+                           "expected": live.get("r_package", "")})
+        else:
+            checks.append({"field": "url",
+                           "ok": str(entry.get("url", "")).strip() == str(live.get("url", "")).strip(),
+                           "expected": live.get("url", "")})
+        access_errors = refproof.readable_source_errors(project or eu.project_root(), entry, live)
+        checks.append({"field": "readable_source", "ok": not access_errors,
+                       "detail": "; ".join(access_errors) or "official authority snapshot verified"})
+        result = {
+            "verified": all(c["ok"] for c in checks),
+            "via": "authority",
+            "at": eu.now(),
+            "pmid": "",
+            "doi": "",
+            "cache_file": live.get("cache_file", ""),
+            "checks": checks,
+            "flags": [],
+            "evidence": refproof.evidence_for_live_record(live),
+        }
+        if not result["verified"]:
+            result["reason"] = "mismatch on: " + ", ".join(c["field"] for c in checks if not c["ok"])
+        return result
 
     pmid_ok = str(entry.get("pmid", "")) == str(live.get("pmid", ""))
     checks.append({"field": "pmid", "ok": pmid_ok, "expected": live.get("pmid", "")})
@@ -140,28 +213,63 @@ def main() -> int:
         print(f"reference proof valid for {count} PubMed record(s)")
         return 0
 
-    pmids = [e["pmid"] for e in entries if e.get("pmid")]
-    if len(pmids) != len(entries):
-        eu.die("every library entry must have a PMID before verification")
-    print(f"freshly re-fetching {len(pmids)} record(s) from PubMed...")
-    live_recs = eu.efetch(pmids, fresh=True, purpose="verify")
-    live_by_pmid = {r["pmid"]: r for r in live_recs}
+    pubmed_entries = [e for e in entries if (e.get("source") or "pubmed") == "pubmed"]
+    crossref_entries = [e for e in entries if e.get("source") == "crossref"]
+    authority_entries = [e for e in entries if e.get("source") == "authority"]
+    if len(pubmed_entries) + len(crossref_entries) + len(authority_entries) != len(entries):
+        eu.die("unknown reference source track in library.json")
+    pmids = [e["pmid"] for e in pubmed_entries if e.get("pmid")]
+    if len(pmids) != len(pubmed_entries):
+        eu.die("every PubMed library entry must have a PMID before verification")
+    live_by_pmid: dict[str, dict] = {}
+    if pmids:
+        print(f"freshly re-fetching {len(pmids)} record(s) from PubMed...")
+        live_recs = eu.efetch(pmids, fresh=True, purpose="verify")
+        live_by_pmid = {r["pmid"]: r for r in live_recs}
 
     records: dict[str, dict] = {}
     failures: list[tuple[str, str]] = []
     for e in entries:
-        live = live_by_pmid.get(e.get("pmid", ""))
+        src_kind = e.get("source") or "pubmed"
+        if src_kind == "pubmed":
+            live = live_by_pmid.get(e.get("pmid", ""))
+        elif src_kind == "crossref":
+            print(f"freshly verifying Crossref DOI {e.get('doi')}...")
+            try:
+                live = eu.crossref_fetch(e.get("doi", ""), fresh=True, purpose="verify")
+            except Exception as exc:  # noqa: BLE001
+                live = None
+                print(f"  warning: Crossref fetch error for {e['citekey']}: {exc}", file=sys.stderr)
+        else:
+            print(f"freshly verifying authority source {e['citekey']}...")
+            try:
+                if e.get("authority_kind") == "r_software":
+                    live = eu.r_citation_record(e.get("r_package", "R"), fresh=True, purpose="verify")
+                else:
+                    live = eu.authority_url_record(
+                        e.get("url", ""),
+                        title=e.get("title", ""),
+                        year=e.get("year", ""),
+                        author=((e.get("authors") or [{}])[0].get("last", "")),
+                        journal=e.get("journal", ""),
+                        fresh=True,
+                        purpose="verify",
+                    )
+            except Exception as exc:  # noqa: BLE001
+                live = None
+                print(f"  warning: authority fetch error for {e['citekey']}: {exc}", file=sys.stderr)
         res = verify_entry(e, live, args.strict)
         records[e["citekey"]] = res
         if not res["verified"]:
             failures.append((e["citekey"], res.get("reason", "unknown")))
 
+    has_non_pubmed = bool(crossref_entries or authority_entries)
     out = {
         "schema": refproof.SCHEMA,
         "generator": {
             "tool": refproof.GENERATOR,
-            "mode": "fresh_ncbi_pubmed_efetch",
-            "source": "NCBI PubMed EFetch",
+            "mode": "fresh_multi_authority_verify" if has_non_pubmed else "fresh_ncbi_pubmed_efetch",
+            "source": "NCBI PubMed EFetch + Crossref/Authority" if has_non_pubmed else "NCBI PubMed EFetch",
         },
         "verified_at": eu.now(),
         "strict": args.strict,

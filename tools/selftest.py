@@ -2482,7 +2482,8 @@ def main() -> int:
                              ("test_review_hardening_127.py","S16 Discussion bindings, S09/S10 measure & table context, S11 figure annotations, S25 force guard and cross-drive launcher"),
                              ("test_workflow_128.py","single-source page-1 author block, default display placement, isolated Discussion workflow & audit, and Supplemental_File naming"),
                              ("test_clinical_display_labels_129.py","clinical reader presentation, zero code variables, display dictionary, and non-overridable display_labels_clinical gate"),
-                             ("test_v130_workflow.py","v1.30.0 S11b prewrite SCIE review, immediate section polish, non-CAPTCHA Sci-Hub, >=3 comparator sufficiency, citation floors, and journal+timestamp releases")):
+                             ("test_v130_workflow.py","v1.30.0 S11b prewrite SCIE review, immediate section polish, non-CAPTCHA Sci-Hub, >=3 comparator sufficiency, citation floors, and journal+timestamp releases"),
+                             ("test_v132_architecture.py","v1.32.0 multi-track reference provenance, genre-aware quotas, clinical units & proportions, lossless Word table inheritance, bounded replay rtol, and R composite recipes")):
             current = subprocess.run([sys.executable,str(ROOT/"tools"/script)],
                                      capture_output=True,text=True,encoding="utf-8",errors="replace")
             record(label,current.returncode==0,(current.stdout+current.stderr)[-1800:].strip())

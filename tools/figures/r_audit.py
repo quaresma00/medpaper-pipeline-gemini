@@ -21,15 +21,35 @@ def audit_svg(path, metadata):
     canvas = [float(x) for x in root.get("viewBox", "").split()]
     if len(canvas) != 4:
         raise ValueError("SVG has no measurable viewBox")
-    fonts, strokes, texts, boxes, unsupported = [], [], [], [], []
+    fonts, strokes, texts, boxes, vlines, unsupported = [], [], [], [], [], []
     for node in root.iter():
         style = dict(re.findall(r"([\w-]+)\s*:\s*([^;]+)", node.get("style", "")))
+        tag_short = node.tag.rsplit("}", 1)[-1]
         width = style.get("stroke-width", node.get("stroke-width"))
         if width and style.get("stroke", "") != "none":
             match = re.fullmatch(r"([\d.]+)(?:px|pt)?", width.strip())
             if match and float(match[1]) > 0:
                 strokes.append(float(match[1]))
-        if node.tag.rsplit("}", 1)[-1] != "text":
+            if tag_short == "line":
+                try:
+                    lx1, ly1 = float(node.get("x1", "0")), float(node.get("y1", "0"))
+                    lx2, ly2 = float(node.get("x2", "0")), float(node.get("y2", "0"))
+                    if abs(lx1 - lx2) < 0.5 and abs(ly2 - ly1) > 25.0:
+                        vlines.append((lx1, min(ly1, ly2), max(ly1, ly2)))
+                except (ValueError, TypeError):
+                    pass
+            elif tag_short == "polyline" and node.get("points"):
+                pts = []
+                for pair in node.get("points", "").strip().split():
+                    if "," in pair:
+                        try:
+                            px, py = pair.split(",", 1)
+                            pts.append((float(px), float(py)))
+                        except ValueError:
+                            pass
+                if len(pts) == 2 and abs(pts[0][0] - pts[1][0]) < 0.5 and abs(pts[1][1] - pts[0][1]) > 25.0:
+                    vlines.append((pts[0][0], min(pts[0][1], pts[1][1]), max(pts[0][1], pts[1][1])))
+        if tag_short != "text":
             continue
         text = "".join(node.itertext()).strip()
         if not text:
@@ -90,9 +110,32 @@ def audit_svg(path, metadata):
     ranges = [r for p in panels for r in sequence(p.get("ranges"))]
     data_clipped = [item for p in panels for item in sequence(p.get("clipped_data"))]
     orphan_legends = sorted({str(k) for p in panels for k in sequence(p.get("orphan_legend")) if str(k).strip()})
+    subtitles_found = [
+        str(val).strip()
+        for p in ([metadata] + panels)
+        for key in ("subtitle", "caption")
+        for val in [p.get(key)]
+        if isinstance(val, str) and val.strip()
+    ]
+    line_text_collisions = []
+    for vx, vy0, vy1 in vlines:
+        for b in boxes:
+            bx0, by0, bx1, by1 = b["bbox"]
+            # Flag long vertical reference/axis lines piercing through multi-char header/label text boxes
+            if len(b["text"]) >= 4 and (bx0 + 3.0) < vx < (bx1 - 3.0) and vy0 < (by0 + 1.0) and vy1 > (by1 - 1.0):
+                line_text_collisions.append({"text": b["text"][:50], "vline_x": round(vx, 1)})
     equal = bool(ranges) and all(len(sequence(r.get("x"))) == 2 and len(sequence(r.get("y"))) == 2 and
                 all(abs(x-y) < 1e-8 for x, y in zip(sequence(r["x"]), sequence(r["y"]))) for r in ranges)
-    stats = any(re.search(r"\b(?:HR|OR|RR|AUC|n|P|r)\s*(?:[=<>]|\d|\()", t, re.I) for t in texts)
+    stats = any(
+        re.search(
+            r"(?:\b(?:a?HR|sHR|csHR|a?OR|a?RR|a?IRR|AUC|AUROC|n|P|r)\s*(?:[=<>≤≥]|\d|\()|"
+            r"\b(?:hazard|odds|risk|rate)\s+ratio\s*\(|"
+            r"[+-]?\d+\.\d+\s*\(\s*[+-]?\d+\.\d+\s*(?:to|[-\u2013,]))",
+            t,
+            re.I,
+        )
+        for t in texts
+    )
     elements = {
         "axis_labels": element(labels_present, "Observed built ggplot axis labels on all declared panels"),
         "bar_artist": element(bool(bars), "Observed nonempty GeomBar/GeomCol"),
@@ -118,5 +161,6 @@ def audit_svg(path, metadata):
             "min_line_pt": min(strokes) if strokes else None, "figure_text": sorted(set(texts)),
             "text_clipped_at_edge": clipped, "r_text_box_collisions": collisions,
             "data_clipped_at_axes": data_clipped, "orphan_legend_keys": orphan_legends,
+            "subtitles_found": subtitles_found, "r_line_text_collisions": line_text_collisions,
             "measurement_limits": unsupported + ["Text height/overlap are conservative estimates; PDF font fallback, clipping paths, glyph coverage and complex grid layout require visual inspection."],
             "n_axes": len(ranges), "elements": elements, "runtime": metadata}

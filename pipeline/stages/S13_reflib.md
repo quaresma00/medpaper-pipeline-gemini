@@ -17,6 +17,9 @@ Everything the Introduction and Discussion say about the literature comes from h
 ```
 uv run python tools/pubmed/build_library.py --add-query "<uncovered argument area>"
 uv run python tools/pubmed/build_library.py --add-ids 12345678,23456789
+# Non-PubMed foundational stats DOIs, R citations, or official standards:
+uv run python tools/pubmed/build_library.py --add-dois 10.1111/j.2517-6161.1995.tb02031.x --methodology
+uv run python tools/pubmed/build_library.py --add-r-citation R --add-r-citation survival
 ```
    Anything already cited in `feasibility.md`, `method_scan.md` or `methods.md` is pulled in
    automatically so no existing citekey is orphaned.
@@ -44,8 +47,8 @@ uv run python tools/pubmed/verify.py --check
    a second time and recomputes the comparisons. If NCBI cannot be reached, the gate fails
    closed; it must never be replaced with a handwritten boolean, fabricated DOI, copied
    metadata, or an alternate script. Entries that fail are quarantined, not patched.
-   S25 also always performs a new independent live check. Intermediate gates may reuse
-   hash-bound independent live XML for at most 24 hours only while all identities match.
+   S24 also performs a fresh live check. Intermediate gates may reuse hash-bound live
+   payloads for up to 168 hours while identities match; archive uncited pool entries via `--archive-uncited`.
 4. Export both formats from `library.json` - never hand-edit them:
 ```
 uv run python tools/pubmed/build_library.py --export

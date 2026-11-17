@@ -312,8 +312,10 @@ def cmd_check(args) -> int:
             return 2
     stage = pipe.resolve(args.stage) if args.stage else pipe.stage(st.current)
     only = getattr(args, "only", None)
-    all_checks = bool(getattr(args, "all_checks", False) or only)
-    verbose = bool(getattr(args, "verbose", False))
+    outputs_present = all((proj / o).exists() for o in stage.outputs)
+    fail_fast = bool(getattr(args, "fail_fast", False))
+    all_checks = bool(getattr(args, "all_checks", False) or only or (outputs_present and not fail_fast))
+    verbose = bool(getattr(args, "verbose", False) or getattr(args, "full_errors", False))
     results = gates.run_stage(
         pipe, st, proj, stage,
         reuse=True, record=True,
@@ -483,10 +485,14 @@ def cmd_loop(args) -> int:
     st.add_note(f"[LOOP] returning to {target.id}: {args.why}", cur.id)
     reset_ids = [target.id, *[s.id for s in pipe.stages_after(target.id)]]
     st.reset_forward(reset_ids[1:])
-    st.clear_decisions_for(reset_ids)
+    preserve_names = {"tables_visually_confirmed", "figures_visually_confirmed"} if getattr(args, "preserve_unaffected", False) else set()
+    st.clear_decisions_for(reset_ids, preserve_names=preserve_names)
     st.rewind(target.id, args.why)
     print(f"returned to {target.id} - {target.title}")
-    print("stages after it are pending again; their artifacts were left untouched")
+    if preserve_names:
+        print("stages after it are pending again; unaffected visual-confirmation records were retained (any modified table/figure hash still requires fresh QC + review)")
+    else:
+        print("stages after it are pending again; their artifacts were left untouched")
     return 0
 
 
@@ -772,8 +778,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--summary", action="store_true", help="print counts and failed check names only")
     p.add_argument("--full", action="store_true", help="include passing checks")
     p.add_argument("--all-checks", action="store_true", help="run all checks in stage without early cascade stop")
-    p.add_argument("--only", help="focus display/table/figure checks on one item (e.g. 'Table 1', 'Figure 2')")
+    p.add_argument("--fail-fast", action="store_true", help="stop at the first cascade blocker even when declared outputs exist")
+    p.add_argument("--only", help="focus display/table/figure/section checks on one item (e.g. 'Table 1', 'Figure 2', 'results.md')")
     p.add_argument("--verbose", "-v", action="store_true", help="show full diagnostic items instead of truncating")
+    p.add_argument("--full-errors", action="store_true", help="alias for --verbose: print all diagnostic items without truncation")
     p.add_argument("stage", nargs="?")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_check)
@@ -786,6 +794,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("loop", help="deliberately return to an earlier stage")
     p.add_argument("--to", required=True)
     add(p,"--why", required=True)
+    p.add_argument("--preserve-unaffected", action="store_true",
+                   help="retain visual-confirmation decisions for unmodified tables/figures during pre-writing field additions")
     p.set_defaults(fn=cmd_loop)
 
     p = sub.add_parser("note", help="append to the handoff log")

@@ -52,15 +52,23 @@ medpaper_forest_table <- function(data, measure, null, log_scale, digits=2L,
 }
 
 # Multi-column publication forest layout using independent aligned patchwork panels:
-# avoids fragile x=Inf coordinates and keeps the vertical reference line inside the plot area.
+# avoids fragile x=Inf coordinates, supports duplicate subgroup level labels (Yes/No),
+# Reference / NE rows, optional left count columns, and optional P for interaction column.
 # Returns list(plot = <patchwork>, panels = list(p_left, p_forest, p_right)).
 medpaper_forest_panels <- function(data, measure, null=1, log_scale=TRUE, digits=2L,
                                    interval_label="95% CI", label_header="Characteristic",
+                                   left_cols=NULL, left_headers=NULL,
                                    effect_header=NULL, p_col=NULL, p_header="P value",
+                                   p_interaction_col=NULL, p_interaction_header="P for interaction",
                                    xlim=NULL, col_widths=NULL) {
   medpaper_require(c("ggplot2", "patchwork", "grid"))
+  has_left_extra <- !is.null(left_cols) && length(left_cols) > 0L && all(left_cols %in% names(data))
+  has_p <- !is.null(p_col) && p_col %in% names(data)
+  has_pint <- !is.null(p_interaction_col) && p_interaction_col %in% names(data)
   if (is.null(col_widths)) {
-    col_widths <- if (!is.null(p_col) && p_col %in% names(data)) c(1.30, 1.35, 1.40) else c(1.35, 1.50, 1.05)
+    w_left <- if (has_left_extra) 1.75 + 0.35 * (length(left_cols) - 1L) else 1.30
+    w_right <- 1.05 + (if (has_p) 0.35 else 0.0) + (if (has_pint) 0.45 else 0.0)
+    col_widths <- c(w_left, 1.35, w_right)
   }
   if (!is.data.frame(data) || !nrow(data) || !"label" %in% names(data))
     stop("data.frame with 'label' required")
@@ -73,28 +81,48 @@ medpaper_forest_panels <- function(data, measure, null=1, log_scale=TRUE, digits
   data$y_pos <- rev(seq_len(n_rows))
   is_grp <- if ("is_group" %in% names(data)) isTRUE_vec(data$is_group) else rep(FALSE, n_rows)
   is_ind <- if ("indent" %in% names(data)) isTRUE_vec(data$indent) else rep(FALSE, n_rows)
+  row_status <- if ("status" %in% names(data)) trimws(as.character(data$status)) else rep("", n_rows)
+  row_status[is.na(row_status)] <- ""
+  is_ref <- grepl("^(?:ref|reference|1\\s*\\[reference\\])$", row_status, ignore.case=TRUE)
+  is_ne <- grepl("^(?:ne|not\\s+estimable|na|nr)$", row_status, ignore.case=TRUE)
 
   format_effect <- function(x) ifelse(!is.finite(x), "", ifelse(x!=0 & round(x,digits)==0,
                                       formatC(x,format="g",digits=2),formatC(x,format="f",digits=digits)))
   has_est <- all(c("estimate","lower","upper") %in% names(data))
-  plot_rows <- if (has_est) (is.finite(data$estimate) & is.finite(data$lower) & is.finite(data$upper) & !is_grp) else rep(FALSE, n_rows)
+  plot_rows <- if (has_est) (is.finite(data$estimate) & is.finite(data$lower) & is.finite(data$upper) & !is_grp & !is_ref & !is_ne) else rep(FALSE, n_rows)
   if (any(plot_rows)) {
     sub_df <- data[plot_rows, , drop=FALSE]
     if (any(sub_df$lower > sub_df$estimate | sub_df$estimate > sub_df$upper)) stop("Invalid confidence interval")
     if (log_scale && (any(sub_df$lower <= 0) || null <= 0)) stop("Logarithmic effect measures must be positive")
   }
 
-  y_lims <- c(0.70, n_rows + 0.96)
-  y_header <- n_rows + 0.80
+  y_lims <- c(0.70, n_rows + 0.92)
+  y_header <- n_rows + 0.78
 
-  # Left column: structured labels with group bolding and indentation
-  data$label_x <- ifelse(is_ind, 0.08, 0.0)
+  # Left column: structured labels + optional count/rate columns
+  data$label_x <- ifelse(is_ind, if (has_left_extra) 0.04 else 0.08, 0.0)
   data$label_face <- ifelse(is_grp, "bold", "plain")
   p_left <- ggplot2::ggplot(data) +
     ggplot2::geom_text(ggplot2::aes(x=label_x, y=y_pos, label=label, fontface=label_face),
                        hjust=0, size=8.5/ggplot2::.pt, colour="black") +
     ggplot2::annotate("text", x=0.0, y=y_header, label=medpaper_label(label_header),
-                      hjust=0, fontface="bold", size=8.8/ggplot2::.pt, colour="black") +
+                      hjust=0, fontface="bold", size=8.8/ggplot2::.pt, colour="black")
+  if (has_left_extra) {
+    n_lc <- length(left_cols)
+    if (is.null(left_headers)) left_headers <- left_cols
+    x_positions <- if (n_lc == 1L) 0.62 else seq(0.50, 0.80, length.out=n_lc)
+    for (k in seq_len(n_lc)) {
+      col_vals <- as.character(data[[left_cols[k]]])
+      col_vals[is.na(col_vals)] <- ""
+      col_df <- data.frame(x_pos=rep(x_positions[k], n_rows), y_pos=data$y_pos, val=col_vals)
+      p_left <- p_left +
+        ggplot2::geom_text(data=col_df, ggplot2::aes(x=x_pos, y=y_pos, label=val),
+                           inherit.aes=FALSE, hjust=0, size=8.2/ggplot2::.pt, colour="black") +
+        ggplot2::annotate("text", x=x_positions[k], y=y_header, label=medpaper_label(left_headers[k]),
+                          hjust=0, fontface="bold", size=8.5/ggplot2::.pt, colour="black")
+    }
+  }
+  p_left <- p_left +
     ggplot2::geom_hline(yintercept=n_rows + 0.45, linewidth=0.35, colour="black") +
     ggplot2::scale_x_continuous(limits=c(0, 1), expand=c(0, 0)) +
     ggplot2::scale_y_continuous(limits=y_lims, expand=c(0, 0)) +
@@ -104,35 +132,47 @@ medpaper_forest_panels <- function(data, measure, null=1, log_scale=TRUE, digits
 
   # Middle column: forest plot strictly bounded within axis limits, optional overflow arrows
   fp <- data[plot_rows, , drop=FALSE]
+  ref_df <- data[is_ref & !is_grp, , drop=FALSE]
   if (is.null(xlim)) {
-    lo_min <- min(fp$lower, null, na.rm=TRUE)
-    hi_max <- max(fp$upper, null, na.rm=TRUE)
+    lo_min <- if (nrow(fp)) min(fp$lower, null, na.rm=TRUE) else if (log_scale) null * 0.5 else null - 1
+    hi_max <- if (nrow(fp)) max(fp$upper, null, na.rm=TRUE) else if (log_scale) null * 2.0 else null + 1
     xlim <- if (log_scale) c(lo_min * 0.85, hi_max * 1.15) else { span <- max(1e-6, hi_max - lo_min); c(lo_min - 0.08*span, hi_max + 0.08*span) }
   }
-  fp$draw_lower <- pmax(fp$lower, xlim[1])
-  fp$draw_upper <- pmin(fp$upper, xlim[2])
-  fp$clip_lo <- fp$lower < xlim[1]
-  fp$clip_hi <- fp$upper > xlim[2]
-  fp$in_bounds <- fp$estimate >= xlim[1] & fp$estimate <= xlim[2]
+  if (nrow(fp)) {
+    fp$draw_lower <- pmax(fp$lower, xlim[1])
+    fp$draw_upper <- pmin(fp$upper, xlim[2])
+    fp$clip_lo <- fp$lower < xlim[1]
+    fp$clip_hi <- fp$upper > xlim[2]
+    fp$in_bounds <- fp$estimate >= xlim[1] & fp$estimate <= xlim[2]
+  }
 
   p_forest <- ggplot2::ggplot(fp, ggplot2::aes(y=y_pos)) +
     ggplot2::annotate("segment", x=null, xend=null, y=0.72, yend=n_rows + 0.40,
                       linetype="dashed", linewidth=0.35, colour="grey35") +
-    ggplot2::geom_vline(xintercept=null, linetype="blank") +
-    ggplot2::geom_errorbar(ggplot2::aes(xmin=draw_lower, xmax=draw_upper), orientation="y",
-                           width=0.16, linewidth=0.4, colour="black") +
-    ggplot2::geom_point(data=fp[fp$in_bounds, , drop=FALSE], ggplot2::aes(x=estimate, y=y_pos), size=2.1, colour="black")
-  if (any(fp$clip_lo)) {
-    p_forest <- p_forest + ggplot2::geom_segment(
-      data=fp[fp$clip_lo, , drop=FALSE],
-      ggplot2::aes(x=draw_upper, xend=xlim[1], y=y_pos, yend=y_pos),
-      arrow=grid::arrow(length=grid::unit(1.6, "mm"), type="closed"), linewidth=0.4, colour="black")
+    ggplot2::geom_vline(xintercept=null, linetype="blank")
+  if (nrow(fp)) {
+    p_forest <- p_forest +
+      ggplot2::geom_errorbar(ggplot2::aes(xmin=draw_lower, xmax=draw_upper), orientation="y",
+                             width=0.16, linewidth=0.4, colour="black") +
+      ggplot2::geom_point(data=fp[fp$in_bounds, , drop=FALSE], ggplot2::aes(x=estimate, y=y_pos), size=2.1, colour="black")
+    if (any(fp$clip_lo)) {
+      p_forest <- p_forest + ggplot2::geom_segment(
+        data=fp[fp$clip_lo, , drop=FALSE],
+        ggplot2::aes(x=draw_upper, xend=xlim[1], y=y_pos, yend=y_pos),
+        arrow=grid::arrow(length=grid::unit(1.6, "mm"), type="closed"), linewidth=0.4, colour="black")
+    }
+    if (any(fp$clip_hi)) {
+      p_forest <- p_forest + ggplot2::geom_segment(
+        data=fp[fp$clip_hi, , drop=FALSE],
+        ggplot2::aes(x=draw_lower, xend=xlim[2], y=y_pos, yend=y_pos),
+        arrow=grid::arrow(length=grid::unit(1.6, "mm"), type="closed"), linewidth=0.4, colour="black")
+    }
   }
-  if (any(fp$clip_hi)) {
-    p_forest <- p_forest + ggplot2::geom_segment(
-      data=fp[fp$clip_hi, , drop=FALSE],
-      ggplot2::aes(x=draw_lower, xend=xlim[2], y=y_pos, yend=y_pos),
-      arrow=grid::arrow(length=grid::unit(1.6, "mm"), type="closed"), linewidth=0.4, colour="black")
+  if (nrow(ref_df) && null >= xlim[1] && null <= xlim[2]) {
+    ref_df$ref_x <- null
+    p_forest <- p_forest +
+      ggplot2::geom_point(data=ref_df, ggplot2::aes(x=ref_x, y=y_pos), inherit.aes=FALSE,
+                          shape=15, size=1.8, colour="grey30")
   }
   if (log_scale) {
     p_forest <- p_forest + ggplot2::scale_x_log10()
@@ -146,22 +186,38 @@ medpaper_forest_panels <- function(data, measure, null=1, log_scale=TRUE, digits
                    axis.text.y=ggplot2::element_blank(), axis.title.y=ggplot2::element_blank(),
                    plot.margin=ggplot2::margin(1, 2.5, 1, 2.5, unit="mm"))
 
-  # Right column: aligned effect + CI (+ optional P value column)
+  # Right column: aligned effect + CI (+ optional P value + optional P for interaction)
   if (is.null(effect_header)) effect_header <- paste0(measure, " (", interval_label, ")")
-  data$eff_str <- ifelse(plot_rows, paste0(format_effect(data$estimate), " (", format_effect(data$lower), " to ", format_effect(data$upper), ")"), "")
-  has_p <- !is.null(p_col) && p_col %in% names(data)
+  ref_label <- paste0(format(null, trim=TRUE), " [Reference]")
+  data$eff_str <- ifelse(
+    plot_rows,
+    paste0(format_effect(data$estimate), " (", format_effect(data$lower), " to ", format_effect(data$upper), ")"),
+    ifelse(is_ref & !is_grp, ref_label, ifelse(is_ne & !is_grp, "NE", ifelse(nzchar(row_status) & !is_grp, row_status, "")))
+  )
   data$p_str <- if (has_p) ifelse(is.na(data[[p_col]]), "", as.character(data[[p_col]])) else ""
+  data$pint_str <- if (has_pint) ifelse(is.na(data[[p_interaction_col]]), "", as.character(data[[p_interaction_col]])) else ""
+
+  x_eff <- 0.02
+  x_p <- if (has_p && has_pint) 0.54 else 0.70
+  x_pint <- if (has_p && has_pint) 0.75 else 0.66
   p_right <- ggplot2::ggplot(data) +
-    ggplot2::geom_text(ggplot2::aes(x=0.02, y=y_pos, label=eff_str),
-                       hjust=0, size=8.3/ggplot2::.pt, colour="black") +
-    ggplot2::annotate("text", x=0.02, y=y_header, label=effect_header,
-                      hjust=0, fontface="bold", size=8.6/ggplot2::.pt, colour="black")
+    ggplot2::geom_text(ggplot2::aes(x=x_eff, y=y_pos, label=eff_str),
+                       hjust=0, size=8.2/ggplot2::.pt, colour="black") +
+    ggplot2::annotate("text", x=x_eff, y=y_header, label=effect_header,
+                      hjust=0, fontface="bold", size=8.5/ggplot2::.pt, colour="black")
   if (has_p) {
     p_right <- p_right +
-      ggplot2::geom_text(ggplot2::aes(x=0.72, y=y_pos, label=p_str),
-                         hjust=0, size=8.3/ggplot2::.pt, colour="black") +
-      ggplot2::annotate("text", x=0.72, y=y_header, label=p_header,
-                        hjust=0, fontface="bold", size=8.6/ggplot2::.pt, colour="black")
+      ggplot2::geom_text(ggplot2::aes(x=x_p, y=y_pos, label=p_str),
+                         hjust=0, size=8.2/ggplot2::.pt, colour="black") +
+      ggplot2::annotate("text", x=x_p, y=y_header, label=p_header,
+                        hjust=0, fontface="bold", size=8.5/ggplot2::.pt, colour="black")
+  }
+  if (has_pint) {
+    p_right <- p_right +
+      ggplot2::geom_text(ggplot2::aes(x=x_pint, y=y_pos, label=pint_str),
+                         hjust=0, size=8.2/ggplot2::.pt, colour="black") +
+      ggplot2::annotate("text", x=x_pint, y=y_header, label=p_interaction_header,
+                        hjust=0, fontface="bold", size=8.5/ggplot2::.pt, colour="black")
   }
   p_right <- p_right +
     ggplot2::geom_hline(yintercept=n_rows + 0.45, linewidth=0.35, colour="black") +
@@ -174,6 +230,8 @@ medpaper_forest_panels <- function(data, measure, null=1, log_scale=TRUE, digits
   composed <- patchwork::wrap_plots(p_left, p_forest, p_right, ncol=3L, widths=col_widths)
   list(plot=composed, panels=list(p_left, p_forest, p_right))
 }
+
+medpaper_clinical_forest <- medpaper_forest_panels
 
 isTRUE_vec <- function(x) vapply(x, isTRUE, logical(1))
 
@@ -202,10 +260,11 @@ medpaper_calibration <- function(data, probability_label="Outcome probability") 
     ggplot2::labs(x=paste("Predicted",tolower(probability_label)),y=paste("Observed",tolower(probability_label))) + medpaper_theme()
 }
 
-# Neutral selection diagram for cohorts/records, not an assertion of trial registration
-# or checklist compliance. Counts are supplied individually from executed result exports.
-# x/y are layout coordinates only; edges describe actual flow, not subtraction rules.
-medpaper_selection_flow <- function(nodes, edges, box_width=.36, box_height=.16, family="Arial") {
+# Neutral selection diagram for cohorts/records (supports single or multi-source roots,
+# multi-reason exclusion detail lists, and optional orthogonal CONSORT/STROBE connectors).
+# Counts are supplied individually from executed result exports.
+medpaper_selection_flow <- function(nodes, edges, box_width=.36, box_height=.16,
+                                    orthogonal=FALSE, family="Arial") {
   medpaper_require("ggplot2")
   medpaper_check_numeric(nodes,c("n","x","y"))
   if(!all(c("id","label") %in% names(nodes)) || anyNA(nodes$id) || anyNA(nodes$label) ||
@@ -216,40 +275,184 @@ medpaper_selection_flow <- function(nodes, edges, box_width=.36, box_height=.16,
      any(!edges$to %in% nodes$id) || any(edges$from==edges$to) || anyDuplicated(edges)) stop("Declare actual connected source/destination nodes")
   if(length(box_width)!=1L || length(box_height)!=1L || !is.finite(box_width) || !is.finite(box_height) ||
      box_width<=0 || box_height<=0) stop("Positive box dimensions required")
-  nodes$label <- medpaper_label(nodes$label)
-  # Fail on cycles/unconnected nodes; do not turn a broken selection path into a tidy drawing.
+  nodes$label <- medpaper_label(as.character(nodes$label))
+  # Fail on cycles/unconnected nodes; allow >=1 source roots for multi-database / multi-cohort merges.
   unseen <- nodes$id; roots <- setdiff(nodes$id,edges$to)
-  if(length(roots)!=1L || any(!nodes$id %in% c(edges$from,edges$to))) stop("Use one source root and connect every actual node")
+  if(length(roots)<1L || any(!nodes$id %in% c(edges$from,edges$to))) stop("At least one source root is required and every node must be connected")
   pending <- roots
   while(length(pending)) {
     unseen <- setdiff(unseen,pending)
     pending <- unseen[!vapply(unseen,function(id) any(edges$from[edges$to==id] %in% unseen),logical(1))]
   }
   if(length(unseen)) stop("Selection edges contain a cycle")
+
+  has_detail <- "detail" %in% names(nodes)
+  detail_vec <- if (has_detail) ifelse(is.na(nodes$detail), "", trimws(as.character(nodes$detail))) else rep("", nrow(nodes))
+  bw_vec <- if ("width" %in% names(nodes) && is.numeric(nodes$width)) nodes$width else rep(box_width, nrow(nodes))
+  bh_vec <- if ("height" %in% names(nodes) && is.numeric(nodes$height)) nodes$height else ifelse(nzchar(detail_vec), box_height * 1.55, box_height)
+
   if(nrow(nodes)>1L) for(i in seq_len(nrow(nodes)-1L)) for(j in (i+1L):nrow(nodes))
-    if(abs(nodes$x[i]-nodes$x[j])<box_width && abs(nodes$y[i]-nodes$y[j])<box_height)
+    if(abs(nodes$x[i]-nodes$x[j])<(bw_vec[i]+bw_vec[j])/2 && abs(nodes$y[i]-nodes$y[j])<(bh_vec[i]+bh_vec[j])/2)
       stop("Flow boxes overlap; change layout coordinates, not counts")
-  wrapped <- lapply(nodes$label, function(x) strwrap(x,width=29))
-  if(any(lengths(wrapped)>3L)) stop("Long flow labels need a larger measured layout or concise clinical wording")
-  nodes$text <- paste0(vapply(wrapped,paste,character(1),collapse="\n"),"\nn = ",format(nodes$n,scientific=FALSE,trim=TRUE))
+
+  texts <- character(nrow(nodes))
+  for (i in seq_len(nrow(nodes))) {
+    w_lines <- strwrap(nodes$label[i], width=31)
+    if (!nzchar(detail_vec[i]) && length(w_lines) > 3L)
+      stop("Long flow labels need a larger measured layout or concise clinical wording")
+    head_txt <- paste0(paste(w_lines, collapse="\n"), " (n = ", format(nodes$n[i], scientific=FALSE, trim=TRUE), ")")
+    if (!nzchar(detail_vec[i])) {
+      head_txt <- paste0(paste(w_lines, collapse="\n"), "\nn = ", format(nodes$n[i], scientific=FALSE, trim=TRUE))
+      texts[i] <- head_txt
+    } else {
+      det_lines <- unlist(lapply(strsplit(detail_vec[i], "\n", fixed=TRUE)[[1]], function(s) strwrap(s, width=34)))
+      if (length(w_lines) + length(det_lines) > 10L)
+        stop("Exclusion detail box exceeds 10 lines; summarize concise clinical categories")
+      texts[i] <- paste0(head_txt, "\n", paste(det_lines, collapse="\n"))
+    }
+  }
+  nodes$text <- texts
+  nodes$bw <- bw_vec
+  nodes$bh <- bh_vec
+
   a <- nodes[match(edges$from,nodes$id),]; b <- nodes[match(edges$to,nodes$id),]
-  horizontal <- abs(b$x-a$x)>abs(b$y-a$y)
-  sx <- a$x+ifelse(horizontal,sign(b$x-a$x)*box_width/2,0)
-  sy <- a$y+ifelse(horizontal,0,sign(b$y-a$y)*box_height/2)
-  ex <- b$x-ifelse(horizontal,sign(b$x-a$x)*box_width/2,0)
-  ey <- b$y-ifelse(horizontal,0,sign(b$y-a$y)*box_height/2)
-  links <- data.frame(x=sx,y=sy,xend=ex,yend=ey)
-  ggplot2::ggplot() +
-    ggplot2::geom_segment(data=links,ggplot2::aes(x=x,y=y,xend=xend,yend=yend),linewidth=.35,
-                          arrow=grid::arrow(length=grid::unit(2,"mm"),type="closed")) +
-    ggplot2::geom_rect(data=nodes,ggplot2::aes(xmin=x-box_width/2,xmax=x+box_width/2,
-                                            ymin=y-box_height/2,ymax=y+box_height/2),fill="white",colour="black",linewidth=.35) +
-    ggplot2::geom_text(data=nodes,ggplot2::aes(x=x,y=y,label=text),size=9/ggplot2::.pt,family=family,lineheight=.95) +
-    ggplot2::coord_cartesian(xlim=range(nodes$x)+c(-1,1)*box_width*.65,
-                         ylim=range(nodes$y)+c(-1,1)*box_height*.7,expand=FALSE) +
+  plain_segs <- list()
+  arrow_segs <- list()
+  for (k in seq_len(nrow(edges))) {
+    ax <- a$x[k]; ay <- a$y[k]; aw <- a$bw[k]; ah <- a$bh[k]
+    bx <- b$x[k]; by <- b$y[k]; bw <- b$bw[k]; bh <- b$bh[k]
+    if (isTRUE(orthogonal) && abs(bx - ax) > 1e-6 && abs(by - ay) > 1e-6) {
+      # Orthogonal routing: vertical trunk then horizontal branch into side box (or vice versa)
+      if (abs(bx - ax) >= aw / 2 + bw / 2) {
+        # Side exclusion branch from vertical stem at y = by
+        sx_stem <- ax
+        sy_stem <- ay - sign(ay - by) * ah / 2
+        ex_box <- bx - sign(bx - ax) * bw / 2
+        if (abs(by - sy_stem) > 1e-6) {
+          plain_segs[[length(plain_segs) + 1L]] <- data.frame(x=sx_stem, y=sy_stem, xend=sx_stem, yend=by)
+        }
+        arrow_segs[[length(arrow_segs) + 1L]] <- data.frame(x=sx_stem, y=by, xend=ex_box, yend=by)
+      } else {
+        mid_y <- (ay + by) / 2
+        sy_a <- ay + sign(by - ay) * ah / 2
+        ey_b <- by - sign(by - ay) * bh / 2
+        plain_segs[[length(plain_segs) + 1L]] <- data.frame(x=ax, y=sy_a, xend=ax, yend=mid_y)
+        plain_segs[[length(plain_segs) + 1L]] <- data.frame(x=ax, y=mid_y, xend=bx, yend=mid_y)
+        arrow_segs[[length(arrow_segs) + 1L]] <- data.frame(x=bx, y=mid_y, xend=bx, yend=ey_b)
+      }
+    } else {
+      horiz <- abs(bx - ax) > abs(by - ay)
+      sx <- ax + ifelse(horiz, sign(bx - ax) * aw / 2, 0)
+      sy <- ay + ifelse(horiz, 0, sign(by - ay) * ah / 2)
+      ex <- bx - ifelse(horiz, sign(bx - ax) * bw / 2, 0)
+      ey <- by - ifelse(horiz, 0, sign(by - ay) * bh / 2)
+      arrow_segs[[length(arrow_segs) + 1L]] <- data.frame(x=sx, y=sy, xend=ex, yend=ey)
+    }
+  }
+  arrow_df <- do.call(rbind, arrow_segs)
+  p <- ggplot2::ggplot()
+  if (length(plain_segs)) {
+    plain_df <- do.call(rbind, plain_segs)
+    p <- p + ggplot2::geom_segment(data=plain_df, ggplot2::aes(x=x, y=y, xend=xend, yend=yend), linewidth=.35, colour="black")
+  }
+  p +
+    ggplot2::geom_segment(data=arrow_df,ggplot2::aes(x=x,y=y,xend=xend,yend=yend),linewidth=.35,colour="black",
+                          arrow=grid::arrow(length=grid::unit(1.9,"mm"),type="closed")) +
+    ggplot2::geom_rect(data=nodes,ggplot2::aes(xmin=x-bw/2,xmax=x+bw/2,
+                                            ymin=y-bh/2,ymax=y+bh/2),fill="white",colour="black",linewidth=.35) +
+    ggplot2::geom_text(data=nodes,ggplot2::aes(x=x,y=y,label=text),size=8.5/ggplot2::.pt,family=family,lineheight=.95,colour="black") +
+    ggplot2::coord_cartesian(xlim=c(min(nodes$x - nodes$bw * 0.62), max(nodes$x + nodes$bw * 0.62)),
+                         ylim=c(min(nodes$y - nodes$bh * 0.65), max(nodes$y + nodes$bh * 0.65)),expand=FALSE) +
     ggplot2::theme_void(base_family=family) +
-    ggplot2::theme(plot.margin=ggplot2::margin(3,3,3,3,unit="mm"),
+    ggplot2::theme(plot.margin=ggplot2::margin(2.5,2.5,2.5,2.5,unit="mm"),
                    plot.background=ggplot2::element_rect(fill="white",colour=NA))
+}
+
+medpaper_consort_flow <- medpaper_selection_flow
+
+# Publication Kaplan-Meier / cumulative-incidence curve + aligned number-at-risk table
+# built purely on ggplot2 + patchwork (no fragile survminer dependency).
+# Returns list(plot = <patchwork>, panels = list(p_km, p_risk)).
+medpaper_km_survival <- function(curve_data, risk_data, censor_data=NULL,
+                                 x_label="Follow-up time",
+                                 y_label="Event-free survival probability",
+                                 breaks=NULL, ylim=c(0, 1), ci_band=FALSE,
+                                 p_label=NULL, palette="okabe_ito",
+                                 risk_height=0.30) {
+  medpaper_require(c("ggplot2", "patchwork", "grid"))
+  medpaper_check_numeric(curve_data, c("time", "surv"))
+  medpaper_plot_groups(curve_data, "group")
+  medpaper_check_numeric(risk_data, c("time", "n_risk"))
+  medpaper_plot_groups(risk_data, "group")
+  if (any(curve_data$surv < 0 | curve_data$surv > 1.0001) || any(risk_data$n_risk < 0))
+    stop("Invalid survival/CIF coordinates or negative at-risk counts")
+
+  curve_data$group <- medpaper_label(as.character(curve_data$group))
+  risk_data$group <- medpaper_label(as.character(risk_data$group))
+  groups <- unique(curve_data$group)
+  curve_data$group <- factor(curve_data$group, levels=groups)
+  risk_data$group <- factor(risk_data$group, levels=rev(groups))
+  cols <- medpaper_colours(length(groups), palette=palette)
+  names(cols) <- groups
+
+  if (is.null(breaks)) breaks <- sort(unique(risk_data$time))
+  t_max <- max(c(curve_data$time, breaks), na.rm=TRUE)
+  t_min <- min(c(curve_data$time, breaks, 0), na.rm=TRUE)
+  x_pad <- max(1e-6, (t_max - t_min) * 0.03)
+  x_lims <- c(t_min - x_pad * 0.4, t_max + x_pad)
+
+  p_km <- ggplot2::ggplot(curve_data, ggplot2::aes(x=time, y=surv, colour=group, group=group))
+  if (isTRUE(ci_band) && all(c("lower", "upper") %in% names(curve_data))) {
+    medpaper_check_numeric(curve_data, c("lower", "upper"))
+    p_km <- p_km + ggplot2::geom_ribbon(
+      ggplot2::aes(ymin=lower, ymax=upper, fill=group), alpha=0.14, colour=NA, show.legend=FALSE) +
+      ggplot2::scale_fill_manual(values=cols)
+  }
+  p_km <- p_km +
+    ggplot2::geom_step(linewidth=0.6) +
+    ggplot2::scale_colour_manual(values=cols) +
+    ggplot2::scale_x_continuous(breaks=breaks) +
+    ggplot2::scale_y_continuous(limits=ylim) +
+    ggplot2::coord_cartesian(xlim=x_lims, ylim=ylim) +
+    ggplot2::labs(x=medpaper_label(x_label), y=medpaper_label(y_label)) +
+    medpaper_theme() +
+    ggplot2::theme(legend.position="top",
+                   plot.margin=ggplot2::margin(2, 4, 1, 4, unit="mm"))
+
+  if (!is.null(censor_data) && is.data.frame(censor_data) && nrow(censor_data) > 0L) {
+    medpaper_check_numeric(censor_data, c("time", "surv"))
+    medpaper_plot_groups(censor_data, "group")
+    censor_data$group <- factor(medpaper_label(as.character(censor_data$group)), levels=groups)
+    p_km <- p_km + ggplot2::geom_point(
+      data=censor_data, ggplot2::aes(x=time, y=surv, colour=group),
+      shape=3, size=1.7, stroke=0.45, show.legend=FALSE)
+  }
+  if (!is.null(p_label) && nzchar(trimws(p_label))) {
+    p_km <- p_km + ggplot2::annotate(
+      "text", x=t_min + (t_max - t_min) * 0.03, y=ylim[1] + diff(ylim) * 0.10,
+      label=trimws(p_label), hjust=0, size=8.5/ggplot2::.pt, colour="black")
+  }
+
+  risk_data$label_val <- as.character(as.integer(round(risk_data$n_risk)))
+  n_g <- length(groups)
+  risk_data$y_num <- as.integer(risk_data$group)
+  p_risk <- ggplot2::ggplot(risk_data, ggplot2::aes(x=time, y=y_num, label=label_val)) +
+    ggplot2::geom_text(size=8.2/ggplot2::.pt, colour="black") +
+    ggplot2::annotate("text", x=t_min, y=n_g + 0.72, label="Number at risk",
+                      hjust=0, fontface="bold", size=8.6/ggplot2::.pt, colour="black") +
+    ggplot2::scale_x_continuous(breaks=breaks) +
+    ggplot2::scale_y_continuous(breaks=seq_len(n_g), labels=rev(groups),
+                                limits=c(0.55, n_g + 0.95), expand=c(0, 0)) +
+    ggplot2::coord_cartesian(xlim=x_lims) +
+    ggplot2::labs(x=medpaper_label(x_label), y=NULL) +
+    medpaper_theme() +
+    ggplot2::theme(axis.line.y=ggplot2::element_blank(),
+                   axis.ticks.y=ggplot2::element_blank(),
+                   axis.text.y=ggplot2::element_text(colour="black", size=8.3),
+                   plot.margin=ggplot2::margin(0.5, 4, 2.5, 4, unit="mm"))
+
+  composed <- patchwork::wrap_plots(p_km, p_risk, ncol=1L, heights=c(1, risk_height))
+  list(plot=composed, panels=list(p_km, p_risk))
 }
 
 medpaper_plot_groups <- function(data, fields) {

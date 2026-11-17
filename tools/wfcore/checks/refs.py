@@ -302,9 +302,17 @@ def refs_library(ctx: Ctx) -> Result:
     elif ctx.spec.get("require_readable_source", True):
         for entry in entries:
             problems.extend(f"{entry.get('citekey','?')}: {issue}" for issue in refproof.readable_source_errors(ctx.project,entry))
-    missing_id = [e.get("citekey", "?") for e in entries if not (e.get("pmid") or e.get("doi"))]
+    missing_id = [
+        e.get("citekey", "?")
+        for e in entries
+        if not (
+            e.get("pmid")
+            or e.get("doi")
+            or (e.get("source") == "authority" and (e.get("r_package") or e.get("url")))
+        )
+    ]
     if missing_id:
-        problems.append(f"{len(missing_id)} entry/entries with neither PMID nor DOI: " + ", ".join(missing_id[:6]))
+        problems.append(f"{len(missing_id)} entry/entries with no verifiable PMID, DOI, or official authority anchor: " + ", ".join(missing_id[:6]))
 
     if ctx.spec.get("require_verified", True):
         proof_ok, proof_problems, _ = refproof.validate_local_proof(
@@ -354,31 +362,69 @@ def reference_provenance(ctx: Ctx) -> Result:
     try:
         library = ctx.read_json(LIB)
         entries = library.get("entries", [])
+        if not entries:
+            raise ValueError("library.json has no entries")
         from ..liverefs import cached_sources, store_sources
         cached = (None if ctx.stage.id in {"S13_reflib", "S24_package_human_review", "S25_submission_audit"} else
                   cached_sources(ctx.project, entries,
-                                 float(ctx.target("live_reference_age_hours_max", 24))))
+                                 float(ctx.target("live_reference_age_hours_max", 168))))
         if cached is not None:
             return Result(True, "reference_provenance",
-                          f"{len(entries)} unchanged records match hashed independent live XML within the freshness window")
-        pmids = [str(item.get("pmid", "")) for item in entries]
-        if not pmids or any(not re.fullmatch(r"\d+", pmid) for pmid in pmids):
-            raise ValueError("every entry must have a numeric PMID")
+                          f"{len(entries)} unchanged records match hashed independent live payloads within the freshness window")
         from pubmed import eutils as eu
 
-        live_records = eu.efetch(pmids, fresh=True, purpose="gate")
-        live = {str(item.get("pmid", "")): item for item in live_records}
+        pubmed_entries = [e for e in entries if (e.get("source") or "pubmed") == "pubmed"]
+        crossref_entries = [e for e in entries if e.get("source") == "crossref"]
+        authority_entries = [e for e in entries if e.get("source") == "authority"]
+        if len(pubmed_entries) + len(crossref_entries) + len(authority_entries) != len(entries):
+            raise ValueError("every entry must declare a supported provenance track (pubmed, crossref, or authority)")
+
+        pmids = [str(item.get("pmid", "")) for item in pubmed_entries]
+        if any(not re.fullmatch(r"\d+", pmid) for pmid in pmids):
+            raise ValueError("every PubMed entry must have a numeric PMID")
+        live_records: list[dict] = []
+        live_pubmed: dict[str, dict] = {}
+        if pmids:
+            fetched_pm = eu.efetch(pmids, fresh=True, purpose="gate")
+            live_records.extend(fetched_pm)
+            live_pubmed = {str(item.get("pmid", "")): item for item in fetched_pm}
+
+        live_crossref: dict[str, dict] = {}
+        for item in crossref_entries:
+            ck = str(item.get("citekey", "?"))
+            cr_rec = eu.crossref_fetch(str(item.get("doi", "")), fresh=True, purpose="gate")
+            if cr_rec is not None:
+                live_records.append(cr_rec)
+                live_crossref[ck] = cr_rec
+
+        live_authority: dict[str, dict] = {}
+        for item in authority_entries:
+            ck = str(item.get("citekey", "?"))
+            if item.get("authority_kind") == "r_software":
+                au_rec = eu.r_citation_record(str(item.get("r_package", "R")), fresh=True, purpose="gate")
+            else:
+                au_rec = eu.authority_url_record(
+                    str(item.get("url", "")),
+                    title=str(item.get("title", "")),
+                    year=str(item.get("year", "")),
+                    author=str(((item.get("authors") or [{}])[0].get("last", ""))),
+                    journal=str(item.get("journal", "")),
+                    fresh=True,
+                    purpose="gate",
+                )
+            live_records.append(au_rec)
+            live_authority[ck] = au_rec
     except Exception as exc:  # noqa: BLE001 - network failure must close the gate
         return Result(
             False,
             "reference_provenance",
-            f"independent live PubMed re-fetch failed closed: {exc}",
-            ["Restore NCBI access and rerun the gate; do not replace it with a local boolean."],
+            f"independent live reference re-fetch failed closed: {exc}",
+            ["Restore source API access and rerun the gate; do not replace it with a local boolean."],
         )
     live_problems = []
-    for entry in entries:
+    for entry in pubmed_entries:
         key, pmid = str(entry.get("citekey", "?")), str(entry.get("pmid", ""))
-        source = live.get(pmid)
+        source = live_pubmed.get(pmid)
         if source is None:
             live_problems.append(f"{key}: PMID {pmid} was not returned by PubMed")
             continue
@@ -386,14 +432,34 @@ def reference_provenance(ctx: Ctx) -> Result:
             f"{key}: {problem}" for problem in
             refproof.compare_entry_to_source(entry, source)
         )
-    if set(live) != set(pmids):
+    if pmids and set(live_pubmed) != set(pmids):
         live_problems.append("the independent PubMed response PMID set differs from the library")
+    for entry in crossref_entries:
+        key = str(entry.get("citekey", "?"))
+        source = live_crossref.get(key)
+        if source is None:
+            live_problems.append(f"{key}: DOI {entry.get('doi')} was not returned by Crossref")
+            continue
+        live_problems.extend(
+            f"{key}: {problem}" for problem in
+            refproof.compare_entry_to_source(entry, source)
+        )
+    for entry in authority_entries:
+        key = str(entry.get("citekey", "?"))
+        source = live_authority.get(key)
+        if source is None:
+            live_problems.append(f"{key}: official authority snapshot unavailable")
+            continue
+        live_problems.extend(
+            f"{key}: {problem}" for problem in
+            refproof.compare_entry_to_source(entry, source)
+        )
     if live_problems:
         return Result(False, "reference_provenance", "; ".join(live_problems[:8]),
-                      ["Rebuild the affected entry from the returned PubMed record; never edit the proof to match."])
+                      ["Rebuild the affected entry from the returned authoritative record; never edit the proof to match."])
     store_sources(ctx.project, live_records)
     return Result(True, "reference_provenance",
-                  f"{len(entries)} record(s) independently re-fetched and matched against live PubMed")
+                  f"{len(entries)} record(s) independently re-fetched and matched against live authoritative sources")
 
 
 @check("bib_ris_match_library")

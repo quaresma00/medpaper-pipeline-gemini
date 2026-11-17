@@ -224,11 +224,14 @@ class State:
                 self.data["stages"][sid]["status"] = "pending"
         self.save()
 
-    def clear_decisions_for(self, stage_ids: list[str]) -> None:
+    def clear_decisions_for(self, stage_ids: list[str], *,
+                            preserve_names: set[str] | None = None) -> None:
         """Invalidate decisions made in stages that are about to be rerun."""
         affected = set(stage_ids)
+        keep = preserve_names or set()
         decisions = self.data.get("decisions", {})
-        removed = [name for name, rec in decisions.items() if rec.get("stage") in affected]
+        removed = [name for name, rec in decisions.items()
+                   if rec.get("stage") in affected and name not in keep]
         for name in removed:
             del decisions[name]
         if removed:

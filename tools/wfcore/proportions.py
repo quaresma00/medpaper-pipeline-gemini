@@ -46,13 +46,47 @@ def validate(claim,catalog,text,required=True):
         try:
             fact=catalog[row["fact_id"]]
             if row["fact_id"] not in claim.get("fact_ids",[]): raise ValueError("Percentage fact must belong to this exact claim")
-            values=fact["values"]; n=Decimal(str(values[row["numerator_key"]])); d=Decimal(str(values[row["denominator_key"]]))
+            values=fact["values"]
             value=str(row["reported"]).strip().rstrip("%").replace("−","-"); shown=Decimal(value)
-            kind=fact["context"].get("percentage_kind","part_whole")
-            if kind not in {"part_whole","relative_change","probability"}: raise ValueError("Unknown scientific percentage type")
-            if d<=0 or (kind!="relative_change" and not 0<=n<=d): raise ValueError("Invalid percentage denominator/type; don't treat change percentages as patient proportions")
             tolerance=Decimal(1).scaleb(shown.as_tuple().exponent)/2
-            if abs(shown-100*n/d)>tolerance: raise ValueError("Percentage does not match its actual numerator/denominator")
+            kind=fact["context"].get("percentage_kind","part_whole")
+            if kind in {"part_whole","relative_change","probability"}:
+                n=Decimal(str(values[row["numerator_key"]])); d=Decimal(str(values[row["denominator_key"]]))
+                if d<=0 or (kind!="relative_change" and not 0<=n<=d):
+                    raise ValueError("Invalid percentage denominator/type; don't treat change percentages as patient proportions")
+                if abs(shown-100*n/d)>tolerance:
+                    raise ValueError("Percentage does not match its actual numerator/denominator")
+            elif kind=="weighted_survey":
+                pct_exact=Decimal(str(values[row["percentage_key"]]))
+                unw_key=row.get("unweighted_n_key") or row.get("numerator_key")
+                if not unw_key:
+                    raise ValueError("weighted_survey percentage requires unweighted_n_key (or numerator_key) and denominator_key")
+                unw_n=Decimal(str(values[unw_key])); d=Decimal(str(values[row["denominator_key"]]))
+                if unw_n<0 or unw_n!=int(unw_n) or d<=0 or not 0<=pct_exact<=100:
+                    raise ValueError("weighted_survey requires nonnegative integer unweighted count, positive denominator, and [0, 100] percentage")
+                if abs(shown-pct_exact)>tolerance:
+                    raise ValueError("Weighted survey percentage does not match executed percentage_key")
+            elif kind in {"survival_km","cif"}:
+                pct_exact=Decimal(str(values[row["percentage_key"]]))
+                denom_key=row.get("at_risk_key") or row.get("denominator_key")
+                if not denom_key:
+                    raise ValueError(f"{kind} percentage requires percentage_key and at_risk_key/denominator_key")
+                at_risk=Decimal(str(values[denom_key]))
+                if at_risk<=0 or not 0<=pct_exact<=100:
+                    raise ValueError(f"{kind} requires positive at-risk denominator and [0, 100] percentage")
+                if abs(shown-pct_exact)>tolerance:
+                    raise ValueError(f"{kind} percentage does not match executed percentage_key")
+            elif kind=="pooled_mi":
+                pct_exact=Decimal(str(values[row["percentage_key"]]))
+                d=Decimal(str(values[row["denominator_key"]]))
+                m_key=row.get("imputations_key","m_imputations")
+                m_imp=int(values[m_key])
+                if d<=0 or m_imp<2 or not 0<=pct_exact<=100:
+                    raise ValueError("pooled_mi requires positive denominator_key, imputations >= 2, and [0, 100] percentage")
+                if abs(shown-pct_exact)>tolerance:
+                    raise ValueError("Pooled MI percentage does not match executed percentage_key")
+            else:
+                raise ValueError("Unknown scientific percentage type")
             basis=fact["context"].get("percentage_basis")
             if not isinstance(basis,str) or not basis.strip(): raise ValueError("Executed fact context needs percentage_basis (eligibility, available-case rule, unit and time), not a claim-side guess")
             reported.append(value); bases.append(basis)

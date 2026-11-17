@@ -326,12 +326,56 @@ def _one_record(art, cache_file: str) -> dict:
     }
 
 
+def _parse_crossref_message(msg: dict) -> dict:
+    issued = msg.get("issued", {}).get("date-parts", [[None]])[0]
+    if not (issued and issued[0]):
+        issued = msg.get("published-print", {}).get("date-parts", [[None]])[0]
+    if not (issued and issued[0]):
+        issued = msg.get("published-online", {}).get("date-parts", [[None]])[0]
+    authors = []
+    for a in msg.get("author", []):
+        if a.get("family"):
+            authors.append({"last": str(a.get("family", "")).strip(),
+                            "first": str(a.get("given", "")).strip(),
+                            "initials": "",
+                            "suffix": str(a.get("suffix", "")).strip(),
+                            "collective": False})
+        elif a.get("name"):
+            authors.append({"last": str(a.get("name", "")).strip(),
+                            "first": "", "initials": "", "suffix": "", "collective": True})
+    raw_abs = str(msg.get("abstract") or "").strip()
+    if raw_abs:
+        raw_abs = re.sub(r"<[^>]+>", " ", raw_abs)
+        raw_abs = re.sub(r"\s+", " ", raw_abs).strip()
+    title = re.sub(r"\s+", " ", (msg.get("title") or [""])[0]).strip().rstrip(".")
+    container = (msg.get("container-title") or msg.get("publisher") or [""])
+    journal = container[0] if isinstance(container, list) else str(container)
+    return {
+        "pmid": "",
+        "doi": (msg.get("DOI") or "").strip().lower(),
+        "pmcid": "",
+        "title": title,
+        "abstract": raw_abs,
+        "authors": authors,
+        "journal": re.sub(r"\s+", " ", journal).strip(),
+        "journal_abbrev": ((msg.get("short-container-title") or [""])[0] or "").strip(),
+        "year": str(issued[0]) if issued and issued[0] else "",
+        "volume": str(msg.get("volume") or "").strip(),
+        "issue": str(msg.get("issue") or "").strip(),
+        "pages": str(msg.get("page") or "").strip(),
+        "type": msg.get("type", ""),
+        "flags": ["PREPRINT"] if msg.get("type") == "posted-content" else [],
+        "source": "crossref",
+    }
+
+
 def crossref_by_doi(doi: str) -> dict | None:
     if not doi:
         return None
-    name = f"crossref_{_digest(doi)}.json"
+    clean_doi = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", doi.strip(), flags=re.I)
+    name = f"crossref_{_digest(clean_doi.lower())}.json"
     try:
-        raw = cached(name, lambda: http_get(f"{CROSSREF}/{urllib.parse.quote(doi)}",
+        raw = cached(name, lambda: http_get(f"{CROSSREF}/{urllib.parse.quote(clean_doi)}",
                                            {"mailto": api_email() or ""}).decode("utf-8", "replace"))
     except Exception:  # noqa: BLE001
         return None
@@ -339,16 +383,169 @@ def crossref_by_doi(doi: str) -> dict | None:
         msg = json.loads(raw).get("message", {})
     except json.JSONDecodeError:
         return None
-    issued = msg.get("issued", {}).get("date-parts", [[None]])[0]
+    rec = _parse_crossref_message(msg)
+    rec["cache_file"] = f"06_refs/cache/{name}"
+    return rec
+
+
+def crossref_fetch(doi: str, *, fresh: bool = False, purpose: str = "discovery") -> dict | None:
+    """Fetch a Crossref work record by DOI with tamper-evident raw JSON caching."""
+    clean_doi = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", (doi or "").strip(), flags=re.I)
+    if not clean_doi:
+        return None
+    clean_purpose = re.sub(r"[^a-z0-9_-]", "", purpose.casefold()) or "discovery"
+    if fresh:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        name = f"{clean_purpose}_crossref_{_digest(clean_doi.lower())}_{stamp}.json"
+    else:
+        name = f"crossref_{_digest(clean_doi.lower())}.json"
+    raw = cached(
+        name,
+        lambda: http_get(f"{CROSSREF}/{urllib.parse.quote(clean_doi)}",
+                         {"mailto": api_email() or ""}),
+        binary=True,
+        refresh=fresh,
+    )
+    payload_bytes = raw if isinstance(raw, bytes) else raw.encode("utf-8")
+    msg = json.loads(payload_bytes.decode("utf-8", "replace")).get("message", {})
+    if not msg or not msg.get("DOI"):
+        return None
+    rec = _parse_crossref_message(msg)
+    rec["cache_file"] = f"06_refs/cache/{name}"
+    rec["cache_sha256"] = hashlib.sha256(payload_bytes).hexdigest()
+    rec["fresh_fetch"] = fresh
+    rec["retrieved_at"] = now()
+    return rec
+
+
+def r_citation_record(package: str = "R", *, fresh: bool = False,
+                      purpose: str = "discovery") -> dict:
+    """Extract official R / CRAN package citation metadata from the installed R runtime."""
+    import shutil
+    import subprocess
+    rscript = shutil.which("Rscript")
+    if not rscript:
+        raise RuntimeError("Rscript is not on PATH; cannot verify R software citation")
+    pkg = (package or "R").strip()
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9.]*", pkg):
+        raise ValueError(f"invalid R package identifier: {pkg}")
+    clean_purpose = re.sub(r"[^a-z0-9_-]", "", purpose.casefold()) or "discovery"
+    slug = re.sub(r"[^a-z0-9_.-]", "_", pkg.casefold())
+    if fresh:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        name = f"{clean_purpose}_authority_rcitation_{slug}_{stamp}.json"
+    else:
+        name = f"authority_rcitation_{slug}.json"
+    r_expr = (
+        f"cit <- if ('{pkg}' == 'R') utils::citation() else utils::citation('{pkg}'); "
+        "e <- cit[[1]]; "
+        "auths <- lapply(e$author, function(p) list(last=paste(p$family, collapse=' '), first=paste(p$given, collapse=' '), collective=is.null(p$given) || !length(p$given))); "
+        "yr <- as.character(e$year); if (!length(yr) || !nzchar(yr)) yr <- format(Sys.Date(), '%Y'); "
+        "ver <- if ('" + pkg + "' == 'R') paste(R.version$major, R.version$minor, sep='.') else as.character(utils::packageVersion('" + pkg + "')); "
+        "out <- list(r_package='" + pkg + "', version=ver, title=paste(as.character(e$title), collapse=' '), "
+        "year=yr, url=paste(as.character(e$url), collapse=' '), journal=paste(as.character(if (!is.null(e$organization)) e$organization else if (!is.null(e$journal)) e$journal else 'R Foundation / CRAN'), collapse=' '), "
+        "note=paste(as.character(e$note), collapse=' '), authors=auths, bibtex=paste(as.character(utils::toBibtex(cit)), collapse='\\n')); "
+        "cat(jsonlite::toJSON(out, auto_unbox=TRUE))"
+    )
+    def _run_r() -> bytes:
+        proc = subprocess.run([rscript, "--vanilla", "-e", r_expr],
+                              capture_output=True, timeout=60, check=False)
+        if proc.returncode != 0 or not proc.stdout.strip():
+            err = proc.stderr.decode("utf-8", "replace").strip()
+            raise RuntimeError(f"Rscript citation('{pkg}') failed: {err}")
+        return proc.stdout
+
+    raw = cached(name, _run_r, binary=True, refresh=fresh)
+    payload_bytes = raw if isinstance(raw, bytes) else raw.encode("utf-8")
+    data = json.loads(payload_bytes.decode("utf-8", "replace"))
+    authors = []
+    for a in data.get("authors") or []:
+        last = str(a.get("last") or "").strip()
+        first = str(a.get("first") or "").strip()
+        if last or first:
+            authors.append({
+                "last": last or first,
+                "first": first if last else "",
+                "initials": "",
+                "suffix": "",
+                "collective": bool(a.get("collective")) or not first,
+            })
+    if not authors:
+        authors = [{"last": "R Core Team" if pkg == "R" else pkg, "first": "", "initials": "", "suffix": "", "collective": True}]
     return {
-        "doi": (msg.get("DOI") or "").lower(),
-        "title": (msg.get("title") or [""])[0],
-        "journal": (msg.get("container-title") or [""])[0],
-        "year": str(issued[0]) if issued and issued[0] else "",
-        "authors": [{"last": a.get("family", ""), "first": a.get("given", "")}
-                    for a in msg.get("author", [])],
-        "type": msg.get("type", ""),
-        "source": "crossref",
+        "pmid": "",
+        "doi": "",
+        "pmcid": "",
+        "r_package": pkg,
+        "url": str(data.get("url") or ("https://www.R-project.org/" if pkg == "R" else f"https://CRAN.R-project.org/package={pkg}")).strip(),
+        "title": re.sub(r"\s+", " ", str(data.get("title") or "")).strip().rstrip("."),
+        "abstract": "",
+        "authors": authors,
+        "journal": re.sub(r"\s+", " ", str(data.get("journal") or "R Foundation for Statistical Computing")).strip(),
+        "year": re.sub(r"[^0-9]", "", str(data.get("year") or ""))[:4],
+        "volume": "",
+        "issue": "",
+        "pages": "",
+        "flags": [],
+        "source": "authority",
+        "authority_kind": "r_software",
+        "bib_type": "manual",
+        "cache_file": f"06_refs/cache/{name}",
+        "cache_sha256": hashlib.sha256(payload_bytes).hexdigest(),
+        "fresh_fetch": fresh,
+        "retrieved_at": now(),
+    }
+
+
+def authority_url_record(url: str, *, title: str, year: str, author: str,
+                         journal: str = "Official Guideline / Standard",
+                         fresh: bool = False, purpose: str = "discovery") -> dict:
+    """Fetch and hash an official regulatory/guideline URL snapshot."""
+    clean_url = (url or "").strip()
+    if not re.match(r"^https?://", clean_url, flags=re.I):
+        raise ValueError("authority URL must start with http:// or https://")
+    clean_purpose = re.sub(r"[^a-z0-9_-]", "", purpose.casefold()) or "discovery"
+    if fresh:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        name = f"{clean_purpose}_authority_url_{_digest(clean_url)}_{stamp}.raw"
+    else:
+        name = f"authority_url_{_digest(clean_url)}.raw"
+    raw = cached(name, lambda: http_get(clean_url), binary=True, refresh=fresh)
+    payload_bytes = raw if isinstance(raw, bytes) else raw.encode("utf-8")
+    if len(payload_bytes) < 64:
+        raise RuntimeError(f"authority URL returned implausibly small payload ({len(payload_bytes)} bytes): {clean_url}")
+    meta_sidecar = cache_dir() / (name + ".meta.json")
+    meta_obj = {
+        "url": clean_url,
+        "title": re.sub(r"\s+", " ", title.strip()).rstrip("."),
+        "year": str(year).strip(),
+        "author": author.strip(),
+        "journal": journal.strip(),
+        "payload_sha256": hashlib.sha256(payload_bytes).hexdigest(),
+        "payload_bytes": len(payload_bytes),
+    }
+    meta_sidecar.write_bytes(json.dumps(meta_obj, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+    return {
+        "pmid": "",
+        "doi": "",
+        "pmcid": "",
+        "url": clean_url,
+        "title": meta_obj["title"],
+        "abstract": "",
+        "authors": [{"last": author.strip(), "first": "", "initials": "", "suffix": "", "collective": True}],
+        "journal": meta_obj["journal"],
+        "year": meta_obj["year"],
+        "volume": "",
+        "issue": "",
+        "pages": "",
+        "flags": [],
+        "source": "authority",
+        "authority_kind": "official_standard",
+        "bib_type": "misc",
+        "cache_file": f"06_refs/cache/{name}",
+        "cache_sha256": meta_obj["payload_sha256"],
+        "fresh_fetch": fresh,
+        "retrieved_at": now(),
     }
 
 

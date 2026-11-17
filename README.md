@@ -2,9 +2,9 @@
 
 [中文说明](README.md) | [English Documentation](README_EN.md)
 
-一套面向医学与临床研究的 Gemini / Google Antigravity 门禁式工作流（`v1.31.0` 架构）。它把“研究想法”推进为经过全量数据核验、真实文献溯源、语境与效应尺度绑定统计结果、R 优先临床图表、写前独立 SCIE 审稿（S11b）、全章节即写即去 AI/反防御润色、版本绑定独立子代理复核和目标期刊官方规则共同校验的投稿包，而不是让 AI 一次性凭记忆拼凑一篇看似完整的论文。
+一套面向医学与临床研究的 Gemini / Google Antigravity 门禁式工作流（`v1.32.0` 架构）。它把“研究想法”推进为经过全量数据核验、真实文献溯源、语境与效应尺度绑定统计结果、R 优先临床图表、写前独立 SCIE 审稿（S11b）、全章节即写即去 AI/反防御润色、版本绑定独立子代理复核和目标期刊官方规则共同校验的投稿包，而不是让 AI 一次性凭记忆拼凑一篇看似完整的论文。
 
-当前版本：`1.31.0`　｜　流程：25 个阶段（表图先行 + 写前 SCIE 审稿）　｜　运行环境：Windows `pwsh` + Google Antigravity / Gemini (`uv run python`)
+当前版本：`1.32.0`　｜　流程：25 个阶段（表图先行 + 写前 SCIE 审稿）　｜　运行环境：Windows `pwsh` + Google Antigravity / Gemini (`uv run python`)
 
 ## 当前版本的使用要点
 

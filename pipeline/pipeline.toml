@@ -14,7 +14,7 @@
 
 [meta]
 name = "medpaper"
-version = "1.31.0"
+version = "1.32.0"
 schema = 1
 description = "Medical/clinical research pipeline: idea -> feasibility -> data -> analysis -> artifacts -> manuscript -> submission package."
 
@@ -40,7 +40,7 @@ temp_dir = "temp"
 # ------------------------------------------------------------------------------
 [policy]
 invariants = [
-  "Discovery helpers may find literature, but formal metadata must be freshly re-fetched through tools/pubmed/verify.py. A verified=true boolean is never evidence by itself: every citable key must pass the hashed raw-PubMed XML receipt, exact library hash, PMID/DOI match and independent live S13 EFetch gate. Never hand-write or patch library.json, verified.json, refs.bib or refs.ris to satisfy a gate.",
+  "Discovery helpers may find literature, but formal metadata must be freshly re-fetched through tools/pubmed/verify.py. A verified=true boolean is never evidence by itself: every citable key must pass its hashed raw source receipt (NCBI PubMed EFetch XML for biomedical literature, Crossref work JSON for non-PubMed methodology DOIs, or verified R/official-authority snapshots), exact library hash, and independent live S13 gate. Never hand-write or patch library.json, verified.json, refs.bib or refs.ris to satisfy a gate.",
   "Acquire the complete protocol-defined data universe whenever the source makes it available. Never silently use LIMIT/TOP, head(), sample(), first-N slices, fixed page counts, date narrowing, or preview caps to save time, tokens, download volume or compute. A schema pilot is non-analytic and must be followed by full acquisition; every source needs machine-countable total and received receipts plus terminal-pagination proof. Replacing a census with scientific sampling and accepting source-imposed partial access each require the user's explicit recorded authorization. This gate cannot be waived with --force.",
   "Own-study numbers trace to executed result JSON and bound facts. Prior-study numbers need exact registered full-text source_claims with identity, locator, excerpt and version. No free numeric whitelist.",
   "Draft scientific sections only at their active stages; the optional supplementary Methods file belongs only to S08. S17 then assembles the canonical full_manuscript.md from the completed, gated sections.",
@@ -89,7 +89,7 @@ abbreviation_centralize_threshold = 8
 abbreviation_local_words_max = 50
 journal_source_age_days_max = 90
 reference_verification_age_days_max = 90
-live_reference_age_hours_max = 24
+live_reference_age_hours_max = 168
 discussion_supp_refs_max = 1
 discussion_main_refs_max = 2
 min_comparators = 5
