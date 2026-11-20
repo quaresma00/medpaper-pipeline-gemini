@@ -718,6 +718,130 @@ class V132ArchitectureTests(unittest.TestCase):
             abbr_issues = [x for x in polish.lint_abbreviations(docs) if x["severity"] == "blocking"]
             self.assertEqual(abbr_issues, [], msg=f"Unexpected blocking abbreviation issues: {abbr_issues}")
 
+    def test_09_s23_embedded_figures_preserved_and_wide_inline_tables_landscape_wrapped(self) -> None:
+        print("[9/9] Testing S23 apply_docx <w:drawing> preservation, orphan media audit & wide inline table landscape wrapping...", flush=True)
+        import re
+        import zipfile
+        from xml.etree import ElementTree as ET
+        from docx import Document
+        from docx.enum.section import WD_ORIENT
+        from docx.shared import Inches
+        from manuscript.build_docx import normalize_docx
+        from tables.threeline import write_table
+        from wfcore import journalspec, submissionlayout, wordtables
+
+        # Minimal valid 1x1 PNG bytes
+        png_bytes = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
+            b"\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = Path(tmp) / "project"
+            (proj / "04_tables/main").mkdir(parents=True)
+            img_path = proj / "fig1.png"
+            img_path.write_bytes(png_bytes)
+
+            # Build 2 wide 8-column tables (landscape) and 1 narrow 3-column table (portrait)
+            write_table(
+                proj / "04_tables/main/t1.xlsx",
+                sheet="Table 1",
+                title="Table 1. Wide baseline characteristics.",
+                header=["Characteristic", "Arm A", "Arm B", "Arm C", "Arm D", "Arm E", "Arm F", "P value"],
+                rows=[["Age, mean (SD)", "61.2 (10.1)", "62.4 (9.8)", "60.8 (11.0)", "63.0 (9.5)", "59.9 (10.4)", "61.7 (10.0)", "0.41"]],
+                footnotes=["See Table 2 for multivariable regression results."],
+            )
+            write_table(
+                proj / "04_tables/main/t2.xlsx",
+                sheet="Table 2",
+                title="Table 2. Wide regression models.",
+                header=["Model", "Events", "N", "Crude OR", "Adjusted OR", "95% CI Low", "95% CI High", "P value"],
+                rows=[["Primary", "42", "500", "2.10", "1.85", "1.22", "2.81", "0.004"]],
+                footnotes=["Abbreviations: CI, confidence interval; OR, odds ratio."],
+            )
+            write_table(
+                proj / "04_tables/main/t3.xlsx",
+                sheet="Table 3",
+                title="Table 3. Compact summary.",
+                header=["Subgroup", "Events", "P value"],
+                rows=[["Overall", "42", "0.004"]],
+                footnotes=["Abbreviations: P, probability value."],
+            )
+
+            doc = Document()
+            doc.add_heading("Clinical Study Title", level=0)
+            doc.add_heading("Results", level=1)
+            p_fig = doc.add_paragraph("Tumor colour was analysed across centres (Table 1 and Table 2). ")
+            p_fig.add_run().add_picture(str(img_path), width=Inches(1.5))
+            doc.add_paragraph("Compact subgroup findings are summarized in Table 3.")
+            doc.add_heading("References", level=1)
+            doc.add_paragraph("1. Smith A. Clinical study. 2025.")
+
+            style = {
+                "font_family": "Times New Roman",
+                "body_font_pt": 12,
+                "title_font_pt": 14,
+                "section_heading_font_pt": 12,
+                "subsection_heading_font_pt": 12,
+                "line_spacing": 2.0,
+                "paragraph_spacing_after_pt": 0,
+                "paper_size": "A4",
+                "margins_in": 1.0,
+                "all_text_black": True,
+                "external_hyperlinks": False,
+                "journal_profile": {"spelling": "american", "number_format": {}},
+                "journal_project": str(proj),
+            }
+            entries = [
+                {"id": "Table 1", "file": "04_tables/main/t1.xlsx", "sheet": "Table 1", "caption": "Table 1. Wide baseline characteristics."},
+                {"id": "Table 2", "file": "04_tables/main/t2.xlsx", "sheet": "Table 2", "caption": "Table 2. Wide regression models."},
+                {"id": "Table 3", "file": "04_tables/main/t3.xlsx", "sheet": "Table 3", "caption": "Table 3. Compact summary."},
+            ]
+            wordtables.embed_tables_in_text(doc, proj, entries, style)
+            out_docx = proj / "manuscript.docx"
+            doc.save(out_docx)
+
+            # Run full normalize_docx (which invokes journalspec.apply_docx + section geometry normalization)
+            normalize_docx(out_docx, style, "manuscript")
+
+            # 1) Verify <w:drawing> and <a:blip> survived apply_docx + normalize_docx, while spelling updated
+            with zipfile.ZipFile(out_docx) as zf:
+                media = [n for n in zf.namelist() if n.startswith("word/media/")]
+                xml_root = ET.fromstring(zf.read("word/document.xml"))
+            drawings = [n for n in xml_root.iter() if n.tag.rsplit("}", 1)[-1] == "drawing"]
+            blips = [n for n in xml_root.iter() if n.tag.rsplit("}", 1)[-1] == "blip"]
+            self.assertEqual(len(media), 1)
+            self.assertGreaterEqual(len(drawings), 1, msg="Embedded <w:drawing> was destroyed by apply_docx!")
+            self.assertGreaterEqual(len(blips), 1, msg="Embedded <a:blip> was destroyed by apply_docx!")
+            self.assertEqual(submissionlayout.docx_embedded_media_problems(out_docx, allow_embedded_figures=True), [])
+
+            checked = Document(out_docx)
+            full_txt = "\n".join(p.text for p in checked.paragraphs)
+            self.assertIn("color", full_txt)
+            self.assertIn("analyzed", full_txt)
+            self.assertIn("centers", full_txt)
+
+            # 2) Verify section orientations: Portrait (intro+fig) -> Landscape (Table 1) -> Landscape (Table 2) -> Portrait (Table 3 + Refs)
+            orientations = [sec.orientation for sec in checked.sections]
+            self.assertEqual(
+                orientations,
+                [WD_ORIENT.PORTRAIT, WD_ORIENT.LANDSCAPE, WD_ORIENT.LANDSCAPE, WD_ORIENT.PORTRAIT],
+                msg=f"Unexpected section orientation sequence: {orientations}",
+            )
+            self.assertEqual(wordtables.table_problems(checked), [])
+
+            # 3) Negative guard: stripped <w:drawing> with orphan word/media/ must be caught by docx_embedded_media_problems
+            orphan_docx = proj / "orphan_media.docx"
+            with zipfile.ZipFile(out_docx, "r") as zin, zipfile.ZipFile(orphan_docx, "w") as zout:
+                for info in zin.infolist():
+                    blob = zin.read(info.filename)
+                    if info.filename == "word/document.xml":
+                        blob = re.sub(rb"<w:drawing\b.*?</w:drawing>", b"", blob, flags=re.S)
+                    zout.writestr(info, blob)
+            orphan_probs = submissionlayout.docx_embedded_media_problems(orphan_docx, allow_embedded_figures=True)
+            self.assertTrue(any("embedded figures were stripped" in p for p in orphan_probs), msg=orphan_probs)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

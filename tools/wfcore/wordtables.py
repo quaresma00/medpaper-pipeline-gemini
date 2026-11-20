@@ -217,14 +217,73 @@ def append_tables(doc, project: Path, entries: list[dict], style: dict) -> None:
             workbook.close()
 
 
+def _clone_clean_sectpr(sectpr):
+    from copy import deepcopy
+    cloned = deepcopy(sectpr)
+    for tag in ("w:headerReference", "w:footerReference"):
+        for node in list(cloned.findall(qn(tag))):
+            cloned.remove(node)
+    pg_num = cloned.find(qn("w:pgNumType"))
+    if pg_num is not None:
+        pg_num.attrib.pop(qn("w:start"), None)
+    sec_type = cloned.find(qn("w:type"))
+    if sec_type is None:
+        sec_type = OxmlElement("w:type")
+        cloned.insert(0, sec_type)
+    sec_type.set(qn("w:val"), "nextPage")
+    return cloned
+
+
+def _attach_sectpr(p_elem, sectpr) -> None:
+    ppr = p_elem.find(qn("w:pPr"))
+    if ppr is None:
+        ppr = OxmlElement("w:pPr")
+        p_elem.insert(0, ppr)
+    old = ppr.find(qn("w:sectPr"))
+    if old is not None:
+        ppr.remove(old)
+    ppr.append(_clone_clean_sectpr(sectpr))
+
+
+def _has_sectpr(elem) -> bool:
+    if elem is None or elem.tag.rsplit("}", 1)[-1] != "p":
+        return False
+    ppr = elem.find(qn("w:pPr"))
+    return ppr is not None and ppr.find(qn("w:sectPr")) is not None
+
+
+def _table_total_twips(tbl_elem) -> int:
+    grid = tbl_elem.find(qn("w:tblGrid"))
+    if grid is None:
+        return 0
+    total = 0
+    for col in grid.findall(qn("w:gridCol")):
+        try:
+            total += int(col.get(qn("w:w"), "0"))
+        except ValueError:
+            pass
+    return total
+
+
 def embed_tables_in_text(doc, project: Path, entries: list[dict], style: dict) -> None:
-    """Insert native three-line tables inline ONLY when official guidelines explicitly mandate it."""
+    """Insert native three-line tables inline ONLY when official guidelines explicitly mandate it.
+
+    Wide tables generated in a landscape section are wrapped with clean portrait/landscape
+    OOXML section breaks so they never overflow portrait page margins, while narrow portrait
+    tables remain inline without forced page breaks.
+    """
     import re
     from copy import deepcopy
     from docx import Document as _Doc
 
     scratch = _Doc()
     append_tables(scratch, project, entries, style)
+    # append_tables adds one new section per entry (scratch.sections[1..N]).
+    entry_sections = {}
+    for idx_e, entry in enumerate(entries):
+        if idx_e + 1 < len(scratch.sections):
+            entry_sections[entry["id"].strip().casefold()] = scratch.sections[idx_e + 1]
+
     body_children = [el for el in scratch.element.body if el.tag.rsplit("}", 1)[-1] in {"p", "tbl"}]
     blocks: dict[str, list] = {}
     idx = 0
@@ -258,30 +317,102 @@ def embed_tables_in_text(doc, project: Path, entries: list[dict], style: dict) -
         else:
             idx += 1
 
+    # Build a clean portrait sectPr matching the main document geometry.
+    portrait_ref_doc = _Doc()
+    _geometry(portrait_ref_doc.sections[0], "portrait", style)
+    portrait_sectpr = portrait_ref_doc.sections[0]._sectPr
+    portrait_content_width = (
+        portrait_ref_doc.sections[0].page_width.twips
+        - portrait_ref_doc.sections[0].left_margin.twips
+        - portrait_ref_doc.sections[0].right_margin.twips
+    )
+
     ref_para = next((p for p in doc.paragraphs if p.text.strip().casefold() == "references"), None)
+    last_after_anchor: dict = {}
+    inserted_elems: set = set()
+
     for entry in entries:
         tid = entry["id"].strip()
-        elems = blocks.get(tid.casefold(), [])
+        tkey = tid.casefold()
+        elems = blocks.get(tkey, [])
         if not elems:
             continue
+
+        sec = entry_sections.get(tkey)
+        tbl_elem = next((e for e in elems if e.tag.rsplit("}", 1)[-1] == "tbl"), None)
+        tbl_width = _table_total_twips(tbl_elem) if tbl_elem is not None else 0
+        needs_landscape = bool(
+            (sec is not None and sec.orientation == WD_ORIENT.LANDSCAPE)
+            or (tbl_width > portrait_content_width)
+        )
+        if needs_landscape:
+            if sec is not None and sec.orientation == WD_ORIENT.LANDSCAPE:
+                land_sectpr = sec._sectPr
+            else:
+                land_ref_doc = _Doc()
+                _geometry(land_ref_doc.sections[0], "landscape", style)
+                land_sectpr = land_ref_doc.sections[0]._sectPr
+            # Attach landscape sectPr to the last paragraph of this table block (add trailing p if none).
+            if elems[-1].tag.rsplit("}", 1)[-1] != "p":
+                elems.append(OxmlElement("w:p"))
+            _attach_sectpr(elems[-1], land_sectpr)
+
         target_p = None
         for p in doc.paragraphs:
             if p is ref_para:
                 break
+            if p._p in inserted_elems:
+                continue
             if re.search(rf"\b{re.escape(tid)}\b", p.text, re.I):
                 target_p = p
                 break
+
         if target_p is not None:
-            anchor = target_p._p
+            anchor = last_after_anchor.get(target_p._p, target_p._p)
+            if needs_landscape:
+                if anchor.tag.rsplit("}", 1)[-1] == "p":
+                    if not _has_sectpr(anchor):
+                        _attach_sectpr(anchor, portrait_sectpr)
+                else:
+                    bridge = OxmlElement("w:p")
+                    _attach_sectpr(bridge, portrait_sectpr)
+                    anchor.addnext(bridge)
+                    inserted_elems.add(bridge)
+                    anchor = bridge
             for elem in elems:
                 anchor.addnext(elem)
+                inserted_elems.add(elem)
                 anchor = elem
+            last_after_anchor[target_p._p] = anchor
         elif ref_para is not None:
+            if needs_landscape:
+                prev = ref_para._p.getprevious()
+                if prev is not None and prev.tag.rsplit("}", 1)[-1] == "p":
+                    if not _has_sectpr(prev):
+                        _attach_sectpr(prev, portrait_sectpr)
+                else:
+                    bridge = OxmlElement("w:p")
+                    _attach_sectpr(bridge, portrait_sectpr)
+                    ref_para._p.addprevious(bridge)
+                    inserted_elems.add(bridge)
             for elem in elems:
                 ref_para._p.addprevious(elem)
+                inserted_elems.add(elem)
         else:
+            if needs_landscape:
+                body_children_doc = [el for el in doc.element.body if el.tag.rsplit("}", 1)[-1] in {"p", "tbl"}]
+                prev = body_children_doc[-1] if body_children_doc else None
+                if prev is not None and prev.tag.rsplit("}", 1)[-1] == "p":
+                    if not _has_sectpr(prev):
+                        _attach_sectpr(prev, portrait_sectpr)
+                else:
+                    bridge = OxmlElement("w:p")
+                    _attach_sectpr(bridge, portrait_sectpr)
+                    doc.element.body.append(bridge)
+                    inserted_elems.add(bridge)
             for elem in elems:
                 doc.element.body.append(elem)
+                inserted_elems.add(elem)
 
 
 def table_problems(doc) -> list[str]:

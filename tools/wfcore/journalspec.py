@@ -151,8 +151,22 @@ def apply_docx(doc, target: dict, role: str) -> None:
         if role not in {"title_page", "cover_letter", "statements", "coi_forms"} and name != "Bibliography":
             if role == "manuscript" and paragraph.text.strip().startswith(("Authors: ", "Affiliations: ", "Corresponding author: ", "ORCID: ")):
                 continue
+            from docx.oxml.ns import qn
+            w_t = qn("w:t")
+            xml_space = "{http://www.w3.org/XML/1998/namespace}space"
             for run in paragraph.runs:
-                run.text = number_text(spelling(run.text, target.get("spelling", "")), target.get("number_format", {}))
+                # Mutate <w:t> text nodes in place so non-text run children (<w:drawing>, <w:pict>,
+                # <w:tab>, <w:br>, <w:fldChar>) are never destroyed by python-docx's Run.text setter.
+                for t_node in run._r.findall(w_t):
+                    if t_node.text:
+                        updated = number_text(
+                            spelling(t_node.text, target.get("spelling", "")),
+                            target.get("number_format", {}),
+                        )
+                        if updated != t_node.text:
+                            t_node.text = updated
+                            if updated[:1].isspace() or updated[-1:].isspace():
+                                t_node.set(xml_space, "preserve")
 
 
 LOCAL_PATH = re.compile(r"(?i)(?:\b[A-Z]:[\\/]|file://|\\\\[^\\\s]+\\|/(?:Users|home|workspace)/)")

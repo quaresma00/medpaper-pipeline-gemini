@@ -152,9 +152,7 @@ def markdown_display_problems(
 
 
 def docx_embedded_media_problems(docx_path: Path, *, allow_embedded_figures: bool = False) -> list[str]:
-    """Reject any embedded image/media in a manuscript DOCX unless explicitly authorized by guidelines."""
-    if allow_embedded_figures:
-        return []
+    """Verify embedded image/media integrity according to the active journal placement policy."""
     try:
         with zipfile.ZipFile(docx_path) as zf:
             media = [n for n in zf.namelist() if n.startswith("word/media/")]
@@ -171,6 +169,13 @@ def docx_embedded_media_problems(docx_path: Path, *, allow_embedded_figures: boo
         node.tag.rsplit("}", 1)[-1] in {"drawing", "pict", "imagedata"}
         for node in root.iter()
     )
+    if allow_embedded_figures:
+        if media and not has_drawing:
+            return [
+                f"{docx_path.name}: {len(media)} image file(s) exist in word/media/ but zero "
+                "<w:drawing>/<w:pict> references remain in word/document.xml; embedded figures were stripped"
+            ]
+        return []
     if media or has_drawing:
         return [
             f"{docx_path.name}: embedded image/figure found in main manuscript; figures must be uploaded "
