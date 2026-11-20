@@ -24,8 +24,9 @@ from pathlib import Path, PurePosixPath
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
-ARCHIVE = SKILL_DIR / "assets" / "medpaper-codex-ready.zip"
-ARCHIVE_ROOT = "medpaper-codex"
+ARCHIVE = SKILL_DIR / "assets" / "medpaper-gemini-ready.zip"
+ARCHIVE_ROOT = "medpaper-gemini"
+ACCEPTED_ARCHIVE_ROOTS = ("medpaper-gemini", "medpaper-codex")
 DEFAULT_LOCAL_MASTER = Path(r"F:\workspace\medpapaer\gemini")
 EXCLUDED_TEMPLATE_DIRS = {
     ".git", ".venv", "dist", "scratch", "temp",
@@ -100,10 +101,19 @@ def pipeline_version(path: Path) -> str:
     return str(data.get("meta", {}).get("version", "unknown"))
 
 
+def _archive_root(zf: zipfile.ZipFile) -> str:
+    roots = {PurePosixPath(info.filename).parts[0] for info in zf.infolist() if PurePosixPath(info.filename).parts}
+    for root in ACCEPTED_ARCHIVE_ROOTS:
+        if roots == {root}:
+            return root
+    raise RuntimeError(f"unexpected archive root(s): {sorted(roots)}")
+
+
 def source_version(kind: str, src: Path) -> str:
     if kind == "zip":
         with zipfile.ZipFile(src) as zf:
-            raw = zf.read(f"{ARCHIVE_ROOT}/pipeline/pipeline.toml").decode("utf-8")
+            root = _archive_root(zf)
+            raw = zf.read(f"{root}/pipeline/pipeline.toml").decode("utf-8")
         return str(tomllib.loads(raw).get("meta", {}).get("version", "unknown"))
     return pipeline_version(src)
 
@@ -114,12 +124,13 @@ def default_workspace() -> Path:
 
 
 def safe_members(zf: zipfile.ZipFile) -> list[tuple[zipfile.ZipInfo, PurePosixPath]]:
+    expected_root = _archive_root(zf)
     members: list[tuple[zipfile.ZipInfo, PurePosixPath]] = []
     for info in zf.infolist():
         name = PurePosixPath(info.filename)
         if name.is_absolute() or ".." in name.parts:
             raise RuntimeError(f"unsafe archive member: {info.filename}")
-        if not name.parts or name.parts[0] != ARCHIVE_ROOT:
+        if not name.parts or name.parts[0] != expected_root:
             raise RuntimeError(f"unexpected archive root: {info.filename}")
         mode = info.external_attr >> 16
         if stat.S_ISLNK(mode):

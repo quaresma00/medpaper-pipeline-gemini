@@ -67,7 +67,7 @@ Discussion 阶段采用无表格、无图表编号的纯文字写作简报（`di
 
 ### 1. 通过全局技能 `medpaper-pipeline` 在任意文件夹启动（推荐）
 
-本机全局技能（`~/.gemini/config/skills/medpaper-pipeline/SKILL.md`）默认锚定唯一官方纯化母版 `F:\workspace\medpapaer\gemini`（外部克隆环境亦可通过环境变量 `$env:MEDPAPER_MASTER_TEMPLATE` 或 `uv run python tools/medpaper_launcher.py --template-source <目录>` 指定母版源）：
+本机全局技能（`~/.gemini/config/skills/medpaper-pipeline/SKILL.md`）默认锚定唯一官方纯化母版 `F:\workspace\medpapaer\gemini`（官方 GitHub 仓库：`https://github.com/quaresma00/medpaper-pipeline-gemini.git`；由 `uv run python tools/package.py` 生成的离线校验包默认输出为 `..\medpaper-gemini-ready.zip`；外部克隆环境亦可通过环境变量 `$env:MEDPAPER_MASTER_TEMPLATE` 或 `uv run python tools/medpaper_launcher.py --template-source <目录>` 指定母版源）：
 
 - **新论文项目（空文件夹）**：在 Antigravity 打开目标工作区，告知研究想法并唤起 `medpaper-pipeline`，Agent 会自动从官方母版复制纯化引擎骨架、配置 `.venv`、初始化 `project/.wf/state.json` 并从 `S01_intake` 启动。
 - **已有论文项目**：自动执行 `uv run python tools/wf.py status`（上下文压缩后执行 `wf handoff`）恢复当前阶段。

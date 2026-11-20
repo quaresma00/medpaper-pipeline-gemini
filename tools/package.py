@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a verified, credential-free Codex bundle from this repository."""
+"""Build a verified, credential-free MedPaper Gemini/Antigravity bundle from this repository."""
 from __future__ import annotations
 
 import argparse
@@ -80,8 +80,8 @@ def run_check(cmd: list[str], label: str) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="package a verified medpaper-codex ZIP")
-    ap.add_argument("--output", type=Path, default=ROOT.parent / "medpaper-codex-ready.zip")
+    ap = argparse.ArgumentParser(description="package a verified medpaper-gemini ZIP")
+    ap.add_argument("--output", type=Path, default=ROOT.parent / "medpaper-gemini-ready.zip")
     ap.add_argument("--skip-selftest", action="store_true")
     args = ap.parse_args()
     output = args.output.expanduser()
@@ -109,11 +109,11 @@ def main() -> int:
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for p in files:
             rel = p.relative_to(ROOT)
-            zf.write(p, Path("medpaper-codex") / rel)
+            zf.write(p, Path("medpaper-gemini") / rel)
         from wfcore.engineintegrity import engine_member,BASELINE
         baseline={"schema_version":1,"files":{p.relative_to(ROOT).as_posix():hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in files if engine_member(p.relative_to(ROOT).as_posix())}}
-        zf.writestr("medpaper-codex/"+BASELINE,json.dumps(baseline,sort_keys=True,indent=2))
+        zf.writestr("medpaper-gemini/"+BASELINE,json.dumps(baseline,sort_keys=True,indent=2))
 
     with zipfile.ZipFile(output) as zf:
         bad = zf.testzip()
