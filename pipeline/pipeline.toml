@@ -1009,6 +1009,9 @@ check = "style_consistent"
 [[stage.gate]]
 check = "journal_limits_met"
 [[stage.gate]]
+check = "journal_display_fit"
+since = "1.32.0"
+[[stage.gate]]
 check = "manuscript_structure"
 path = "08_submission/integration/full_manuscript.md"
 [[stage.gate]]

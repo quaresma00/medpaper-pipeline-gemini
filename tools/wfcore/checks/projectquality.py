@@ -145,12 +145,38 @@ def manuscript_size_health(ctx):
 @check("journal_display_fit")
 def journal_display_fit(ctx):
     from ..journalrules import display_limits,compare
+    from ..packagefreeze import _sha256
     try:
-        plan=load(ctx.project,"08_submission/integration/artifact_plan.json")
+        plan_rel="08_submission/integration/artifact_plan.json"
+        plan=load(ctx.project,plan_rel)
         counts={k:len(plan.get(k,[])) for k in ("main_figures","main_tables","supp_figures","supp_tables")}
         counts["main_display_items"]=counts["main_figures"]+counts["main_tables"]
-        problems=compare(counts,display_limits(ctx.project))
-        if len(str(plan.get("journal_adaptation_reason","")))<30: problems.append("At journal choice, justify actual retain/combine/move decisions before adapting text; keep scientific inventory unchanged")
+        rules=display_limits(ctx.project)
+        cap_problems=compare(counts,rules)
+        req_path=ctx.project/"08_submission/submission_requirements.json"
+        req_doc=load(ctx.project,"08_submission/submission_requirements.json") if req_path.is_file() else {}
+        reason=str(plan.get("journal_adaptation_reason") or req_doc.get("journal_adaptation_reason") or "").strip()
+        sci_plan_path=ctx.project/"01_protocol/artifact_plan.json"
+        plan_is_pristine=False
+        inventory_changed=False
+        if sci_plan_path.is_file() and (ctx.project/plan_rel).is_file():
+            plan_is_pristine=_sha256(sci_plan_path)==_sha256(ctx.project/plan_rel)
+            try:
+                sci_plan=load(ctx.project,"01_protocol/artifact_plan.json")
+                for k in ("main_figures","main_tables","supp_figures","supp_tables"):
+                    if [x.get("id") for x in sci_plan.get(k,[])]!=[x.get("id") for x in plan.get(k,[])]:
+                        inventory_changed=True
+            except Exception:
+                pass
+        has_required_cap=any(isinstance(r,dict) and r.get("status")=="required" and r.get("value") is not None for r in rules.values())
+        if ctx.stage.id=="S20_journal" and plan_is_pristine and not reason:
+            # S20_journal.md permits keeping 08_submission/integration/artifact_plan.json pristine
+            # at S20 and applying display caps to the derived plan at S22 before Word production.
+            problems=[]
+        else:
+            problems=list(cap_problems)
+            if (inventory_changed or has_required_cap) and len(reason)<30:
+                problems.append("At journal choice, justify actual retain/combine/move decisions before adapting text; keep scientific inventory unchanged")
     except (OSError,ValueError,TypeError) as exc: problems=[str(exc)]
     return Result(not problems,"journal_display_fit","; ".join(problems) or "Journal display inventory checked before production")
 

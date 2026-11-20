@@ -20,22 +20,43 @@ def check(project, snapshot, index, fact_reader):
     renumber=mapping.get("renumbering",{})
     canonical=lambda s: re.sub(r"\s+"," ",s).strip().casefold()
     for source,dest in renumber.items():
-        if not re.fullmatch(r"(Figure|Table)\s+S?\d+",source,re.I) or not re.fullmatch(r"(Figure|Table)\s+S?\d+",dest,re.I) or source.split()[0].casefold()!=dest.split()[0].casefold():
+        if (not re.fullmatch(r"(Figure|Table)\s+S?\d+[A-Za-z]?",source,re.I)
+                or not re.fullmatch(r"(Figure|Table)\s+S?\d+[A-Za-z]?",dest,re.I)
+                or source.split()[0].casefold()!=dest.split()[0].casefold()):
             raise ValueError("Renumbering must retain the display family and use explicit ids")
     if len(set(map(canonical,renumber.values())))!=len(renumber):
         raise ValueError("Ambiguous many-to-one display renumbering")
     def rewrite(text):
         # One pass prevents chained renumbering from transforming an already mapped id again.
         if not renumber:return text
-        pattern=re.compile(r"\b(?:"+"|".join(map(re.escape,sorted(renumber,key=len,reverse=True)))+r")\b",re.I)
-        lookup={canonical(k):v for k,v in renumber.items()}
-        return pattern.sub(lambda m:lookup[canonical(m[0])],text)
+        expanded={}
+        for k,v in renumber.items():
+            expanded[canonical(k)]=v
+            if k.lower().startswith("figure "):
+                suf=k.split(None,1)[1]
+                vsuf=v.split(None,1)[1]
+                expanded[canonical(f"Fig. {suf}")]=f"Fig. {vsuf}"
+                expanded[canonical(f"Fig {suf}")]=f"Fig {vsuf}"
+        keys_sorted=sorted(expanded.keys(),key=len,reverse=True)
+        parts=[
+            re.escape(k).replace(r"\ ",r"\s+") + (r"(?=(?:[A-Za-z](?![A-Za-z0-9]))|\b)" if k[-1].isdigit() else r"\b")
+            for k in keys_sorted
+        ]
+        pattern=re.compile(r"\b(?:"+"|".join(parts)+r")",re.I)
+        return pattern.sub(lambda m:expanded[canonical(m[0])],text)
     for move in mapping.get("moves",[]):
         source,dest=move["from"],move["to"]
         original,updated=move["text"],move.get("after",rewrite(move["text"]))
-        if source not in before or dest not in after or original not in before[source] or updated not in after[dest]:
+        if source not in before or dest not in after or original not in before[source]:
             raise ValueError("Movement does not match an actual pre-edit source and current destination")
-        if fact_reader(rewrite(original))!=fact_reader(updated):
+        matched_updated = updated if updated in after[dest] else None
+        if matched_updated is None:
+            m_ci = re.search(re.escape(updated), after[dest], flags=re.I)
+            if m_ci:
+                matched_updated = m_ci.group(0)
+        if matched_updated is None:
+            raise ValueError("Movement does not match an actual pre-edit source and current destination")
+        if fact_reader(rewrite(original))!=fact_reader(matched_updated):
             raise ValueError("Moved passage changed its facts/citations; this is not presentation-only")
     extras=[]
     for row in mapping.get("additions",[]):

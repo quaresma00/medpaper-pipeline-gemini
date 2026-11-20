@@ -57,6 +57,8 @@ REPORT = "08_submission/integration/polish_report.json"
 ALLOWLIST = "08_submission/integration/polish_allowlist.tsv"
 
 FENCE_RE = re.compile(r"```.*?```", re.S)
+ABBR_SECTION_RE = re.compile(r"(?ms)^\s{0,3}#{1,6}\s+Abbreviations\b.*?(?=^\s{0,3}#{1,6}\s+\S|\Z)")
+MD_LINK_TARGET_RE = re.compile(r"\]\([^)\n]+\)(?:\{[^}\n]+\})?")
 CITE_RE = re.compile(r"\[[^\]]*@[^\]]*\]")
 KEY_RE = re.compile(r"@([A-Za-z][\w:.#$%&+?<>~/-]*)")
 ART_RE = re.compile(r"\b(?:supplementary\s+)?(?:figure|fig\.?|table)\s*S?\d+", re.I)
@@ -249,7 +251,8 @@ def _normalize_for_facts(s: str) -> str:
 
 
 def facts(text: str) -> dict:
-    b = FENCE_RE.sub(" ", text)
+    cleaned = MD_LINK_TARGET_RE.sub("]", ABBR_SECTION_RE.sub(" ", text))
+    b = FENCE_RE.sub(" ", cleaned)
     keys = sorted({k for grp in CITE_RE.findall(b) for k in KEY_RE.findall(grp)})
     arts = sorted({re.sub(r"\s+", " ", a).lower().replace("fig.", "figure").replace("fig ", "figure ")
                    for a in ART_RE.findall(b)})
@@ -511,24 +514,62 @@ def lint_spelling(docs: list[tuple[str, str]]) -> list[dict]:
     return out
 
 
+ABBR_DEF_RE = re.compile(r"\(([A-Z][A-Z0-9]{1,7}(?:-[A-Z0-9]{1,5})?)s?\)")
+
+
+def _split_abstract_and_body_ranges(raw_text: str) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
+    """Locate byte offsets of # Abstract versus narrative body sections inside a full manuscript."""
+    abs_match = re.search(r"(?mi)^\s{0,3}#\s+Abstract\b", raw_text)
+    if not abs_match:
+        return None, None
+    next_h1 = re.search(r"(?mi)^\s{0,3}#\s+(?!Abstract\b)\S", raw_text[abs_match.end():])
+    if not next_h1:
+        return (abs_match.start(), len(raw_text)), None
+    split_pos = abs_match.end() + next_h1.start()
+    return (abs_match.start(), split_pos), (split_pos, len(raw_text))
+
+
 def lint_abbreviations(docs: list[tuple[str, str]]) -> list[dict]:
     """Define once, on first use, then use consistently. Abstract has its own scope."""
     out = []
+    has_full = any(Path(f).name == "full_manuscript.md" for f, _ in docs)
+    full_text = next((t for f, t in docs if Path(f).name == "full_manuscript.md"), "")
+    skip_embedded: set[str] = set()
+    if has_full:
+        if re.search(r"(?mi)^\s{0,3}#\s+Declarations and Statements\b", full_text):
+            skip_embedded.add("statements.md")
+        if re.search(r"(?mi)^\s{0,3}#\s+Figure legends\b", full_text):
+            skip_embedded.add("figure_legends.md")
+
+    glossary_defined: set[str] = set()
+    for _, raw_doc in docs:
+        for sec_m in ABBR_SECTION_RE.finditer(raw_doc):
+            for gm in re.finditer(r"(?:^|[;\n])\s*([A-Z][A-Z0-9-]{1,10})\s*[,:]", sec_m.group(0)):
+                glossary_defined.add(gm.group(1).strip())
+
     for scope, files in (("abstract", ["07_manuscript/abstract.md"]),
-                         ("body", [f for f, _ in docs if "abstract" not in f])):
-        text = "\n".join(body(t) for f, t in docs if f in files)
+                         ("body", [f for f, _ in docs if "abstract" not in f and Path(f).name not in skip_embedded])):
+        raw_joined = "\n".join(ABBR_SECTION_RE.sub(" ", t) for f, t in docs if f in files)
+        text = "\n".join(body(ABBR_SECTION_RE.sub(" ", t)) for f, t in docs if f in files)
         if not text.strip():
             continue
+        abs_range, body_range = _split_abstract_and_body_ranges(raw_joined) if scope == "body" and has_full else (None, None)
         defined: dict[str, int] = {}
-        for m in re.finditer(r"\(([A-Z][A-Za-z0-9]{1,7})s?\)", text):
+        for m in ABBR_DEF_RE.finditer(text):
             abbr = m.group(1)
             defined.setdefault(abbr, m.start())
-            if len(re.findall(rf"\({re.escape(abbr)}s?\)", text)) > 1:
+            def_positions = [dm.start() for dm in re.finditer(rf"\({re.escape(abbr)}s?\)", text)]
+            if len(def_positions) > 1:
+                # Allow 1 definition in # Abstract + 1 definition in main body when full_manuscript.md is linted.
+                if len(def_positions) == 2 and abs_range and body_range:
+                    raw_defs = [dm.start() for dm in re.finditer(rf"\({re.escape(abbr)}s?\)", raw_joined)]
+                    if len(raw_defs) == 2 and abs_range[0] <= raw_defs[0] < abs_range[1] and raw_defs[1] >= body_range[0]:
+                        continue
                 out.append({"file": f"({scope})", "kind": "abbrev_redefined",
                             "severity": "blocking",
                             "detail": f"'{abbr}' is defined more than once in the {scope}"})
         for abbr, pos in defined.items():
-            uses = [m.start() for m in re.finditer(rf"(?<![\w]){re.escape(abbr)}(?![\w])", text)]
+            uses = [m.start() for m in re.finditer(rf"(?<![\w-])(?:{re.escape(abbr)}s?)(?![\w-])", text)]
             before = [u for u in uses if u < pos - 1]
             if before:
                 out.append({"file": f"({scope})", "kind": "abbrev_used_before_defined",
@@ -539,9 +580,11 @@ def lint_abbreviations(docs: list[tuple[str, str]]) -> list[dict]:
                             "severity": "advisory",
                             "detail": f"'{abbr}' is defined but used only "
                                       f"{max(0, len(uses) - 1)}x afterwards - spell it out instead"})
-        for m in re.finditer(r"(?<![\w(])([A-Z]{2,7})(?![\w)])", text):
+        for m in re.finditer(r"(?<![\w(-])([A-Z]{2,7})(?![\w)-])", text):
             abbr = m.group(1)
-            if abbr in defined or abbr in NO_DEF_NEEDED or abbr.isdigit():
+            singular = abbr[:-1] if abbr.endswith("S") and len(abbr) > 2 else abbr
+            if (abbr in defined or singular in defined or abbr in glossary_defined or singular in glossary_defined
+                    or abbr in NO_DEF_NEEDED or singular in NO_DEF_NEEDED or abbr.isdigit()):
                 continue
             out.append({"file": f"({scope})", "kind": "abbrev_undefined",
                         "severity": "blocking",
@@ -743,8 +786,11 @@ def cmd_diff(args) -> int:
         if not p.exists():
             problems.append(f"{rel}: disappeared after polishing")
             continue
+        snap_file = snap / Path(rel).name
+        if snap_file.is_file():
+            expect = facts(snap_file.read_text(encoding="utf-8", errors="replace"))
         got = facts(p.read_text(encoding="utf-8", errors="replace"))
-        old_words = len(body((snap / Path(rel).name).read_text(encoding="utf-8", errors="replace")).split())
+        old_words = len(body(snap_file.read_text(encoding="utf-8", errors="replace")).split()) if snap_file.is_file() else 0
         new_words = len(body(p.read_text(encoding="utf-8", errors="replace")).split())
         fields=[("numbers","number"),("citekeys","citekey"),("artifacts","artifact ref")]
         if "pvalues" in expect: fields.append(("pvalues","P value"))

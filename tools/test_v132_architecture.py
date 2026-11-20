@@ -528,6 +528,196 @@ class V132ArchitectureTests(unittest.TestCase):
             sub_chk = next(c for c in rep_sub["checks"] if c["name"] == "no_figure_subtitle")
             self.assertFalse(sub_chk["ok"])
 
+    def test_07_s20_journal_display_fit_and_pristine_workspace_no_deadlock(self) -> None:
+        print("[7/8] Testing S20/S22 journal_display_fit & journal_workspace_ready deadlock resolution...", flush=True)
+        from wfcore import journalworkspace, registry
+        from wfcore.checks import Ctx, get, load_all
+        from wfcore.packagefreeze import _sha256
+        from wfcore.state import State
+
+        load_all()
+        pipe = registry.load()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = Path(tmp) / "project"
+            for d in ("01_protocol", "04_tables", "05_figures", "07_manuscript", "08_submission/integration"):
+                (proj / d).mkdir(parents=True)
+            st = State(proj, ".wf").create("medpaper", pipe.meta["version"], "S20_journal")
+
+            sci_plan = {
+                "main_figures": [{"id": f"Figure {i}"} for i in range(1, 6)],
+                "main_tables": [{"id": f"Table {i}"} for i in range(1, 4)],
+                "supp_figures": [{"id": "Figure S1"}],
+                "supp_tables": [{"id": "Table S1"}],
+            }
+            (proj / "01_protocol/artifact_plan.json").write_text(json.dumps(sci_plan, indent=2), encoding="utf-8")
+            (proj / "08_submission/integration/artifact_plan.json").write_text(json.dumps(sci_plan, indent=2), encoding="utf-8")
+            (proj / "07_manuscript/full_manuscript.md").write_text("# Abstract\n\nFrozen science.\n", encoding="utf-8")
+            (proj / "08_submission/integration/full_manuscript.md").write_text("# Abstract\n\nFrozen science.\n", encoding="utf-8")
+
+            freeze_files = [
+                {"path": "01_protocol/artifact_plan.json", "sha256": journalworkspace._sha256(proj / "01_protocol/artifact_plan.json")},
+                {"path": "07_manuscript/full_manuscript.md", "sha256": journalworkspace._sha256(proj / "07_manuscript/full_manuscript.md")},
+            ]
+            ws_manifest = {
+                "schema_version": 1,
+                "scientific_freeze_id": "freeze-1",
+                "journal": "Clinical Research Journal",
+                "issn": "1234-5678",
+                "files": [
+                    {
+                        "source": "01_protocol/artifact_plan.json",
+                        "source_sha256": freeze_files[0]["sha256"],
+                        "destination": "08_submission/integration/artifact_plan.json",
+                        "initial_destination_sha256": freeze_files[0]["sha256"],
+                    },
+                    {
+                        "source": "07_manuscript/full_manuscript.md",
+                        "source_sha256": freeze_files[1]["sha256"],
+                        "destination": "08_submission/integration/full_manuscript.md",
+                        "initial_destination_sha256": freeze_files[1]["sha256"],
+                    },
+                ],
+            }
+            (proj / "08_submission/target_journal.json").write_text(
+                json.dumps({"journal": "Clinical Research Journal", "issn": "1234-5678"}), encoding="utf-8"
+            )
+            (proj / "08_submission/integration/journal_workspace.json").write_text(
+                json.dumps(ws_manifest, indent=2), encoding="utf-8"
+            )
+            (proj / "08_submission/submission_requirements.json").write_text(
+                json.dumps({
+                    "article_type": "Research",
+                    "display_limits": {
+                        "main_display_items": {
+                            "status": "required",
+                            "value": 6,
+                            "source": "https://journal.example/guidelines",
+                            "article_type": "Research",
+                        }
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            ctx_s20 = Ctx(pipe, st, proj, pipe.stage("S20_journal"), {"check": "journal_display_fit"})
+            ctx_s22 = Ctx(pipe, st, proj, pipe.stage("S22_polish"), {"check": "journal_display_fit"})
+
+            with mock.patch("wfcore.journalworkspace.verify_scientific_freeze", return_value=(True, [], {"freeze_id": "freeze-1", "files": freeze_files})), \
+                 mock.patch("wfcore.journalcontext.enabled", return_value=False):
+                # Route A: integration/artifact_plan.json kept pristine at S20 -> both S20 gates pass; S22 blocks until adapted
+                self.assertTrue(journalworkspace.verify(proj, require_pristine=True)[0])
+                self.assertTrue(get("journal_display_fit")(ctx_s20).ok)
+                self.assertFalse(get("journal_display_fit")(ctx_s22).ok)
+
+                # Route B: integration/artifact_plan.json adapted at S20 (<= 6 main displays + reason) -> both S20 and S22 pass!
+                adapted_plan = {
+                    "main_figures": [{"id": f"Figure {i}"} for i in range(1, 4)],
+                    "main_tables": [{"id": f"Table {i}"} for i in range(1, 4)],
+                    "supp_figures": [{"id": "Figure S1"}, {"id": "Figure S2"}, {"id": "Figure S3"}],
+                    "supp_tables": [{"id": "Table S1"}],
+                    "journal_adaptation_reason": "Retained 3 core figures and 3 tables (6 total) in main text and moved 2 sensitivity figures to supplement per journal 6-item cap.",
+                }
+                (proj / "08_submission/integration/artifact_plan.json").write_text(
+                    json.dumps(adapted_plan, indent=2), encoding="utf-8"
+                )
+                self.assertTrue(journalworkspace.verify(proj, require_pristine=True)[0])
+                self.assertTrue(get("journal_display_fit")(ctx_s20).ok)
+                self.assertTrue(get("journal_display_fit")(ctx_s22).ok)
+
+                # Mutating prose full_manuscript.md before S20 closes is still strictly rejected by require_pristine=True
+                (proj / "08_submission/integration/full_manuscript.md").write_text("# Abstract\n\nPremature edit.\n", encoding="utf-8")
+                self.assertFalse(journalworkspace.verify(proj, require_pristine=True)[0])
+
+    def test_08_s22_subpanel_renumbering_abbreviation_glossary_and_inline_image_facts(self) -> None:
+        print("[8/8] Testing S22 subpanel renumbering, abbreviation glossary stripping & lint_abbreviations...", flush=True)
+        from text import polish
+        from wfcore import presentation
+
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = Path(tmp) / "project"
+            snap = proj / "08_submission/integration/prepolish"
+            snap.mkdir(parents=True)
+
+            before_main = (
+                "# Abstract\n\n"
+                "Systemic tyrosine kinase inhibitors (TKIs) and immune checkpoint inhibitors (ICIs) were evaluated "
+                "across 120 patients (P = 0.004) [@smith2024trial].\n\n"
+                "# Introduction\n\n"
+                "Prior TKI studies evaluated PD-1, PD-L1, CTLA-4, and LAG-3 pathways under BH-FDR control (Figure 1A, Figure 40).\n\n"
+                "# Results\n\n"
+                "Sensitivity analyses held across strata (Figure 4A, Figure 4B; HR 1.85, 95% CI 1.22 to 2.81). "
+                "Latency was consistent (Figure 5B; median 77.0 days).\n\n"
+                "# Declarations and Statements\n\n"
+                "## Abbreviations\n\n"
+                "BH-FDR, Benjamini-Hochberg false discovery rate; CI, confidence interval; "
+                "CTLA-4, cytotoxic T-lymphocyte-associated protein 4; ICI, immune checkpoint inhibitor; "
+                "LAG-3, lymphocyte-activation gene 3; PD-1, programmed cell death protein 1; "
+                "PD-L1, programmed death-ligand 1; TKI, tyrosine kinase inhibitor; 95% CI, 95% confidence interval.\n"
+            )
+            before_supp = "# Supplementary Methods\n\nAdditional protocol details.\n"
+            before_stmt = (
+                "# Declarations and Statements\n\n"
+                "## Funding\n\nNone.\n\n"
+                "## Abbreviations\n\n"
+                "CTLA-4, cytotoxic T-lymphocyte-associated protein 4; LAG-3, lymphocyte-activation gene 3; "
+                "PD-1, programmed cell death protein 1; PD-L1, programmed death-ligand 1; 95% CI, 95% confidence interval.\n"
+            )
+
+            rel_main = "08_submission/integration/full_manuscript.md"
+            rel_supp = "08_submission/integration/supplementary_methods.md"
+            rel_stmt = "08_submission/integration/statements.md"
+
+            (snap / "full_manuscript.md").write_text(before_main, encoding="utf-8")
+            (snap / "supplementary_methods.md").write_text(before_supp, encoding="utf-8")
+            (snap / "statements.md").write_text(before_stmt, encoding="utf-8")
+
+            moved_orig = "Sensitivity analyses held across strata (Figure 4A, Figure 4B; HR 1.85, 95% CI 1.22 to 2.81)."
+            moved_after = "Sensitivity analyses held across strata (Figure S3a, Figure S3b; HR 1.85, 95% CI 1.22 to 2.81)."
+
+            after_main = (
+                "# Abstract\n\n"
+                "Systemic tyrosine kinase inhibitors (TKIs) and immune checkpoint inhibitors (ICIs) were evaluated "
+                "across 120 patients (P = 0.004) [@smith2024trial].\n\n"
+                "# Introduction\n\n"
+                "Prior TKI studies evaluated PD-1, PD-L1, CTLA-4, and LAG-3 pathways under Benjamini-Hochberg false discovery rate (BH-FDR) control (Figure 1a, Figure 40).\n\n"
+                "![Figure 1](05_figures/out/Figure1.png){width=6.0in}\n\n"
+                "# Results\n\n"
+                "Latency was consistent (Figure S4b; median 77.0 days) under BH-FDR thresholds.\n\n"
+                "# Declarations and Statements\n\n"
+                "## Funding\n\nNone.\n"
+            )
+            after_supp = before_supp + "\n" + moved_after + "\n"
+            after_stmt = "# Declarations and Statements\n\n## Funding\n\nNone.\n"
+
+            (proj / rel_main).write_text(after_main, encoding="utf-8")
+            (proj / rel_supp).write_text(after_supp, encoding="utf-8")
+            (proj / rel_stmt).write_text(after_stmt, encoding="utf-8")
+
+            index = {
+                "snapshot_id": "snap-v132",
+                "files": {
+                    rel_main: polish.facts(before_main),
+                    rel_supp: polish.facts(before_supp),
+                    rel_stmt: polish.facts(before_stmt),
+                },
+            }
+            (proj / presentation.MAP).write_text(
+                json.dumps({
+                    "snapshot_id": "snap-v132",
+                    "renumbering": {"Figure 4": "Figure S3", "Figure 5": "Figure S4"},
+                    "moves": [{"from": rel_main, "to": rel_supp, "text": moved_orig, "after": moved_after}],
+                }),
+                encoding="utf-8",
+            )
+
+            problems = presentation.check(proj, snap, index, polish.facts)
+            self.assertEqual(problems, [], msg=f"Unexpected presentation problems: {problems}")
+
+            docs = [(rel_main, after_main), (rel_supp, after_supp), (rel_stmt, after_stmt)]
+            abbr_issues = [x for x in polish.lint_abbreviations(docs) if x["severity"] == "blocking"]
+            self.assertEqual(abbr_issues, [], msg=f"Unexpected blocking abbreviation issues: {abbr_issues}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

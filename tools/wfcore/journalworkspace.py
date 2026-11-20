@@ -182,6 +182,13 @@ def verify(project: Path, *, require_pristine: bool = False) -> tuple[bool, list
             continue
         if not destination.is_file():
             problems.append(f"journal integration file is missing: {destination_rel}")
+        elif destination_rel == "08_submission/integration/artifact_plan.json":
+            try:
+                plan_obj = json.loads(destination.read_text(encoding="utf-8"))
+                if not isinstance(plan_obj, dict):
+                    problems.append(f"{destination_rel} must be a JSON object")
+            except (OSError, json.JSONDecodeError) as exc:
+                problems.append(f"{destination_rel} is invalid JSON: {exc}")
         elif require_pristine and _sha256(destination) != item.get("initial_destination_sha256"):
             problems.append(f"journal integration copy changed before S20 closed: {destination_rel}")
     return not problems, problems, payload
