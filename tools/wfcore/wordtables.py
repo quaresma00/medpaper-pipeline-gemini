@@ -66,8 +66,10 @@ def _geometry(section, orientation: str, style: dict) -> None:
         numbering.attrib.pop(qn("w:start"), None)
 
 
-def append_tables(doc, project: Path, entries: list[dict], style: dict) -> None:
+def append_tables(doc, project: Path, entries: list[dict], style: dict, *, _mark_bookmarks: bool = True) -> None:
     from openpyxl import load_workbook
+    bm_id = _next_bookmark_id(doc) if _mark_bookmarks else 0
+    bm_seq = 0
     for entry in entries:
         source = _safe_path(project, entry["file"])[1]
         workbook = load_workbook(source, data_only=False)
@@ -139,7 +141,11 @@ def append_tables(doc, project: Path, entries: list[dict], style: dict) -> None:
                     orientation = "landscape" if ncol > 7 or estimated > portrait_width else "portrait"
             section = doc.add_section(WD_SECTION_START.NEW_PAGE)
             _geometry(section, orientation, style)
-            doc.add_paragraph(caption)
+            cap_p = doc.add_paragraph(caption)
+            if _mark_bookmarks:
+                bm_seq += 1
+                _mark_table_note_bookmark(cap_p._p, bm_id, bm_seq, entry["id"])
+                bm_id += 1
             table = doc.add_table(rows=last - start + 1, cols=ncol)
             table.autofit = False
             caption_node = OxmlElement("w:tblCaption")
@@ -212,15 +218,42 @@ def append_tables(doc, project: Path, entries: list[dict], style: dict) -> None:
                     cell = _Cell(tc, table)
                     _border(cell, 12 if r == 0 else 0, 6 if r == end - start else 12 if r == len(values) - 1 else 0)
             for note in notes:
-                doc.add_paragraph(note)
+                note_p = doc.add_paragraph(note)
+                if _mark_bookmarks:
+                    bm_seq += 1
+                    _mark_table_note_bookmark(note_p._p, bm_id, bm_seq, entry["id"])
+                    bm_id += 1
         finally:
             workbook.close()
+
+
+def _next_bookmark_id(doc) -> int:
+    max_id = 20000
+    for node in doc.element.iter(qn("w:bookmarkStart")):
+        raw = node.get(qn("w:id"), "")
+        if raw.isdigit():
+            max_id = max(max_id, int(raw))
+    return max_id + 1
+
+
+def _mark_table_note_bookmark(p_elem, bm_id: int, seq: int, tid: str) -> None:
+    """Tag table caption/footnote paragraphs with an invisible bookmark for section word counting."""
+    import re
+    slug = re.sub(r"[^a-z0-9]+", "_", tid.casefold()).strip("_") or "tbl"
+    name = f"medpaper_tblnote_{seq}_{slug}"[:40]
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), str(bm_id))
+    start.set(qn("w:name"), name)
+    p_elem.insert(1 if p_elem.find(qn("w:pPr")) is not None else 0, start)
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), str(bm_id))
+    p_elem.append(end)
 
 
 def _clone_clean_sectpr(sectpr):
     from copy import deepcopy
     cloned = deepcopy(sectpr)
-    for tag in ("w:headerReference", "w:footerReference"):
+    for tag in ("w:headerReference", "w:footerReference", "w:titlePg"):
         for node in list(cloned.findall(qn(tag))):
             cloned.remove(node)
     pg_num = cloned.find(qn("w:pgNumType"))
@@ -277,7 +310,7 @@ def embed_tables_in_text(doc, project: Path, entries: list[dict], style: dict) -
     from docx import Document as _Doc
 
     scratch = _Doc()
-    append_tables(scratch, project, entries, style)
+    append_tables(scratch, project, entries, style, _mark_bookmarks=False)
     # append_tables adds one new section per entry (scratch.sections[1..N]).
     entry_sections = {}
     for idx_e, entry in enumerate(entries):
@@ -302,15 +335,24 @@ def embed_tables_in_text(doc, project: Path, entries: list[dict], style: dict) -
                     sect = ppr.find(qn("w:sectPr"))
                     if sect is not None:
                         ppr.remove(sect)
-                group.append(prev_p)
+                if "".join(prev_p.itertext()).strip():
+                    group.append(prev_p)
             group.append(deepcopy(el))
             j = idx + 1
             while j < len(body_children) and body_children[j].tag.rsplit("}", 1)[-1] == "p":
-                ppr = body_children[j].find(qn("w:pPr"))
-                if ppr is not None and ppr.find(qn("w:sectPr")) is not None:
+                note_p = deepcopy(body_children[j])
+                ppr = note_p.find(qn("w:pPr"))
+                sect = ppr.find(qn("w:sectPr")) if ppr is not None else None
+                had_sect = sect is not None
+                if had_sect:
+                    ppr.remove(sect)
+                elif j + 1 < len(body_children) and body_children[j + 1].tag.rsplit("}", 1)[-1] == "tbl":
                     break
-                group.append(deepcopy(body_children[j]))
+                if "".join(note_p.itertext()).strip():
+                    group.append(note_p)
                 j += 1
+                if had_sect:
+                    break
             if tid:
                 blocks[tid.casefold()] = group
             idx = j
@@ -330,6 +372,8 @@ def embed_tables_in_text(doc, project: Path, entries: list[dict], style: dict) -
     ref_para = next((p for p in doc.paragraphs if p.text.strip().casefold() == "references"), None)
     last_after_anchor: dict = {}
     inserted_elems: set = set()
+    bm_id = _next_bookmark_id(doc)
+    bm_seq = 0
 
     for entry in entries:
         tid = entry["id"].strip()
@@ -337,6 +381,12 @@ def embed_tables_in_text(doc, project: Path, entries: list[dict], style: dict) -
         elems = blocks.get(tkey, [])
         if not elems:
             continue
+
+        for elem in elems:
+            if elem.tag.rsplit("}", 1)[-1] == "p" and "".join(elem.itertext()).strip():
+                bm_seq += 1
+                _mark_table_note_bookmark(elem, bm_id, bm_seq, tid)
+                bm_id += 1
 
         sec = entry_sections.get(tkey)
         tbl_elem = next((e for e in elems if e.tag.rsplit("}", 1)[-1] == "tbl"), None)

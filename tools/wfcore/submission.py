@@ -15,12 +15,16 @@ PORTAL = "08_submission/portal_fields.json"
 MANIFEST = "08_submission/bundle/manifest.json"
 AUTHOR_FACTS = "00_input/author_info.json"
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-SECTIONS = ("Abstract", "Keywords", "Introduction", "Methods", "Results", "Discussion",
+SECTIONS = ("Abstract", "Impact statements", "Highlights", "Key points", "Keywords",
+            "Introduction", "Methods", "Results", "Discussion",
             "Conclusion", "Declarations and Statements", "References", "Figure legends")
 ALIASES = {"materials and methods": "Methods", "patients and methods": "Methods",
            "statistical methods": "Methods", "conclusions": "Conclusion",
+           "impact statement": "Impact statements", "highlight": "Highlights", "key point": "Key points",
            "declarations": "Declarations and Statements", "statements": "Declarations and Statements",
            "statements and declarations": "Declarations and Statements"}
+NON_ABSTRACT_SUBSECTIONS = {"Impact statements", "Highlights", "Key points"}
+INLINE_DISPLAY_STYLES = {"ImageCaption", "CaptionedFigure"}
 
 
 def word_count(text: str) -> int:
@@ -36,23 +40,36 @@ def docx_sections(path: Path, aliases: dict | None = None) -> tuple[str, dict[st
     headings = {name.casefold(): name for name in SECTIONS}
     headings.update(ALIASES)
     headings.update(aliases or {})
-    section, title, collected, all_text = "front", "", {}, []
+    section, title, collected = "front", "", {}
+    # Preserve full visible text (including tables and captions) for all_visible diagnostics.
+    all_text = [
+        t for p in root.iter(W + "p")
+        if (t := "".join(node.text or "" for node in p.iter(W + "t")).strip())
+    ]
     explicit = any((n.get(W+"name","").startswith("medpaper_section_") for n in root.iter(W+"bookmarkStart")))
     styled = any(n.get(W+"val","") in {"Heading1","SectionHeading"} for n in root.iter(W+"pStyle"))
-    for paragraph in root.iter(W + "p"):
+    # Traverse only top-level body paragraphs so <w:tbl> cell text never inflates body section counts.
+    body = root.find(W + "body")
+    paragraphs = [child for child in body if child.tag == W + "p"] if body is not None else list(root.iter(W + "p"))
+    for paragraph in paragraphs:
         text = "".join(node.text or "" for node in paragraph.iter(W + "t")).strip()
         if not text:
             continue
-        all_text.append(text)
-        normalized = re.sub(r"^\d+(?:\.\d+)*[. ]*", "", text).strip().rstrip(":").casefold()
         markers = [n.get(W+"name","") for n in paragraph.iter(W+"bookmarkStart")]
         pstyle = paragraph.find(W+"pPr/"+W+"pStyle")
         style_id = pstyle.get(W+"val","") if pstyle is not None else ""
+        # Exclude inline figure captions and embedded table titles/footnotes from narrative section counts.
+        if style_id in INLINE_DISPLAY_STYLES or any(n.startswith("medpaper_tblnote_") for n in markers):
+            continue
+        normalized = re.sub(r"^\d+(?:\.\d+)*[. ]*", "", text).strip().rstrip(":").casefold()
         structural = (any(n.startswith("medpaper_section_") for n in markers) if explicit else
                       style_id in {"Heading1","SectionHeading"} if styled else True)
-        if structural and normalized in headings and (explicit or section!="Abstract" or
-                headings[normalized] in ("Keywords","Introduction")):
-            section = headings[normalized]
+        mapped = headings.get(normalized)
+        if mapped and (
+            (section in {"Abstract", "Keywords"} and mapped in NON_ABSTRACT_SUBSECTIONS)
+            or (structural and (explicit or section != "Abstract" or mapped in ("Keywords", "Introduction") or mapped in NON_ABSTRACT_SUBSECTIONS))
+        ):
+            section = mapped
             collected.setdefault(section, [])
             continue
         if not title and section == "front":
@@ -108,7 +125,7 @@ def build_portal(project: Path) -> dict:
         "title": title, "abstract": sections["Abstract"],
         "keywords": [part.strip() for part in re.split(r"[,;\n]", sections.get("Keywords", "")) if part.strip()],
         "article_type": requirements.get("article_type"),
-        "word_counts": {"method": "final DOCX visible-text Unicode words; hyphenated words count as one; main section headings excluded; structured abstract subheading text included",
+        "word_counts": {"method": "final DOCX visible-text Unicode words; hyphenated words count as one; main section headings, embedded tables, table captions/footnotes, and inline figure captions excluded from section counts; structured abstract subheading text included",
                         "main": main_words, "abstract": abstract_words, "all_visible": word_count(full_text),
                         "sections": counts, "included_sections": include, "rule_source": rule["source"]},
         "administrative_facts": {key: facts[key] for key in required_admin},

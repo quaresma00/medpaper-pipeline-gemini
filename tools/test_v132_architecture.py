@@ -842,6 +842,137 @@ class V132ArchitectureTests(unittest.TestCase):
             orphan_probs = submissionlayout.docx_embedded_media_problems(orphan_docx, allow_embedded_figures=True)
             self.assertTrue(any("embedded figures were stripped" in p for p in orphan_probs), msg=orphan_probs)
 
+    def test_10_embedded_table_footnotes_and_docx_section_word_counts(self):
+        """Non-final table footnotes must survive section breaks; docx_sections & polish must exclude embedded display text and Impact statements."""
+        from docx import Document
+        from docx.enum.style import WD_STYLE_TYPE
+        from docx.oxml.ns import qn
+        from manuscript.build_docx import normalize_docx
+        from tables.threeline import write_table
+        from wfcore import submission, wordtables
+        from wfcore.checks.polish import _canonical_section_counts
+
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td)
+            (proj / "04_tables/main").mkdir(parents=True)
+
+            write_table(
+                proj / "04_tables/main/t1.xlsx",
+                sheet="Table 1",
+                title="Table 1. Cohort characteristics.",
+                header=["Group", "N", "Age", "Female", "BMI", "Stage", "Score", "P value"],
+                rows=[["Exposed", "250", "61.0", "120", "24.1", "III", "1.40", "0.002"]],
+                footnotes=[
+                    "Table1NoteFirst: values are median and count.",
+                    "Table1NoteLast: final footnote on non-final table must survive sectPr.",
+                ],
+            )
+            write_table(
+                proj / "04_tables/main/t2.xlsx",
+                sheet="Table 2",
+                title="Table 2. Multivariable regression.",
+                header=["Model", "Events", "N", "Crude OR", "Adjusted OR", "CI Low", "CI High", "P value"],
+                rows=[["Primary", "42", "500", "2.10", "1.85", "1.22", "2.81", "0.004"]],
+                footnotes=["Table2NoteOnly: final footnote on last table."],
+            )
+
+            doc = Document()
+            doc.styles.add_style("ImageCaption", WD_STYLE_TYPE.PARAGRAPH)
+            doc.add_heading("Clinical Cohort Manuscript Title", level=0)
+            doc.add_heading("Abstract", level=1)
+            doc.add_heading("Background", level=2)
+            doc.add_paragraph("Background abstract narrative sentence.")
+            doc.add_heading("Methods", level=2)
+            doc.add_paragraph("Structured abstract methods sentence.")
+            doc.add_heading("Impact statements", level=2)
+            doc.add_paragraph("ImpactStatementMarker clinical takeaway not counted in abstract.")
+            doc.add_paragraph("Keywords: cohort; outcomes; safety")
+            doc.add_heading("Introduction", level=1)
+            doc.add_paragraph("Intro narrative sentence.")
+            doc.add_heading("Methods", level=1)
+            doc.add_paragraph("Full methods body sentence.")
+            doc.add_heading("Results", level=1)
+            doc.add_paragraph("Results narrative references Table 1 and Table 2 clearly.")
+            doc.add_paragraph("Fig. 1 InlineFigureCaptionMarker showing survival curve.", style="ImageCaption")
+            doc.add_heading("Discussion", level=1)
+            doc.add_paragraph("Discussion body sentence.")
+            doc.add_heading("References", level=1)
+            doc.add_paragraph("1. Smith A. Clinical cohort study. 2025.")
+
+            style = {
+                "font_family": "Times New Roman",
+                "body_font_pt": 12,
+                "title_font_pt": 14,
+                "section_heading_font_pt": 12,
+                "subsection_heading_font_pt": 12,
+                "line_spacing": 2.0,
+                "paragraph_spacing_after_pt": 0,
+                "paper_size": "A4",
+                "margins_in": 1.0,
+                "all_text_black": True,
+                "external_hyperlinks": False,
+                "journal_profile": {"spelling": "american", "number_format": {}},
+                "journal_project": str(proj),
+            }
+            entries = [
+                {"id": "Table 1", "file": "04_tables/main/t1.xlsx", "sheet": "Table 1", "caption": "Table 1. Cohort characteristics."},
+                {"id": "Table 2", "file": "04_tables/main/t2.xlsx", "sheet": "Table 2", "caption": "Table 2. Multivariable regression."},
+            ]
+            wordtables.embed_tables_in_text(doc, proj, entries, style)
+            out_docx = proj / "manuscript.docx"
+            doc.save(out_docx)
+            normalize_docx(out_docx, style, "manuscript")
+
+            checked = Document(out_docx)
+            all_para_text = "\n".join(p.text for p in checked.paragraphs)
+            # 1) Non-final table's final footnote must survive sectPr stripping
+            self.assertIn("Table1NoteFirst", all_para_text)
+            self.assertIn("Table1NoteLast", all_para_text)
+            self.assertIn("Table2NoteOnly", all_para_text)
+
+            # 2) Bookmark names <= 40 chars and globally unique; bookmark IDs globally unique
+            bm_nodes = list(checked.element.iter(qn("w:bookmarkStart")))
+            bm_names = [n.get(qn("w:name")) for n in bm_nodes]
+            bm_ids = [n.get(qn("w:id")) for n in bm_nodes]
+            self.assertTrue(all(len(name) <= 40 for name in bm_names), msg=bm_names)
+            self.assertEqual(len(bm_names), len(set(bm_names)), msg=bm_names)
+            self.assertEqual(len(bm_ids), len(set(bm_ids)), msg=bm_ids)
+            self.assertTrue(any(name.startswith("medpaper_tblnote_") for name in bm_names))
+
+            # 3) docx_sections must exclude tables, table captions/footnotes, ImageCaption, and Impact statements
+            title, sections, full_text = submission.docx_sections(out_docx)
+            self.assertEqual(title, "Clinical Cohort Manuscript Title")
+            self.assertIn("Structured abstract methods sentence.", sections["Abstract"])
+            self.assertNotIn("ImpactStatementMarker", sections["Abstract"])
+            self.assertIn("ImpactStatementMarker", sections.get("Impact statements", ""))
+            self.assertIn("Full methods body sentence.", sections["Methods"])
+            self.assertIn("Results narrative references Table 1 and Table 2 clearly.", sections["Results"])
+            self.assertNotIn("Exposed", sections["Results"])
+            self.assertNotIn("Table 1. Cohort characteristics.", sections["Results"])
+            self.assertNotIn("Table1NoteLast", sections["Results"])
+            self.assertNotIn("InlineFigureCaptionMarker", sections["Results"])
+            # all_visible (full_text) still contains complete visible document text
+            self.assertIn("Exposed", full_text)
+            self.assertIn("Table1NoteLast", full_text)
+            self.assertIn("InlineFigureCaptionMarker", full_text)
+            self.assertIn("ImpactStatementMarker", full_text)
+
+            # 4) Markdown _canonical_section_counts aligns with DOCX exclusion of Impact statements and inline figure lines
+            md = (
+                "# Abstract\n\n"
+                "## Background\n\nAlpha beta gamma.\n\n"
+                "## Impact statements\n\nExcluded impact words here.\n\n"
+                "Keywords: alpha; beta\n\n"
+                "# Results\n\n"
+                "Delta epsilon.\n\n"
+                "![Fig. 1 Inline caption words excluded.](05_figures/out/Figure1.png){width=6.0in}\n\n"
+                "# Conclusion\n\nZeta eta.\n"
+            )
+            md_counts = _canonical_section_counts(md)
+            self.assertEqual(md_counts["abstract"], 4)  # Background + Alpha beta gamma
+            self.assertEqual(md_counts["results"], 2)   # Delta epsilon
+            self.assertEqual(md_counts["conclusion"], 2)  # Zeta eta
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
