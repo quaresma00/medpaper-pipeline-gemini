@@ -40,10 +40,12 @@ uv run python tools/wf.py check
 - No results in the Introduction. No hypothesis stated as if already confirmed.
 - Prefer a concrete clinical problem to stock openers. Wording flags prompt judgement,
   not automatic replacement of legitimate medical terminology.
-- Do not restate the whole field. Paragraph count follows the argument and close comparators,
-  not a fixed quota.
-- Respect configured citation floors (`literature_sufficiency`) and immediately run per-section
-  de-AI + claim-driven clinical polish (`polish.py section --file project/07_manuscript/introduction.md --snapshot` / `--verify`, removing work-report narration while keeping balanced clinical framing and genuine evidence uncertainty) once drafted.
+- Do not restate the whole field, yet keep Introduction depth and proportion aligned with your S07
+  comparators (`section_balance_health` warns when an Original Article Introduction is thin,
+  < 50% of comparator median, or top-light; ensure clinical burden, mechanistic chain, and
+  literature-gap argument are substantively developed).
+- Respect configured citation floors (`literature_sufficiency`, including comparator parity warnings)
+  and immediately run per-section de-AI + claim-driven clinical polish (`polish.py section --file project/07_manuscript/introduction.md --snapshot` / `--verify`, removing work-report narration while keeping balanced clinical framing and genuine evidence uncertainty) once drafted.
 
 ## Close
 ```

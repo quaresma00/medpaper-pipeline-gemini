@@ -1138,6 +1138,212 @@ class V132ArchitectureTests(unittest.TestCase):
             )
             self.assertEqual(discussion.audit_report_discussion_problems(zh_report, "review.md"), [])
 
+    def test_12_section_balance_baselines_and_required_main_sections(self):
+        """S07/S14/S22 section-balance baselines, comparator citation parity, and S20-S23 required_main_sections H1 enforcement."""
+        from docx import Document
+        from manuscript.build_docx import normalize_docx
+        from wfcore import benchmark, guidelinerules, journalspec, registry, submission
+        from wfcore.checks import Ctx, get, load_all
+        from wfcore.state import State
+
+        load_all()
+        pipe = registry.load()
+
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td)
+            for d in ("01_protocol", "06_refs", "07_manuscript", "08_submission/integration", "08_submission/bundle", ".wf"):
+                (proj / d).mkdir(parents=True, exist_ok=True)
+            (proj / "01_protocol/artifact_plan.json").write_text(json.dumps({"main_figures": [], "main_tables": []}), encoding="utf-8")
+            state = State(proj).create("medpaper", "1.32.0", "S14_introduction")
+
+            # 1) extract_section_words & comparator_section_baselines
+            sample_article = (
+                "Abstract\nShort summary.\n\n"
+                "Introduction\n" + ("clinical background sentence " * 200) + "\n\n"
+                "Methods\n" + ("cohort selection criteria " * 250) + "\n\n"
+                "Results\n" + ("primary outcome estimate " * 300) + "\n\n"
+                "Discussion\n" + ("interpretation clinical meaning " * 220) + "\n\n"
+                "References\n1. Author A. 2024.\n"
+            )
+            extracted = benchmark.extract_section_words(sample_article)
+            self.assertGreaterEqual(extracted.get("introduction", 0), 500)
+            self.assertGreaterEqual(extracted.get("methods", 0), 600)
+            self.assertGreaterEqual(extracted.get("results", 0), 700)
+            self.assertGreaterEqual(extracted.get("discussion", 0), 500)
+
+            bench_doc = {
+                "benchmark_version": 1,
+                "comparators": [
+                    {"citekey": "comp1", "observations": {"citations": {"introduction": 22}, "section_words": {"introduction": 760, "methods": 900, "results": 1400, "discussion": 950}}},
+                    {"citekey": "comp2", "observations": {"citations": {"introduction": 26}, "section_words": {"introduction": 840, "methods": 850, "results": 1300, "discussion": 900}}},
+                ],
+            }
+            (proj / "01_protocol/artifact_benchmark.md").write_text(
+                f"# Benchmark\n\n```json\n{json.dumps(bench_doc)}\n```\n",
+                encoding="utf-8",
+            )
+            base_summary = benchmark.comparator_section_baselines(proj, "science")
+            self.assertEqual(base_summary["sections"]["introduction"]["median"], 800)
+            self.assertEqual(base_summary["intro_citations_median"], 24)
+
+            # 2) S14 section_balance_health warns on thin Original Article Intro (<400 words & <50% of 800)
+            intro_path = proj / "07_manuscript/introduction.md"
+            intro_path.write_text("# Introduction\n\n" + ("clinical background word " * 80) + "\n", encoding="utf-8")
+            r_thin = get("section_balance_health")(
+                Ctx(pipe, state, proj, pipe.stage("S14_introduction"), {"mode": "intro", "path": "07_manuscript/introduction.md", "since": "1.32.0"})
+            )
+            self.assertFalse(r_thin.ok)
+            self.assertEqual(r_thin.severity, "warn")
+            self.assertIn("under 50%", r_thin.detail)
+
+            # Expanded Introduction passes
+            intro_path.write_text("# Introduction\n\n" + ("clinical background word " * 160) + "\n", encoding="utf-8")
+            r_ok = get("section_balance_health")(
+                Ctx(pipe, state, proj, pipe.stage("S14_introduction"), {"mode": "intro", "path": "07_manuscript/introduction.md", "since": "1.32.0"})
+            )
+            self.assertTrue(r_ok.ok, msg=r_ok.detail)
+
+            # Brief_Report adapts intro floor to 200 words (no false warning on 220-word intro when no comparator median blocks it)
+            (proj / "01_protocol/idea.json").write_text(
+                json.dumps({"article_genre": "Brief_Report", "genre_rationale": "Focused clinical pharmacovigilance series well suited for a concise brief report format."}),
+                encoding="utf-8",
+            )
+            (proj / "01_protocol/artifact_benchmark.md").unlink()
+            intro_path.write_text("# Introduction\n\n" + ("concise clinical word " * 75) + "\n", encoding="utf-8")
+            r_brief = get("section_balance_health")(
+                Ctx(pipe, state, proj, pipe.stage("S14_introduction"), {"mode": "intro", "path": "07_manuscript/introduction.md", "since": "1.32.0"})
+            )
+            self.assertTrue(r_brief.ok, msg=r_brief.detail)
+            (proj / "01_protocol/idea.json").unlink()
+            (proj / "01_protocol/artifact_benchmark.md").write_text(
+                f"# Benchmark\n\n```json\n{json.dumps(bench_doc)}\n```\n",
+                encoding="utf-8",
+            )
+
+            # 3) literature_sufficiency warns when S14 meets static 10-ref floor (12 refs) but lags high comparator median (24)
+            lib_entries = [{"citekey": f"ref{i}", "year": 2024} for i in range(1, 30)]
+            (proj / "06_refs/library.json").write_text(json.dumps({"entries": lib_entries}), encoding="utf-8")
+            intro_path.write_text(
+                "# Introduction\n\n" + " ".join(f"Background claim [@ref{i}]." for i in range(1, 13)) + "\n",
+                encoding="utf-8",
+            )
+            r_lit = get("literature_sufficiency")(
+                Ctx(pipe, state, proj, pipe.stage("S14_introduction"), {"mode": "section", "path": "07_manuscript/introduction.md", "since": "1.30.0"})
+            )
+            self.assertFalse(r_lit.ok)
+            self.assertEqual(r_lit.severity, "warn")
+            self.assertIn("comparator Introduction citation median", r_lit.detail)
+
+            # 4) S22 section_balance_health warns on <10% Intro share and >30% shrinkage vs S19 scientific master
+            sci_full = (
+                "# Clinical Cohort Study Title For Testing\n\n"
+                "# Abstract\n\nConcise summary.\n\nKeywords: cohort, safety, outcomes\n\n"
+                "# Introduction\n\n" + ("background narrative word " * 160) + "\n\n"
+                "# Methods\n\n" + ("methodological detail word " * 300) + "\n\n"
+                "# Results\n\n" + ("clinical result word " * 400) + "\n\n"
+                "# Discussion\n\n" + ("clinical discussion word " * 300) + "\n\n"
+                "# References\n\n::: {#refs}\n:::\n\n# Figure legends\n\nFigure 1. Curve.\n"
+            )
+            (proj / "07_manuscript/full_manuscript.md").write_text(sci_full, encoding="utf-8")
+            trimmed_full = sci_full.replace("background narrative word " * 160, "background narrative word " * 60)
+            (proj / "08_submission/integration/full_manuscript.md").write_text(trimmed_full, encoding="utf-8")
+            r_shrink = get("section_balance_health")(
+                Ctx(pipe, state, proj, pipe.stage("S22_polish"), {"mode": "full", "layer": "journal", "path": "08_submission/integration/full_manuscript.md", "since": "1.32.0"})
+            )
+            self.assertFalse(r_shrink.ok)
+            self.assertEqual(r_shrink.severity, "warn")
+            self.assertIn("shrank by", r_shrink.detail)
+            self.assertIn("< 10%", r_shrink.detail)
+
+            # 5) required_main_sections H1 verification (Markdown + DOCX + guidelinerules)
+            req_list = ["Introduction", "Aim", "Method", "Ethics approval", "Results", "Discussion", "Conclusion", "Declarations", "References"]
+            (proj / "08_submission/submission_requirements.json").write_text(
+                json.dumps({
+                    "article_type": "Original Research",
+                    "required_main_sections": req_list,
+                    "display_placement": {
+                        "figures": "embedded_in_text",
+                        "tables": "embedded_in_text",
+                        "source": "https://example.org/guide",
+                        "quote": "Embed figures and tables in text.",
+                    },
+                }),
+                encoding="utf-8",
+            )
+            (proj / "08_submission/target_journal.json").write_text(json.dumps({"journal": "Synthetic Clinical Journal"}), encoding="utf-8")
+            self.assertEqual(guidelinerules.config_value(proj, {"type": "profile", "field": "required_main_sections"}), req_list)
+
+            # Demoted ## Aim and ## Ethics approval + plural # Methods must fail manuscript_structure
+            demoted_md = (
+                "# Clinical Cohort Study Title For Testing\n\n"
+                "# Abstract\n\nSummary text.\n\nKeywords: cohort, safety, outcomes\n\n"
+                "# Introduction\n\nBackground text.\n\n## Aim\n\nObjective text.\n\n"
+                "# Methods\n\nMethod text.\n\n## Ethics approval\n\nWaived.\n\n"
+                "# Results\n\nResult text.\n\n# Discussion\n\nDiscussion text.\n\n"
+                "# Conclusion\n\nConclusion text.\n\n# Declarations\n\nNone.\n\n"
+                "# References\n\n::: {#refs}\n:::\n"
+            )
+            (proj / "08_submission/integration/full_manuscript.md").write_text(demoted_md, encoding="utf-8")
+            r_demoted = get("manuscript_structure")(
+                Ctx(pipe, state, proj, pipe.stage("S22_polish"), {"path": "08_submission/integration/full_manuscript.md"})
+            )
+            self.assertFalse(r_demoted.ok)
+            self.assertIn("demoted to a subheading", r_demoted.detail)
+            self.assertIn("singular/plural", r_demoted.detail)
+
+            # Exact H1 alignment passes manuscript_structure & DOCX journalspec.docx_problems
+            aligned_md = (
+                "# Clinical Cohort Study Title For Testing\n\n"
+                "# Abstract\n\nSummary text.\n\nKeywords: cohort, safety, outcomes\n\n"
+                "# Introduction\n\nBackground text.\n\n# Aim\n\nObjective text.\n\n"
+                "# Method\n\nMethod text.\n\n# Ethics approval\n\nWaived.\n\n"
+                "# Results\n\nResult text.\n\n# Discussion\n\nDiscussion text.\n\n"
+                "# Conclusion\n\nConclusion text.\n\n# Declarations\n\nNone.\n\n"
+                "# References\n\n::: {#refs}\n:::\n"
+            )
+            (proj / "08_submission/integration/full_manuscript.md").write_text(aligned_md, encoding="utf-8")
+            r_aligned = get("manuscript_structure")(
+                Ctx(pipe, state, proj, pipe.stage("S22_polish"), {"path": "08_submission/integration/full_manuscript.md"})
+            )
+            self.assertTrue(r_aligned.ok, msg=r_aligned.detail)
+
+            # DOCX verification: demoted H2 vs aligned H1
+            style = {
+                "font_family": "Times New Roman", "body_font_pt": 12, "title_font_pt": 14,
+                "section_heading_font_pt": 12, "subsection_heading_font_pt": 12,
+                "line_spacing": 2.0, "paragraph_spacing_after_pt": 0, "paper_size": "A4",
+                "margins_in": 1.0, "all_text_black": True, "external_hyperlinks": False,
+                "journal_profile": {}, "journal_project": str(proj),
+            }
+            bad_docx = proj / "08_submission/bundle/bad.docx"
+            d_bad = Document()
+            d_bad.add_heading("Clinical Cohort Study Title For Testing", level=0)
+            d_bad.add_heading("Introduction", level=1); d_bad.add_paragraph("Background.")
+            d_bad.add_heading("Aim", level=2); d_bad.add_paragraph("Objective.")
+            d_bad.add_heading("Methods", level=1); d_bad.add_paragraph("Method.")
+            d_bad.add_heading("Ethics approval", level=2); d_bad.add_paragraph("Waived.")
+            for sec in ("Results", "Discussion", "Conclusion", "Declarations", "References"):
+                d_bad.add_heading(sec, level=1); d_bad.add_paragraph("Body.")
+            d_bad.save(bad_docx)
+            normalize_docx(bad_docx, style, "manuscript")
+            bad_probs = journalspec.docx_problems(bad_docx, {}, proj, "manuscript")
+            self.assertTrue(any("demoted to a subheading" in p for p in bad_probs), msg=bad_probs)
+            self.assertTrue(any("singular/plural" in p for p in bad_probs), msg=bad_probs)
+
+            ok_docx = proj / "08_submission/bundle/ok.docx"
+            d_ok = Document()
+            d_ok.add_heading("Clinical Cohort Study Title For Testing", level=0)
+            for sec in req_list:
+                d_ok.add_heading(sec, level=1); d_ok.add_paragraph("Body text.")
+            d_ok.save(ok_docx)
+            normalize_docx(ok_docx, style, "manuscript")
+            ok_probs = journalspec.docx_problems(ok_docx, {}, proj, "manuscript")
+            self.assertEqual(ok_probs, [], msg=ok_probs)
+            _, docx_secs, _ = submission.docx_sections(ok_docx)
+            self.assertIn("Aim", docx_secs)
+            self.assertIn("Ethics approval", docx_secs)
+            self.assertIn("Methods", docx_secs)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

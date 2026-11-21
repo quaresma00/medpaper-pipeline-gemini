@@ -36,7 +36,9 @@ finding. Follow S19 for close, one report, one question and the actual user answ
    low-impact/Q3/Q4 venue, rather than whether it belongs in a top journal.
 3. Require the reviewer to check scientific validity, internal consistency, reporting
    completeness, whether the Methods support reproducibility without bloating the main
-   text, whether tables/supplement agree with the manuscript, claim strength, fatal versus
+   text, Introduction depth and section-balance parity against S07 comparators (flagging
+   top-light Introductions with insufficient clinical/mechanistic/gap rationale), whether
+   tables/supplement agree with the manuscript, claim strength, fatal versus
    correctable problems, and the likely acceptance ceiling. It must distinguish data or
    design barriers from presentation defects.
    Check legend meaning in context: panel mapping and decoding information must suffice

@@ -16,10 +16,12 @@ MANIFEST = "08_submission/bundle/manifest.json"
 AUTHOR_FACTS = "00_input/author_info.json"
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 SECTIONS = ("Abstract", "Impact statements", "Highlights", "Key points", "Keywords",
-            "Introduction", "Methods", "Results", "Discussion",
+            "Introduction", "Aim", "Methods", "Ethics approval", "Results", "Discussion",
             "Conclusion", "Declarations and Statements", "References", "Figure legends")
-ALIASES = {"materials and methods": "Methods", "patients and methods": "Methods",
+ALIASES = {"method": "Methods", "materials and methods": "Methods", "patients and methods": "Methods",
            "statistical methods": "Methods", "conclusions": "Conclusion",
+           "aims": "Aim", "objective": "Aim", "objectives": "Aim",
+           "ethics": "Ethics approval", "ethical approval": "Ethics approval",
            "impact statement": "Impact statements", "highlight": "Highlights", "key point": "Key points",
            "declarations": "Declarations and Statements", "statements": "Declarations and Statements",
            "statements and declarations": "Declarations and Statements"}
@@ -82,6 +84,29 @@ def docx_sections(path: Path, aliases: dict | None = None) -> tuple[str, dict[st
     return title, {key: "\n".join(value) for key, value in collected.items()}, "\n".join(all_text)
 
 
+def docx_top_level_headings(path: Path) -> tuple[list[str], list[str]]:
+    """Extract (h1_headings, h2_headings) from a DOCX, distinguishing normalized H1 bookmarks from H2 subheadings."""
+    with zipfile.ZipFile(path) as archive:
+        root = ET.fromstring(archive.read("word/document.xml"))
+    body = root.find(W + "body")
+    paragraphs = [child for child in body if child.tag == W + "p"] if body is not None else list(root.iter(W + "p"))
+    explicit = any((n.get(W + "name", "").startswith("medpaper_section_") for n in root.iter(W + "bookmarkStart")))
+    h1: list[str] = []
+    h2: list[str] = []
+    for paragraph in paragraphs:
+        text = "".join(node.text or "" for node in paragraph.iter(W + "t")).strip()
+        if not text:
+            continue
+        markers = [n.get(W + "name", "") for n in paragraph.iter(W + "bookmarkStart")]
+        pstyle = paragraph.find(W + "pPr/" + W + "pStyle")
+        style_id = pstyle.get(W + "val", "") if pstyle is not None else ""
+        if any(n.startswith("medpaper_section_") for n in markers) or (not explicit and style_id == "Heading1"):
+            h1.append(text)
+        elif style_id in {"Heading2", "Heading3"} or (explicit and style_id == "SectionHeading"):
+            h2.append(text)
+    return h1, h2
+
+
 def build_portal(project: Path) -> dict:
     from .journalcontext import guard
     guard(project)
@@ -110,6 +135,10 @@ def build_portal(project: Path) -> dict:
     counts = {name: word_count(text) for name, text in sections.items()}
     main_words = sum(counts[name] for name in include)
     abstract_words = counts.get("Abstract", 0)
+    section_shares = (
+        {name: round(counts[name] / main_words * 100.0, 1) for name in include}
+        if main_words > 0 else {}
+    )
     errors = compare({"main":main_words,"abstract":abstract_words},rules)
     if errors:
         raise ValueError("final DOCX: "+"; ".join(errors))
@@ -127,13 +156,36 @@ def build_portal(project: Path) -> dict:
         "article_type": requirements.get("article_type"),
         "word_counts": {"method": "final DOCX visible-text Unicode words; hyphenated words count as one; main section headings, embedded tables, table captions/footnotes, and inline figure captions excluded from section counts; structured abstract subheading text included",
                         "main": main_words, "abstract": abstract_words, "all_visible": word_count(full_text),
-                        "sections": counts, "included_sections": include, "rule_source": rule["source"]},
+                        "sections": counts, "section_shares_pct": section_shares, "included_sections": include, "rule_source": rule["source"]},
         "administrative_facts": {key: facts[key] for key in required_admin},
         "uploads": [{"role": item["role"], "file": item["file"]} for item in manifest["items"]
                     if item.get("upload", True)],
     }
     from .journalrules import advisories
-    warnings = advisories({"main": main_words, "abstract": abstract_words}, rules)
+    warnings = list(advisories({"main": main_words, "abstract": abstract_words}, rules))
+    intro_words = counts.get("Introduction", 0) + counts.get("Aim", 0)
+    if main_words > 0 and "Introduction" in counts:
+        intro_share = intro_words / main_words * 100.0
+        art_type = str(requirements.get("article_type") or "").casefold()
+        is_short_genre = any(tok in art_type for tok in ("brief", "short", "letter", "correspondence", "case"))
+        min_intro = 200 if is_short_genre else 350
+        if intro_words < min_intro or intro_share < 10.0:
+            warnings.append(
+                f"Section balance warning: Introduction (+Aim) is {intro_words} words ({intro_share:.1f}% of {main_words} main words; "
+                f"recommended >= {min_intro} words and >= 10.0%). Do not meet main-text word caps by stripping Introduction; "
+                "move redundant methodological/secondary details to Supplementary Methods / Online Resources instead."
+            )
+        sci_master = project / "07_manuscript/full_manuscript.md"
+        if sci_master.is_file():
+            from .checks.polish import _canonical_section_counts
+            sci_counts = _canonical_section_counts(sci_master.read_text(encoding="utf-8", errors="replace"))
+            sci_intro = sci_counts.get("introduction", 0) + sci_counts.get("aim", 0)
+            if sci_intro >= 150 and intro_words < sci_intro * 0.70:
+                drop_pct = (1.0 - intro_words / sci_intro) * 100.0
+                warnings.append(
+                    f"Introduction shrank by {drop_pct:.1f}% vs S19 scientific master ({sci_intro} -> {intro_words} words; >30% threshold); "
+                    "restore background/gap depth and offload Methods/Results detail to Supplementary Methods / Online Resources."
+                )
     if warnings:
         payload["advisories"] = warnings
     discrepancies = [

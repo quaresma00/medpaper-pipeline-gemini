@@ -20,12 +20,98 @@ def load(project: Path) -> dict:
 
 def aliases(target: dict) -> dict:
     value = target.get("main_text_headings", {})
-    if not isinstance(value, dict) or any(key not in {"Abstract", "Introduction", "Methods", "Results", "Discussion", "Conclusion", "Declarations and Statements", "References", "Figure legends"}
+    allowed_keys = {
+        "Abstract", "Introduction", "Aim", "Methods", "Ethics approval",
+        "Results", "Discussion", "Conclusion", "Declarations and Statements",
+        "References", "Figure legends",
+    }
+    if not isinstance(value, dict) or any(key not in allowed_keys
                                          or not isinstance(label, str) or not label.strip() for key, label in value.items()):
         raise ValueError("main_text_headings must map canonical body sections to actual journal labels")
     if len({label.casefold() for label in value.values()}) != len(value):
         raise ValueError("journal heading labels must be unique")
     return value
+
+
+def required_main_sections(project: Path) -> list[str]:
+    """Return optional journal-mandated top-level section heading list from requirements/target."""
+    for rel in ("08_submission/submission_requirements.json", "08_submission/target_journal.json"):
+        path = project / rel
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        raw = data.get("required_main_sections")
+        if raw is None:
+            continue
+        if not isinstance(raw, list) or not raw or any(not isinstance(x, str) or not x.strip() for x in raw):
+            raise ValueError(f"{rel}: required_main_sections must be a non-empty list of section heading strings")
+        return [x.strip() for x in raw]
+    return []
+
+
+def _heading_near_variants(heading: str) -> set[str]:
+    low = heading.strip().casefold()
+    variants = {low}
+    if low.endswith("s") and len(low) > 2:
+        variants.add(low[:-1])
+    else:
+        variants.add(low + "s")
+    groups = [
+        {"method", "methods", "materials and methods", "patients and methods"},
+        {"conclusion", "conclusions"},
+        {"aim", "aims", "objective", "objectives"},
+        {"ethics approval", "ethics", "ethical approval", "ethics statement"},
+        {"declarations", "declarations and statements", "statements and declarations", "statements"},
+    ]
+    for grp in groups:
+        if low in grp:
+            variants.update(grp)
+    variants.discard(low)
+    return variants
+
+
+def check_required_sections(
+    h1_headings: list[str],
+    h2_headings: list[str],
+    required: list[str],
+    *,
+    label: str = "manuscript",
+) -> list[str]:
+    """Verify journal-mandated H1 section names, singular/plural exactness, non-demotion, and order."""
+    if not required:
+        return []
+    h1_norm = [re.sub(r"^\d+(?:\.\d+)*[. ]*", "", h).strip().rstrip(":").casefold() for h in h1_headings]
+    h2_norm = [re.sub(r"^\d+(?:\.\d+)*[. ]*", "", h).strip().rstrip(":").casefold() for h in h2_headings]
+    problems: list[str] = []
+    matched_positions: list[int] = []
+    for req in required:
+        req_low = req.strip().casefold()
+        if req_low in h1_norm:
+            matched_positions.append(h1_norm.index(req_low))
+            continue
+        near = _heading_near_variants(req)
+        alt_h1 = next((h1_headings[i] for i, val in enumerate(h1_norm) if val in near), None)
+        if alt_h1:
+            problems.append(
+                f"{label}: required top-level section '{req}' missing (found H1 '{alt_h1}' instead; "
+                "match the exact singular/plural heading required by the journal)"
+            )
+            continue
+        demoted = next((h2_headings[i] for i, val in enumerate(h2_norm) if val == req_low or val in near), None)
+        if demoted:
+            problems.append(
+                f"{label}: required top-level section '{req}' was demoted to a subheading ('{demoted}') instead of a top-level H1 heading"
+            )
+            continue
+        problems.append(f"{label}: required top-level section '{req}' missing")
+    if len(matched_positions) == len(required) and matched_positions != sorted(matched_positions):
+        problems.append(
+            f"{label}: required top-level section order mismatch; expected {', '.join(required)}"
+        )
+    return problems
 
 
 def spelling(text: str, system: str) -> str:
@@ -199,8 +285,13 @@ def docx_problems(path: Path, target: dict, project: Path, role: str) -> list[st
                     problems.append("actual Word line numbering differs from explicit journal requirement")
         actual = {paragraph.text.strip() for paragraph in doc.paragraphs}
         for canonical, label in aliases(target).items():
-            if canonical not in {"Introduction","Methods","Results","Discussion","Conclusion"}: continue
+            if canonical not in {"Introduction","Aim","Methods","Ethics approval","Results","Discussion","Conclusion"}: continue
             if label not in actual: problems.append(f"journal body heading missing: {label}")
+        req_secs = required_main_sections(project)
+        if req_secs:
+            from .submission import docx_top_level_headings
+            h1, h2 = docx_top_level_headings(path)
+            problems.extend(check_required_sections(h1, h2, req_secs, label=path.name))
         for paragraph in doc.paragraphs:
             if paragraph.text.strip().casefold().startswith("keywords:"):
                 value = paragraph.text.split(":", 1)[1].strip(); config = target.get("keywords", {})

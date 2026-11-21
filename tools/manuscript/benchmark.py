@@ -28,7 +28,10 @@ def main():
             print(json.dumps({"total":len(issues),"shown":len(selected),"offset":args.offset,"issues":selected,
                               "meaning":"Risk prompts, not a blacklist or semantic/visual PASS; inspect actual figures."},ensure_ascii=False))
         elif args.command == "seal": benchmark.seal(project, args.layer); print("Benchmark plan sealed before writing/production")
-        elif args.command == "metrics": print(json.dumps(benchmark.citation_metrics(project)))
+        elif args.command == "metrics":
+            payload = benchmark.citation_metrics(project)
+            payload["comparator_section_baselines"] = benchmark.comparator_section_baselines(project, args.layer)
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
         elif args.command == "verify":
             problems = benchmark.verify_benchmark(project, args.layer)
             if problems: raise ValueError("; ".join(problems[:8]))

@@ -14,7 +14,7 @@ TOPICS = {"article_type", "length", "abstract", "keywords", "references", "figur
 STATUSES = {"required", "recommended", "allowed", "unspecified", "not_applicable"}
 STYLE = {"font_family", "body_font_pt", "title_font_pt", "section_heading_font_pt", "subsection_heading_font_pt",
          "line_spacing", "paragraph_spacing_after_pt", "margins_in", "paper_size", "all_text_black", "external_hyperlinks"}
-PROFILE = {"keywords", "main_text_headings", "line_numbers", "blinded_main_manuscript"}
+PROFILE = {"keywords", "main_text_headings", "required_main_sections", "line_numbers", "blinded_main_manuscript"}
 METHODS = {"style", "profile", "limit", "uploads", "figure", "csl", "template", "manual", "context"}
 
 
@@ -28,6 +28,10 @@ def config_value(project, check):
         return load(project,"08_submission/docx_style.json").get(field)
     if kind=="profile":
         if field not in PROFILE: raise ValueError("Unsupported automatic profile field; use manual inspection")
+        if field == "required_main_sections":
+            req_val = load(project, jc.REQUIREMENTS).get(field)
+            if req_val is not None:
+                return req_val
         return load(project,jc.TARGET).get(field)
     if kind=="context": return jc.current(project)["identity"].get(field)
     if kind=="uploads": return load(project,jc.REQUIREMENTS).get("required_upload_roles")

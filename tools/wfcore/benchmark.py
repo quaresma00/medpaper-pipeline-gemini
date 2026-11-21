@@ -117,6 +117,10 @@ def verify_benchmark(project: Path, layer="science", *, require_lock=True) -> li
         citations = observations.get("citations", {})
         if any(type(citations.get(section)) is not int or citations[section] < 0 for section in SECTIONS):
             problems.append(f"{key}: separate observed section/supplement citation counts needed")
+        if "section_words" in observations and observations["section_words"] is not None:
+            sw = observations["section_words"]
+            if not isinstance(sw, dict) or any(type(v) is not int or v < 0 for v in sw.values()):
+                problems.append(f"{key}: observations.section_words must map section names to nonnegative integers")
         excerpts = row.get("evidence", [])
         if not {"methods", "discussion", "display"}.issubset({e.get("kind") for e in excerpts}):
             problems.append(f"{key}: methods/discussion/display full-text locators needed")
@@ -168,6 +172,148 @@ def seal(project: Path, layer="science"):
         revision = __import__("wfcore.revision", fromlist=["active"]).active(project)
         if not revision or revision.get("status") != "active": raise ValueError("Changed sealed plan requires an explicit scoped feedback replan, never a pass-seeking reset")
     guard_outputs(project, [path]); atomic_json(path, {"plan_hash": plan_hash(doc), "owner": owner})
+
+
+WORD_SECTIONS = ("introduction", "methods", "results", "discussion")
+_SECTION_BOUNDARY_RE = re.compile(
+    r"(?:^|\n|\s{2,})(?:\d+(?:\.\d+)*\.?\s+)?"
+    r"(introduction|background|aims?|objectives?|"
+    r"(?:materials?\s+and\s+|patients?\s+and\s+|statistical\s+)?methods?|"
+    r"ethics\s+approval|results?|discussion|conclusions?|"
+    r"references|declarations(?:\s+and\s+statements)?|acknowledg(?:e)?ments?|funding|supplementary\s+information)"
+    r"(?:\s*[:.\n]|\s{2,})",
+    re.I,
+)
+
+
+def extract_section_words(raw_text: str) -> dict[str, int]:
+    """Estimate IMRAD section word counts from a registered comparator full text."""
+    if not raw_text or not raw_text.strip():
+        return {}
+    canonical_map = {
+        "introduction": "introduction",
+        "background": "introduction",
+        "aim": "introduction",
+        "aims": "introduction",
+        "objective": "introduction",
+        "objectives": "introduction",
+        "method": "methods",
+        "methods": "methods",
+        "materials and methods": "methods",
+        "material and methods": "methods",
+        "patients and methods": "methods",
+        "patient and methods": "methods",
+        "statistical methods": "methods",
+        "ethics approval": "methods",
+        "result": "results",
+        "results": "results",
+        "discussion": "discussion",
+        "conclusion": "discussion",
+        "conclusions": "discussion",
+        "references": "_stop",
+        "declarations": "_stop",
+        "declarations and statements": "_stop",
+        "acknowledgments": "_stop",
+        "acknowledgements": "_stop",
+        "funding": "_stop",
+        "supplementary information": "_stop",
+    }
+    hits: list[tuple[int, int, str]] = []
+    for m in _SECTION_BOUNDARY_RE.finditer(raw_text):
+        norm_key = re.sub(r"\s+", " ", m.group(1).strip().casefold())
+        mapped = canonical_map.get(norm_key)
+        if mapped:
+            hits.append((m.start(), m.end(), mapped))
+    if not hits:
+        return {}
+    # Find the main IMRAD sequence (prefer the last 'introduction' that precedes 'methods'/'results').
+    intro_candidates = [i for i, (_, _, role) in enumerate(hits) if role == "introduction"]
+    start_idx = 0
+    for idx in intro_candidates:
+        later_roles = {role for _, _, role in hits[idx + 1:]}
+        if {"methods", "results"} & later_roles:
+            start_idx = idx
+            break
+    counts = {sec: 0 for sec in WORD_SECTIONS}
+    for i in range(start_idx, len(hits)):
+        _, body_start, role = hits[i]
+        if role == "_stop":
+            break
+        body_end = hits[i + 1][0] if i + 1 < len(hits) else len(raw_text)
+        chunk = raw_text[body_start:body_end]
+        counts[role] += len(re.findall(r"\b[A-Za-z][A-Za-z'-]*\b", chunk))
+    return {k: v for k, v in counts.items() if v > 0}
+
+
+def comparator_section_baselines(project: Path, layer: str = "science") -> dict:
+    """Summarize comparator section word counts & Introduction citation medians."""
+    import statistics
+    doc = None
+    try:
+        doc = dossier(project, layer)
+    except (OSError, ValueError, json.JSONDecodeError):
+        json_rel = "01_protocol/artifact_benchmark.json" if layer == "science" else "08_submission/integration/artifact_benchmark.json"
+        if (project / json_rel).is_file():
+            try:
+                doc = load(project, json_rel)
+            except (OSError, ValueError, json.JSONDecodeError):
+                doc = None
+    if not isinstance(doc, dict):
+        return {"layer": layer, "n_comparators": 0, "sections": {}, "intro_share_median": None, "intro_citations_median": None}
+
+    per_sec: dict[str, list[int]] = {s: [] for s in WORD_SECTIONS}
+    intro_shares: list[float] = []
+    intro_cites: list[int] = []
+    rows = doc.get("comparators", [])
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        obs = row.get("observations", {}) or {}
+        cites = obs.get("citations", {}) or {}
+        if isinstance(cites.get("introduction"), int) and cites["introduction"] > 0:
+            intro_cites.append(cites["introduction"])
+        sw = obs.get("section_words")
+        if not isinstance(sw, dict) or not any(isinstance(v, int) and v > 0 for v in sw.values()):
+            ft_rel = row.get("fulltext", "")
+            if ft_rel:
+                try:
+                    _, ft_path = _safe_path(project, ft_rel)
+                    if ft_path.is_file():
+                        sw = extract_section_words(text_of(ft_path))
+                except (OSError, ValueError):
+                    sw = {}
+        if isinstance(sw, dict):
+            row_vals: dict[str, int] = {}
+            for s in WORD_SECTIONS:
+                val = sw.get(s)
+                if isinstance(val, int) and val > 0:
+                    per_sec[s].append(val)
+                    row_vals[s] = val
+            # Merge optional 'aim' into introduction share when recorded separately.
+            aim_val = sw.get("aim") if isinstance(sw.get("aim"), int) and sw.get("aim") > 0 else 0
+            if aim_val and "introduction" in row_vals:
+                per_sec["introduction"][-1] = row_vals["introduction"] + aim_val
+                row_vals["introduction"] += aim_val
+            total_row = sum(row_vals.values())
+            if total_row > 0 and "introduction" in row_vals and len(row_vals) >= 3:
+                intro_shares.append(row_vals["introduction"] / total_row)
+
+    summary = {}
+    for s, vals in per_sec.items():
+        if vals:
+            summary[s] = {
+                "n": len(vals),
+                "min": min(vals),
+                "median": round(statistics.median(vals)),
+                "max": max(vals),
+            }
+    return {
+        "layer": layer,
+        "n_comparators": len(rows),
+        "sections": summary,
+        "intro_share_median": round(statistics.median(intro_shares), 4) if intro_shares else None,
+        "intro_citations_median": round(statistics.median(intro_cites)) if intro_cites else None,
+    }
 
 
 def citation_metrics(project):

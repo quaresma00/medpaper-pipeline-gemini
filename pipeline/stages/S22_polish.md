@@ -20,7 +20,11 @@ uv run python tools/text/polish.py snapshot
 2. Run `tools/text/polish.py lint` to catch ONLY cross-section house-style issues (`lint_spelling`,
    `lint_abbreviations`, `P`/`p` case consistency, numeric range dashes), check seam transitions
    between assembled sections, and apply only the target journal's required spelling, abstract
-   structure, and word/reference limits. Leave already-clean section prose intact.
+   structure, exact H1 `required_main_sections` (do not demote mandated H1 headings such as `Aim`
+   or `Ethics approval` to `##`), and word/reference limits. When trimming main text to meet a
+   journal word cap, prioritize moving redundant Methods/secondary Results detail to
+   `Supplementary Methods` / Online Resources — never disproportionately strip `Introduction`
+   (`section_balance_health` flags Introductions < 350 words, < 10% share, or > 30% shrinkage vs S19). Leave already-clean section prose intact.
 3. Keep Keywords immediately after the Abstract. Use the actual selected journal's keyword
    count and final-output separator, already recorded in the target profile. The scientific
    source's 3-6 comma-delimited convention does not override that journal. Preserve the

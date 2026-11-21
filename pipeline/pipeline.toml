@@ -653,6 +653,12 @@ mode = "section"
 path = "07_manuscript/introduction.md"
 since = "1.30.0"
 
+[[stage.gate]]
+check = "section_balance_health"
+mode = "intro"
+path = "07_manuscript/introduction.md"
+since = "1.32.0"
+
 [[stage]]
 id = "S15_deepread"
 title = "Read the full texts needed for the Discussion arguments"
@@ -780,6 +786,12 @@ check = "writing_ready"
 check = "reference_usage"
 [[stage.gate]]
 check = "manuscript_size_health"
+
+[[stage.gate]]
+check = "section_balance_health"
+mode = "full"
+path = "07_manuscript/full_manuscript.md"
+since = "1.32.0"
 
 [[stage.gate]]
 check = "legend_length_advice"
@@ -1009,6 +1021,12 @@ check = "style_consistent"
 [[stage.gate]]
 check = "journal_limits_met"
 [[stage.gate]]
+check = "section_balance_health"
+mode = "full"
+layer = "journal"
+path = "08_submission/integration/full_manuscript.md"
+since = "1.32.0"
+[[stage.gate]]
 check = "journal_display_fit"
 since = "1.32.0"
 [[stage.gate]]
@@ -1136,6 +1154,13 @@ check = "submission_measurements_current"
 check = "portal_fields_current"
 
 [[stage.gate]]
+check = "section_balance_health"
+mode = "full"
+layer = "journal"
+path = "08_submission/integration/full_manuscript.md"
+since = "1.32.0"
+
+[[stage.gate]]
 check = "executor_acceptance"
 layer = "journal"
 final = true
@@ -1227,6 +1252,13 @@ check = "submission_measurements_current"
 
 [[stage.gate]]
 check = "portal_fields_current"
+
+[[stage.gate]]
+check = "section_balance_health"
+mode = "full"
+layer = "journal"
+path = "08_submission/integration/full_manuscript.md"
+since = "1.32.0"
 
 [[stage.gate]]
 check = "executor_acceptance"

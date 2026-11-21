@@ -142,6 +142,92 @@ def manuscript_size_health(ctx):
         return Result(lo<=count<=hi,"manuscript_size_health",f"Advisory assembly health ({genre_name}): {count} cited sources ({lo}–{hi} reference band, not a quota), {words} words incl. all sections. Explain project/benchmark fit; never add irrelevant papers.",severity="warn")
     except OSError as exc: return Result(False,"manuscript_size_health",str(exc))
 
+
+@check("section_balance_health")
+def section_balance_health(ctx: Ctx) -> Result:
+    """Advisory section-balance & Introduction-depth guard against top-light manuscripts and S22 over-trimming."""
+    if ctx.state.pin_excludes(ctx.stage.id, ctx.spec.get("since")):
+        return Result(True, "section_balance_health", "section balance check not retroactive to pinned completed stage")
+    from ..benchmark import comparator_section_baselines
+    from .polish import _canonical_section_counts
+    from .readiness import _resolve_genre_profile
+    from .text import _wordcount
+
+    genre_name, _, _ = _resolve_genre_profile(ctx)
+    layer = ctx.spec.get("layer") or ("journal" if ctx.stage.id.startswith(("S20_", "S21_", "S22_", "S23_", "S24_", "S25_")) else "science")
+    mode = ctx.spec.get("mode", "full")
+    if genre_name in {"brief_report", "short_communication"}:
+        intro_floor = 200
+    elif genre_name == "research_letter":
+        intro_floor = 100
+    else:
+        intro_floor = 350 if layer == "journal" else 400
+
+    baselines = comparator_section_baselines(ctx.project, layer)
+    if layer == "journal" and not baselines.get("sections"):
+        baselines = comparator_section_baselines(ctx.project, "science")
+    comp_intro_med = (baselines.get("sections", {}).get("introduction") or {}).get("median")
+
+    advisories: list[str] = []
+    if mode == "intro":
+        rel = ctx.spec.get("path", "07_manuscript/introduction.md")
+        if not ctx.p(rel).is_file():
+            return Result(False, "section_balance_health", f"{rel} missing", severity="warn")
+        intro_words = _wordcount(ctx.read(rel))
+        if intro_words < intro_floor:
+            advisories.append(
+                f"{rel}: Introduction is thin ({intro_words} words < advisory {intro_floor} words for {genre_name}); "
+                "verify clinical burden, mechanistic rationale, and explicit literature-gap depth"
+            )
+        if comp_intro_med and intro_words < round(comp_intro_med * 0.50):
+            advisories.append(
+                f"{rel}: Introduction ({intro_words} words) is under 50% of registered comparator median ({comp_intro_med} words)"
+            )
+        detail = "; ".join(advisories) or (
+            f"Introduction depth healthy ({intro_words} words; {genre_name}"
+            + (f"; comparator median {comp_intro_med}" if comp_intro_med else "")
+            + ")"
+        )
+        return Result(not advisories, "section_balance_health", detail, severity="warn")
+
+    rel = ctx.spec.get("path") or (
+        "08_submission/integration/full_manuscript.md" if layer == "journal" else "07_manuscript/full_manuscript.md"
+    )
+    if not ctx.p(rel).is_file():
+        return Result(False, "section_balance_health", f"{rel} missing", severity="warn")
+    sec_counts = _canonical_section_counts(ctx.read(rel))
+    intro_words = sec_counts.get("introduction", 0) + sec_counts.get("aim", 0)
+    body_keys = ("introduction", "aim", "methods", "ethics approval", "results", "discussion", "conclusion")
+    main_words = sum(sec_counts.get(k, 0) for k in body_keys)
+    intro_share = (intro_words / main_words * 100.0) if main_words > 0 else 0.0
+
+    if intro_words < intro_floor:
+        advisories.append(
+            f"{rel}: Introduction (+Aim) is {intro_words} words (< advisory {intro_floor} words for {genre_name})"
+        )
+    if main_words > 0 and intro_share < 10.0:
+        advisories.append(
+            f"{rel}: Introduction accounts for only {intro_share:.1f}% of main text ({intro_words}/{main_words} words; < 10% balance floor)"
+        )
+    if comp_intro_med and intro_words < round(comp_intro_med * 0.50):
+        advisories.append(
+            f"{rel}: Introduction ({intro_words} words) is < 50% of comparator median ({comp_intro_med} words)"
+        )
+    if layer == "journal" and ctx.p("07_manuscript/full_manuscript.md").is_file():
+        sci_counts = _canonical_section_counts(ctx.read("07_manuscript/full_manuscript.md"))
+        sci_intro = sci_counts.get("introduction", 0) + sci_counts.get("aim", 0)
+        if sci_intro >= 150 and intro_words < sci_intro * 0.70:
+            drop_pct = (1.0 - intro_words / sci_intro) * 100.0
+            advisories.append(
+                f"{rel}: Introduction shrank by {drop_pct:.1f}% vs S19 scientific master ({sci_intro} -> {intro_words} words); "
+                "prioritize moving redundant Methods/Results detail to Supplementary Methods / Online Resources instead of stripping Introduction"
+            )
+    breakdown = ", ".join(f"{k}={sec_counts[k]}" for k in body_keys if sec_counts.get(k, 0) > 0)
+    detail = "; ".join(advisories) or (
+        f"Section balance healthy ({genre_name}; main={main_words} words, intro={intro_words} [{intro_share:.1f}%]; {breakdown})"
+    )
+    return Result(not advisories, "section_balance_health", detail, severity="warn")
+
 @check("journal_display_fit")
 def journal_display_fit(ctx):
     from ..journalrules import display_limits,compare

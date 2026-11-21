@@ -277,8 +277,19 @@ def _canonical_section_counts(text: str) -> dict[str, int]:
     """Count journal-limited sections without counting title, keywords, impact statements, inline figures, refs or legends."""
     matches = list(re.finditer(r"(?m)^#\s+([^#\n].*)$", text))
     out: dict[str, int] = {}
-    alias = {"conclusions": "conclusion"}
-    wanted = {"abstract", "introduction", "methods", "results", "discussion", "conclusion"}
+    alias = {
+        "method": "methods",
+        "materials and methods": "methods",
+        "patients and methods": "methods",
+        "statistical methods": "methods",
+        "aims": "aim",
+        "objective": "aim",
+        "objectives": "aim",
+        "ethics": "ethics approval",
+        "ethical approval": "ethics approval",
+        "conclusions": "conclusion",
+    }
+    wanted = {"abstract", "introduction", "aim", "methods", "ethics approval", "results", "discussion", "conclusion"}
     for i, match in enumerate(matches):
         raw_name = match.group(1).strip().casefold()
         name = alias.get(raw_name, raw_name)
@@ -294,5 +305,5 @@ def _canonical_section_counts(text: str) -> dict[str, int]:
             )
         block = re.sub(r"(?m)^Keywords\s*:.*$", "", block, flags=re.I)
         block = re.sub(r"(?m)^\s*!\[[^\n]*\]\([^\n)]+\)(?:\{[^\n}]*\})?\s*$", "", block)
-        out[name] = len(re.findall(r"[A-Za-z][A-Za-z'-]*", block))
+        out[name] = out.get(name, 0) + len(re.findall(r"[A-Za-z][A-Za-z'-]*", block))
     return out

@@ -130,11 +130,43 @@ def manuscript_structure(ctx: Ctx) -> Result:
     problems: list[str] = []
     if not heads:
         return Result(False, "manuscript_structure", "no level-1 headings found")
+    journal_layer = rel.startswith("08_submission/")
+    req_sections: list[str] = []
+    alias_map: dict[str, str] = {}
+    if journal_layer:
+        from ..journalspec import aliases as heading_aliases, check_required_sections, load as load_target, required_main_sections
+        try:
+            req_sections = required_main_sections(ctx.project)
+            alias_map = {k.casefold(): v.casefold() for k, v in heading_aliases(load_target(ctx.project)).items()}
+        except ValueError as exc:
+            problems.append(str(exc))
     expected = ["abstract", "introduction", "methods", "results", "discussion",
                 "references", "figure legends"]
+    if journal_layer and req_sections:
+        h2s = [m.group(1).strip() for m in re.finditer(r"(?m)^\s{0,3}##\s+([^#\n].*?)\s*#*\s*$", text)]
+        problems.extend(check_required_sections([h for h, _ in heads[1:]], h2s, req_sections, label=rel))
+        req_low = {s.casefold() for s in req_sections}
+        if "figure legends" not in req_low:
+            req_path = ctx.p("08_submission/submission_requirements.json")
+            dp = {}
+            if req_path.is_file():
+                try:
+                    dp = json.loads(req_path.read_text(encoding="utf-8")).get("display_placement", {}) or {}
+                except (OSError, json.JSONDecodeError):
+                    dp = {}
+            if str(dp.get("figures", "")).strip().casefold() == "embedded_in_text":
+                expected = [x for x in expected if x != "figure legends"]
     positions: dict[str, int] = {}
     for name in expected:
-        matches = [pos for heading, pos in heads if heading.casefold() == name]
+        accepted = {name}
+        if alias_map.get(name):
+            accepted.add(alias_map[name])
+        if journal_layer and req_sections:
+            if name == "methods":
+                accepted.update({"method", "materials and methods", "patients and methods"})
+            elif name == "references":
+                accepted.add("reference")
+        matches = [pos for heading, pos in heads if heading.casefold() in accepted]
         if len(matches) != 1:
             problems.append(f"expected exactly one '# {name.title()}', found {len(matches)}")
         else:
@@ -143,10 +175,15 @@ def manuscript_structure(ctx: Ctx) -> Result:
         seq = [positions[x] for x in expected]
         if seq != sorted(seq):
             problems.append("section order must be Abstract, Introduction, Methods, Results, Discussion, References, Figure legends")
-        if heads[-1][0].casefold() != "figure legends":
+        if "figure legends" in expected and heads[-1][0].casefold() != "figure legends":
             problems.append("Figure legends must be the final level-1 section")
+    decl_labels = {"declarations and statements"}
+    if alias_map.get("declarations and statements"):
+        decl_labels.add(alias_map["declarations and statements"])
+    if journal_layer and req_sections:
+        decl_labels.update({"declarations", "statements and declarations"})
     declarations = [pos for heading, pos in heads
-                    if heading.casefold() == "declarations and statements"]
+                    if heading.casefold() in decl_labels]
     if len(declarations) > 1:
         problems.append("expected at most one '# Declarations and Statements'")
     elif declarations and "discussion" in positions and "references" in positions and not (

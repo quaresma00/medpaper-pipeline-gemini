@@ -262,6 +262,17 @@ def literature_sufficiency(ctx: Ctx) -> Result:
                  else int(ctx.spec.get("min_refs") or ctx.target(sec_key, default_val)))
         if len(used) < floor:
             problems.append(f"{rel} cites {len(used)} verified unique reference(s), below required minimum ({floor}) for {genre_name}")
+        elif genre_prof is None and "introduction" in rel:
+            from ..benchmark import comparator_section_baselines
+            med_intro_refs = comparator_section_baselines(ctx.project, "science").get("intro_citations_median")
+            if isinstance(med_intro_refs, int) and med_intro_refs >= 18 and len(used) < round(med_intro_refs * 0.70):
+                return Result(
+                    False,
+                    "literature_sufficiency",
+                    f"{rel} meets static floor ({len(used)} >= {floor}) but sits well below comparator Introduction citation median "
+                    f"({med_intro_refs} refs; advisory parity target >= {round(med_intro_refs * 0.70)}); consider strengthening clinical/mechanistic literature coverage",
+                    severity="warn",
+                )
     else:
         floor = (genre_prof["min_manuscript_refs"] if genre_prof
                  else int(ctx.spec.get("min_refs") or ctx.target("min_manuscript_refs", 30)))
