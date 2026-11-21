@@ -973,6 +973,171 @@ class V132ArchitectureTests(unittest.TestCase):
             self.assertEqual(md_counts["results"], 2)   # Delta epsilon
             self.assertEqual(md_counts["conclusion"], 2)  # Zeta eta
 
+    def test_11_s24_presentationdelta_and_cross_checker_compatibility(self):
+        """S24 derived 08_submission/ presentation deltas route through meaning review while frozen science stays hard-blocked."""
+        from openpyxl import load_workbook
+        from tables.threeline import write_table
+        from text import polish as text_polish
+        from wfcore import discussion, presentationdelta as delta, revision
+        from wfcore.checks.numbers import NUM_RE, _scrub
+        from wfcore.checks.refs import citekeys
+        from wfcore.packagefreeze import _sha256
+
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td)
+            for d in (
+                "03_analysis/results",
+                "04_tables/supplementary",
+                "06_refs/cache",
+                "07_manuscript",
+                "08_submission/bundle",
+                "08_submission/integration",
+                ".wf",
+            ):
+                (proj / d).mkdir(parents=True, exist_ok=True)
+
+            # Frozen scientific pool in 03_analysis/results and 07_manuscript
+            (proj / "03_analysis/results/summary.json").write_text(
+                json.dumps({"total": 500, "overlap": 68, "window_days": 90, "sub_n": 120, "or": 1.85}),
+                encoding="utf-8",
+            )
+            (proj / "06_refs/refs.bib").write_text(
+                "@article{smith2024,\n  author={Smith, A.},\n  year={2024}\n}\n",
+                encoding="utf-8",
+            )
+            (proj / "07_manuscript/results.md").write_text(
+                "Frozen master results: 500 patients (68 overlap; within 90 days; OR 1.85) [@smith2024].\n",
+                encoding="utf-8",
+            )
+
+            supp_src = proj / "04_tables/supplementary/Supplementary_Tables.xlsx"
+            write_table(
+                supp_src,
+                sheet="Table S1",
+                title="Table S1. Sensitivity analysis.",
+                header=["Model", "N", "OR"],
+                rows=[["S1", "500", "1.85"]],
+                footnotes=["See Figure 4B for details."],
+            )
+            supp_bundle = proj / "08_submission/bundle/Supplemental_File_2_Supplementary_Tables.xlsx"
+            shutil.copy2(supp_src, supp_bundle)
+
+            dup_block = (
+                "## Extended statistical protocol\n\n"
+                "We evaluated 500 patients using multivariable logistic regression adjusted for age and baseline risk score."
+            )
+            supp_md = proj / "08_submission/integration/supplementary_methods.md"
+            supp_md.write_text(
+                f"# Supplementary Methods\n\nContact: author@example.org\n\n{dup_block}\n\n## Intermediate note\n\nBrief intermediate paragraph.\n\n{dup_block}\n",
+                encoding="utf-8",
+            )
+            full_md = proj / "08_submission/integration/full_manuscript.md"
+            full_md.write_text(
+                "# Abstract\n\nEvents occurred early in 500 patients [@smith2024].\n\n"
+                "# Results\n\nPrimary OR was 1.85 in 500 patients [@smith2024].\n",
+                encoding="utf-8",
+            )
+
+            base = revision.snapshot(proj)
+            pres_base = delta.snapshot(proj, base)
+            rev = {
+                "schema_version": 2,
+                "round_id": "R005",
+                "status": "active",
+                "review_stage": "S24_package_human_review",
+                "presentation_candidate": True,
+                "baseline": base,
+                "presentation_baseline": pres_base,
+            }
+
+            # 1) Runtime gate cache in 06_refs/cache/ must be ignored as renewable evidence
+            (proj / "06_refs/cache/gate_efetch_pubmed_1.xml").write_text("<PubmedArticleSet/>", encoding="utf-8")
+            self.assertEqual(delta.classify(proj, rev)["class"], "presentation")
+
+            # 2) Modifying derived 08_submission/bundle/*.xlsx (adding cover sheet + updating footnote ref)
+            #    and derived 08_submission/integration/*.md (deduplicating non-adjacent block, restoring
+            #    Abbreviations, expanding S1–S8 / Online Resources 1–3, clarifying grounded numbers 68 & 90 days)
+            wb = load_workbook(supp_bundle)
+            cover = wb.create_sheet("Online Resource 2", 0)
+            cover["A1"] = "Online Resource 2. Supplementary Tables (author@example.org)"
+            wb["Table S1"]["A4"] = "See Figure S3b for details."
+            wb.save(supp_bundle)
+            wb.close()
+
+            supp_md.write_text(
+                f"# Supplementary Methods (Online Resource 1)\n\nContact: author@example.org\n\n{dup_block}\n\n## Intermediate note\n\nBrief intermediate paragraph.\n",
+                encoding="utf-8",
+            )
+            full_md.write_text(
+                "# Abstract\n\nEvents occurred predominantly within 90 days in 500 patients [@smith2024].\n\n"
+                "# Results\n\nPrimary OR was 1.85 in 500 patients (including 68 overlap cases; sensitivity models S1–S8 in Online Resources 1–3) [@smith2024].\n\n"
+                "# Declarations and Statements\n\n## Abbreviations\n\nOR, odds ratio; PD-1, programmed cell death protein 1; v29.1, dictionary version 29.1.\n",
+                encoding="utf-8",
+            )
+
+            res_uncertain = delta.classify(proj, rev)
+            self.assertEqual(res_uncertain["class"], "needs_executor_meaning_review", msg=res_uncertain)
+
+            # Attach 5-part meaning_review -> resolves to 'presentation'
+            uncertain_files = res_uncertain["needs_review"]
+            rev["meaning_review"] = {
+                "verdict": "UNCHANGED_SCIENCE",
+                "files": {r: _sha256(proj / r) for r in uncertain_files},
+                "baseline": {r: pres_base[r]["sha256"] for r in uncertain_files},
+                "population_comparison": "Same 500-patient cohort and 68 overlap subset already frozen in S19 results.",
+                "endpoints_time_units": "Clarified 'early' as 'predominantly within 90 days' from frozen S19 summary.",
+                "direction_negation_uncertainty": "Direction, OR 1.85 magnitude, and uncertainty intervals are identical to S19.",
+                "methods_claims": "Removed duplicate paragraph and added Online Resources 1-3 and S1-S8 labels only.",
+                "rendered_displays": "Added cover sheet to derived bundle Excel and updated Figure 4B -> Figure S3b footnote.",
+            }
+            res_ok = delta.classify(proj, rev)
+            self.assertEqual(res_ok["class"], "presentation", msg=res_ok)
+
+            # 3) Negative guard A: fabricating an ungrounded number (9999) in 08_submission/ must still be 'scientific'
+            saved_md = full_md.read_text(encoding="utf-8")
+            full_md.write_text(
+                saved_md.replace("# Results\n\n", "# Results\n\nFabricated subgroup of 9999 patients. "),
+                encoding="utf-8",
+            )
+            self.assertEqual(delta.classify(proj, rev)["class"], "scientific")
+            full_md.write_text(saved_md, encoding="utf-8")
+
+            # 4) Negative guard B: touching frozen 04_tables/*.xlsx must still be hard-blocked as 'scientific'
+            wb_frozen = load_workbook(supp_src)
+            wb_frozen["Table S1"]["C3"] = "2.99"
+            wb_frozen.save(supp_src)
+            wb_frozen.close()
+            self.assertEqual(delta.classify(proj, rev)["class"], "scientific")
+
+            # 5) Cross-checker compatibility: email not mistaken for citekey, bracket abbrev & inline image bold,
+            #    MedDRA (SMQ) code scrubbing, and bilingual Discussion audit
+            self.assertEqual(citekeys("Corresponding email: author@example.org; citation [@smith2024]."), ["smith2024"])
+            scrubbed_tokens = NUM_RE.findall(
+                _scrub("Standardized MedDRA Query (SMQ) 20000107 and Preferred Term [PT] 10012345 across S1–S8 in Online Resources 1–3 showed 42 events.")
+            )
+            self.assertEqual(scrubbed_tokens, ["42"])
+
+            sample_full = (
+                "# Abstract\n\nAdverse event (AE) rate was assessed. AE was frequent. AE remained stable.\n\n"
+                "# Introduction\n\nStandardized query [SQ] and adverse event (AE) were used. SQ and AE were tracked. SQ and AE were validated.\n\n"
+                "![**Fig. 1** Survival curve for AE.](05_figures/out/Figure1.png){width=6.0in}\n\n"
+                "# Declarations and Statements\n\n## Abbreviations\n\nAE, adverse event; ROR, reporting odds ratio.\n\n"
+                "# Figure legends\n\nFigure 1. Adverse event (AE) and reporting odds ratio (ROR) curves.\n"
+            )
+            self.assertEqual(text_polish.lint_abbreviations([("08_submission/integration/full_manuscript.md", sample_full)]), [])
+            struct_issues = text_polish.lint_structure("08_submission/integration/full_manuscript.md", sample_full)
+            self.assertFalse(any(x["kind"] == "inline_bold" for x in struct_issues), msg=struct_issues)
+
+            zh_report = (
+                "## Reader comprehension\n\n段落结构清晰，读者容易理解研究人群与结局指标的对应关系，逻辑严密且无歧义表述。\n\n"
+                "## Discussion audit\n\n"
+                "1. 结果复述核查：讨论部分未机械复述或照搬结果章节的数值；"
+                "2. 与既往文献对比及差异原因：详细比较了同类前期研究并分析了人群异质性导致的差异原因；"
+                "3. 候选机制：阐述了心肌微循环障碍相关的病理生理与生物学通路机制；"
+                "4. 临床实践意义：明确指出了高危患者的早期监测与临床决策指导价值。\n"
+            )
+            self.assertEqual(discussion.audit_report_discussion_problems(zh_report, "review.md"), [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

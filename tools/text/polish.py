@@ -58,6 +58,11 @@ ALLOWLIST = "08_submission/integration/polish_allowlist.tsv"
 
 FENCE_RE = re.compile(r"```.*?```", re.S)
 ABBR_SECTION_RE = re.compile(r"(?ms)^\s{0,3}#{1,6}\s+Abbreviations\b.*?(?=^\s{0,3}#{1,6}\s+\S|\Z)")
+NON_NARRATIVE_H1_RE = re.compile(
+    r"(?msi)^\s{0,3}#\s+(?:References|Figure\s+legends?|Supplementary\s+figure\s+legends?)\b.*?(?=^\s{0,3}#\s+\S|\Z)"
+)
+INLINE_IMG_RE = re.compile(r"!\[[^\n]*\]\([^\n)]+\)(?:\{[^\n}]*\})?")
+EMAIL_TOKEN_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 MD_LINK_TARGET_RE = re.compile(r"\]\([^)\n]+\)(?:\{[^}\n]+\})?")
 CITE_RE = re.compile(r"\[[^\]]*@[^\]]*\]")
 KEY_RE = re.compile(r"@([A-Za-z][\w:.#$%&+?<>~/-]*)")
@@ -251,7 +256,7 @@ def _normalize_for_facts(s: str) -> str:
 
 
 def facts(text: str) -> dict:
-    cleaned = MD_LINK_TARGET_RE.sub("]", ABBR_SECTION_RE.sub(" ", text))
+    cleaned = EMAIL_TOKEN_RE.sub(" ", MD_LINK_TARGET_RE.sub("]", ABBR_SECTION_RE.sub(" ", text)))
     b = FENCE_RE.sub(" ", cleaned)
     keys = sorted({k for grp in CITE_RE.findall(b) for k in KEY_RE.findall(grp)})
     arts = sorted({re.sub(r"\s+", " ", a).lower().replace("fig.", "figure").replace("fig ", "figure ")
@@ -348,7 +353,8 @@ def lint_structure(rel: str, text: str) -> list[dict]:
             s in rel for s in ("results", "discussion", "introduction")):
         flag("bullets_in_prose",
              "bullet list in a narrative section - journals want continuous prose", "blocking")
-    if re.search(r"(?<!\*)\*\*[^*\n]{1,60}\*\*(?!\*)", b) and "title_page" not in rel:
+    prose_no_img = flow(INLINE_IMG_RE.sub(" ", text))
+    if re.search(r"(?<!\*)\*\*[^*\n]{1,60}\*\*(?!\*)", prose_no_img) and "title_page" not in rel:
         flag("inline_bold", "bold text inside prose - remove it unless the journal asks for it",
              "blocking")
     if re.search(r"\?\s*$", b, re.M) and "abstract" not in rel:
@@ -514,7 +520,7 @@ def lint_spelling(docs: list[tuple[str, str]]) -> list[dict]:
     return out
 
 
-ABBR_DEF_RE = re.compile(r"\(([A-Z][A-Z0-9]{1,7}(?:-[A-Z0-9]{1,5})?)s?\)")
+ABBR_DEF_RE = re.compile(r"[\(\[]([A-Z][A-Z0-9]{1,7}(?:-[A-Z0-9]{1,5})?)s?[\)\]]")
 
 
 def _split_abstract_and_body_ranges(raw_text: str) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
@@ -534,23 +540,32 @@ def lint_abbreviations(docs: list[tuple[str, str]]) -> list[dict]:
     out = []
     has_full = any(Path(f).name == "full_manuscript.md" for f, _ in docs)
     full_text = next((t for f, t in docs if Path(f).name == "full_manuscript.md"), "")
-    skip_embedded: set[str] = set()
+    skip_embedded: set[str] = {
+        "title_page.md",
+        "figure_legends.md",
+        "supplementary_figure_legends.md",
+    }
     if has_full:
         if re.search(r"(?mi)^\s{0,3}#\s+Declarations and Statements\b", full_text):
             skip_embedded.add("statements.md")
-        if re.search(r"(?mi)^\s{0,3}#\s+Figure legends\b", full_text):
-            skip_embedded.add("figure_legends.md")
 
     glossary_defined: set[str] = set()
     for _, raw_doc in docs:
         for sec_m in ABBR_SECTION_RE.finditer(raw_doc):
-            for gm in re.finditer(r"(?:^|[;\n])\s*([A-Z][A-Z0-9-]{1,10})\s*[,:]", sec_m.group(0)):
+            for gm in re.finditer(
+                r"(?:^|[;\n]|[-*+]\s+)\s*\*{0,2}([A-Z][A-Z0-9-]{1,10})\*{0,2}\s*(?:[,:=–-]|\s+-\s+)",
+                sec_m.group(0),
+            ):
                 glossary_defined.add(gm.group(1).strip())
 
     for scope, files in (("abstract", ["07_manuscript/abstract.md"]),
                          ("body", [f for f, _ in docs if "abstract" not in f and Path(f).name not in skip_embedded])):
-        raw_joined = "\n".join(ABBR_SECTION_RE.sub(" ", t) for f, t in docs if f in files)
-        text = "\n".join(body(ABBR_SECTION_RE.sub(" ", t)) for f, t in docs if f in files)
+        cleaned_docs = [
+            INLINE_IMG_RE.sub(" ", NON_NARRATIVE_H1_RE.sub(" ", ABBR_SECTION_RE.sub(" ", t)))
+            for f, t in docs if f in files
+        ]
+        raw_joined = "\n".join(cleaned_docs)
+        text = "\n".join(body(chunk) for chunk in cleaned_docs)
         if not text.strip():
             continue
         abs_range, body_range = _split_abstract_and_body_ranges(raw_joined) if scope == "body" and has_full else (None, None)
@@ -558,11 +573,11 @@ def lint_abbreviations(docs: list[tuple[str, str]]) -> list[dict]:
         for m in ABBR_DEF_RE.finditer(text):
             abbr = m.group(1)
             defined.setdefault(abbr, m.start())
-            def_positions = [dm.start() for dm in re.finditer(rf"\({re.escape(abbr)}s?\)", text)]
+            def_positions = [dm.start() for dm in re.finditer(rf"[\(\[]{re.escape(abbr)}s?[\)\]]", text)]
             if len(def_positions) > 1:
                 # Allow 1 definition in # Abstract + 1 definition in main body when full_manuscript.md is linted.
                 if len(def_positions) == 2 and abs_range and body_range:
-                    raw_defs = [dm.start() for dm in re.finditer(rf"\({re.escape(abbr)}s?\)", raw_joined)]
+                    raw_defs = [dm.start() for dm in re.finditer(rf"[\(\[]{re.escape(abbr)}s?[\)\]]", raw_joined)]
                     if len(raw_defs) == 2 and abs_range[0] <= raw_defs[0] < abs_range[1] and raw_defs[1] >= body_range[0]:
                         continue
                 out.append({"file": f"({scope})", "kind": "abbrev_redefined",
@@ -580,7 +595,7 @@ def lint_abbreviations(docs: list[tuple[str, str]]) -> list[dict]:
                             "severity": "advisory",
                             "detail": f"'{abbr}' is defined but used only "
                                       f"{max(0, len(uses) - 1)}x afterwards - spell it out instead"})
-        for m in re.finditer(r"(?<![\w(-])([A-Z]{2,7})(?![\w)-])", text):
+        for m in re.finditer(r"(?<![\w(\[-])([A-Z]{2,7})(?![\w)\]-])", text):
             abbr = m.group(1)
             singular = abbr[:-1] if abbr.endswith("S") and len(abbr) > 2 else abbr
             if (abbr in defined or singular in defined or abbr in glossary_defined or singular in glossary_defined

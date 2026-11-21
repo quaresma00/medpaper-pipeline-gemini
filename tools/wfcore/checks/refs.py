@@ -24,6 +24,7 @@ VER = "06_refs/verified.json"
 RETRIEVALS = "06_refs/fulltext/retrieval_manifest.json"
 
 FENCE_RE = re.compile(r"```.*?```", re.S)
+EMAIL_TOKEN_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 BRACKET_CITE_RE = re.compile(r"\[([^\]]*@[^\]]*)\]")
 KEY_RE = re.compile(r"@([A-Za-z][\w:.#$%&+?<>~/-]*)")
 BIB_ENTRY_RE = re.compile(r"@(\w+)\s*\{\s*([^,\s}]+)\s*,", re.M)
@@ -60,7 +61,7 @@ def _verification_age_days(value: object) -> int | None:
 
 
 def citekeys(text: str) -> list[str]:
-    text = FENCE_RE.sub(" ", text)
+    text = EMAIL_TOKEN_RE.sub(" ", FENCE_RE.sub(" ", text))
     keys: list[str] = []
     for group in BRACKET_CITE_RE.findall(text):
         keys.extend(KEY_RE.findall(group))

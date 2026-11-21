@@ -307,8 +307,14 @@ def add_dependency(project: Path, pipeline, path: Path, revision: dict, source: 
 def _selected_checks(state, revision):
     """The same pinned, de-duplicated rules apply at validation and evidence refresh."""
     seen = set()
+    s24_presentation = bool(
+        revision.get("presentation_candidate")
+        and revision.get("review_stage") in {"S24_package_human_review", "S25_submission_audit"}
+    )
     for row in revision["checks"]:
         spec = row["spec"]
+        if s24_presentation and spec["check"] in {"polish_snapshot_exists", "polish_preserves_facts"}:
+            continue
         if spec["check"] in {"prose_not_lists", "display_numbering_consistent", "journal_profile_valid"} and state.pin_excludes(row["stage"], spec.get("since")):
             continue
         contextual = spec["check"] in {"outputs_exist", "handoff_recorded", "decision_recorded", "reference_provenance"}

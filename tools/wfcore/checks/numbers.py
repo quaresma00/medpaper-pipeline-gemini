@@ -159,7 +159,13 @@ def _scrub(text: str, *, table_non_result: bool = False) -> str:
     text = re.sub(r"\b(?:c|p|yp)?T[0-4a-cisx]+N[0-3a-cx]+M[0-1a-cx]+\b", " ", text)
     text = re.sub(r"\b(?:ECOG|NYHA|ASA|Killip)\s+(?:class\s+|status\s+|grade\s+|score\s+)?[0-5IV]+(?:\s*[-\u2013]\s*[0-5IV]+)?\b", " ", text, flags=re.I)
     text = re.sub(r"\b(?:ICD-(?:9|10|11)(?:-[A-Z0-9.]+)?|NCT\d{6,})\b", " ", text, flags=re.I)
-    text = re.sub(r"\b(?:PT|SMQ|HLT|HLGT|SOC|ATC|CPT|LOINC|SNOMED|Code|ID|Term)\s*[:#\- ]?\s*\d{4,}\b", " ", text, flags=re.I)
+    text = re.sub(
+        r"(?:\b|[\(\[])(?:PT|LLT|SMQ|HLT|HLGT|SOC|ATC|CPT|LOINC|SNOMED|Code|ID|Term)[\)\]]?\s*[:#\- ]?\s*\d{4,}\b",
+        " ",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(r"\b[SE]\d+(?:\s*(?:[-\u2013,]|and|to)\s*[SE]?\d+)*\b", " ", text)
     text = re.sub(
         r"\b\d+-(?:\s*,\s*\d+-)*(?:\s*,?\s*(?:and|or)\s+\d+-)\s*(?:day|week|month|year|yr|mo|wk|hour|hr)s?\b",
         " ",

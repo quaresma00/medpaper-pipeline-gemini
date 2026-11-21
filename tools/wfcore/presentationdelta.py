@@ -9,6 +9,13 @@ from .packagefreeze import _sha256, _safe_path
 
 LEDGER = ".wf/presentation_deltas.json"
 PROTECTED = ("02_data/", "03_analysis/", "06_refs/")
+FROZEN_SCIENTIFIC_PREFIXES = (
+    "01_protocol/", "02_data/", "03_analysis/", "04_tables/",
+    "05_figures/", "06_refs/", "07_manuscript/",
+)
+EMAIL_TOKEN_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+ABBR_BLOCK_RE = re.compile(r"(?ms)^\s{0,3}#{1,6}\s+Abbreviations\b.*?(?=^\s{0,3}#{1,6}\s+\S|\Z)")
+INLINE_IMG_RE = re.compile(r"!\[[^\n]*\]\([^\n)]+\)(?:\{[^\n}]*\})?")
 
 
 def text(path: Path) -> str:
@@ -40,15 +47,22 @@ def canonical(value: str, project: Path) -> str:
 
 
 def without_adjacent_duplicates(value):
-    # Comparison only, never rewrite prose. Only identical adjacent whole sentences or
-    # paragraphs: nonadjacent numbers/clauses and changed qualifiers remain protected.
+    # Comparison only, never rewrite prose. Collapse identical adjacent sentences/paragraphs
+    # and exact duplicate long blocks (>= 80 chars) that were accidentally concatenated twice.
     paragraphs=[]
+    seen_long=set()
     for paragraph in re.split(r"\n\s*\n",value):
         sentences=re.split(r"(?<=[.!?])\s+(?=[A-Z])",paragraph.strip())
         compact=[]
         for sentence in sentences:
             if not compact or sentence!=compact[-1]: compact.append(sentence)
         paragraph=" ".join(compact)
+        if not paragraph:
+            continue
+        if len(paragraph)>=80 and paragraph in seen_long:
+            continue
+        if len(paragraph)>=80:
+            seen_long.add(paragraph)
         if not paragraphs or paragraph!=paragraphs[-1]: paragraphs.append(paragraph)
     return "\n\n".join(paragraphs)
 
@@ -67,12 +81,54 @@ def snapshot(project: Path, files: dict) -> dict:
     return output
 
 
+def _derived_tokens_grounded_in_frozen_science(
+    project: Path,
+    added_nums: list[str],
+    added_cites: list[str],
+) -> bool:
+    """Verify that any numbers/citations added in 08_submission/ already exist in frozen S19 science."""
+    if added_cites:
+        from .checks.refs import BIB, bib_keys
+        bib_path = project / BIB
+        known_cites = bib_keys(bib_path.read_text(encoding="utf-8", errors="replace")) if bib_path.is_file() else set()
+        for raw_key in added_cites:
+            key = raw_key.lstrip("@")
+            if key not in known_cites:
+                return False
+    if added_nums:
+        from .checks.numbers import NUM_RE, _matches, _scrub, load_allowlist, results_pool
+        floats, strings, _ = results_pool(project)
+        allowed = load_allowlist(project)
+        frozen_master_tokens: set[str] = set()
+        for folder in ("07_manuscript", "05_figures", "04_tables"):
+            root = project / folder
+            if not root.is_dir():
+                continue
+            for md_file in root.rglob("*.md"):
+                if md_file.is_file():
+                    scrubbed = _scrub(md_file.read_text(encoding="utf-8", errors="replace"), table_non_result=True)
+                    frozen_master_tokens.update(NUM_RE.findall(scrubbed))
+        for tok in added_nums:
+            if tok in allowed or tok in frozen_master_tokens or _matches(tok, floats, strings):
+                continue
+            return False
+    return True
+
+
 def classify(project: Path, revision: dict) -> dict:
     before = revision.get("presentation_baseline", {})
     baseline = revision.get("baseline", {})
+    from .evidence import renewable
     from .revision import snapshot as current_files
     current = current_files(project)
-    changed = sorted(rel for rel in set(baseline) | set(current) if baseline.get(rel) != current.get(rel))
+    changed = sorted(
+        rel for rel in set(baseline) | set(current)
+        if not renewable(rel) and baseline.get(rel) != current.get(rel)
+    )
+    derived_submission_only = bool(changed) and all(
+        rel.startswith("08_submission/") and not rel.startswith(FROZEN_SCIENTIFIC_PREFIXES)
+        for rel in changed
+    )
     reasons, uncertain = [], []
     from .determinism import content_sha256
     for rel in changed:
@@ -95,17 +151,28 @@ def classify(project: Path, revision: dict) -> dict:
             # A digest cannot determine scientific equivalence of rewritten Word text.
             uncertain.append(rel); continue
         if path.suffix.lower() == ".xlsx":
+            if derived_submission_only and rel.startswith("08_submission/"):
+                uncertain.append(rel); continue
             reasons.append(f"{rel}: cell identities, values, units or number formats changed"); continue
-        from .checks.numbers import NUM_RE
+        from .checks.numbers import NUM_RE, _scrub
         from collections import Counter
-        from .displayrefs import scrub
-        nums = lambda value: NUM_RE.findall(scrub(re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", value)))
-        cites = lambda value: re.findall(r"@[\w:./-]+", value)
+        def _clean_for_delta(value: str) -> str:
+            cleaned = INLINE_IMG_RE.sub(" ", ABBR_BLOCK_RE.sub(" ", EMAIL_TOKEN_RE.sub(" ", value)))
+            return _scrub(cleaned, table_non_result=True)
+        nums = lambda value: NUM_RE.findall(_clean_for_delta(value))
+        cites = lambda value: re.findall(r"@[\w:./-]+", EMAIL_TOKEN_RE.sub(" ", value))
         def clinical_qualifiers(value):
             mapping = {"higher":"UP", "increased":"UP", "elevated":"UP", "lower":"DOWN", "decreased":"DOWN", "reduced":"DOWN", "not":"NEGATION", "no":"NEGATION", "without":"NEGATION"}
             words = re.findall(r"\b(?:higher|increased|elevated|lower|decreased|reduced|not|no|without|causal|causally|prospective|retrospective|randomized|observational)\b", value.casefold())
             return Counter(mapping.get(word, word) for word in words)
-        if nums(old["text"]) != nums(new) or cites(old["text"]) != cites(new) or clinical_qualifiers(old["text"]) != clinical_qualifiers(new):
+        old_nums, new_nums = nums(old["text"]), nums(new)
+        old_cites, new_cites = cites(old["text"]), cites(new)
+        if old_nums != new_nums or old_cites != new_cites or clinical_qualifiers(old["text"]) != clinical_qualifiers(new):
+            if derived_submission_only and rel.startswith("08_submission/"):
+                added_nums = list((Counter(new_nums) - Counter(old_nums)).elements())
+                added_cites = list((Counter(new_cites) - Counter(old_cites)).elements())
+                if _derived_tokens_grounded_in_frozen_science(project, added_nums, added_cites):
+                    uncertain.append(rel); continue
             reasons.append(f"{rel}: numerical/citation context, direction, negation or study-design claim changed")
         else: uncertain.append(rel)
     review = revision.get("meaning_review", {})

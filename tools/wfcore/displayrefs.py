@@ -1,7 +1,13 @@
 """Publication labels are not measurements. Alias roles are narrowly scoped and sourced."""
 import re
 
-LABEL=re.compile(r"\b(?:Online Resource|Supplementary (?:File|Material|Methods)|Appendix|Panel|Figure|Fig\.|Table)\s+[A-Z]?\d+[A-Za-z]?\b",re.I)
+LABEL=re.compile(r"\b(?:Online Resource|(?:Supplementary|Supplemental) (?:File|Material|Methods)|Appendix|Panel|Figure|Fig\.|Table)\s+[A-Z]?\d+[A-Za-z]?\b",re.I)
+SCRUB_LABEL=re.compile(
+    r"\b(?:Online\s+Resources?|(?:Supplementary|Supplemental)\s+(?:Files?|Materials?|Methods|Tables?|Figures?|Figs?\.?)"
+    r"|Appendi(?:x|ces)|Panels?|Figures?|Figs?\.?|Tables?)\s+"
+    r"[A-Za-z]?\d+[A-Za-z]?(?:\s*(?:[-\u2013,]|and|to)\s*[A-Za-z]?\d+[A-Za-z]?)*\b",
+    re.I,
+)
 ROLES={"supplementary_methods":"Supplementary Methods","supplementary_tables":"Supplementary tables","supplementary_figures":"Supplementary figures"}
 
 def aliases(target):
@@ -16,4 +22,4 @@ def normalize(text,target):
         text=re.sub(r"(?<!\w)"+re.escape(key)+r"(?!\w)",ROLES[role],text,flags=re.I)
     return text
 
-def scrub(text): return LABEL.sub(" ",text)
+def scrub(text): return SCRUB_LABEL.sub(" ",LABEL.sub(" ",text))

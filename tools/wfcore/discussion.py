@@ -464,7 +464,8 @@ def audit_report_discussion_problems(report_text: str, label: str) -> list[str]:
 
     body = ""
     for heading, content in bodies.items():
-        if heading.strip().casefold() == "discussion audit":
+        norm_h = heading.strip().casefold()
+        if norm_h == "discussion audit" or "discussion audit" in norm_h or norm_h in {"讨论审计", "讨论部分审计", "discussion 审计"}:
             body = content.strip()
             break
     if len(body) < 80:
@@ -475,16 +476,30 @@ def audit_report_discussion_problems(report_text: str, label: str) -> list[str]:
         ]
 
     missing: list[str] = []
-    if not re.search(r"\b(?:restat\w*|repeat\w*|recapitulat\w*|rehash\w*|duplicat\w*|results)\b", body, re.I):
-        missing.append("whether Results were restated")
     if not (
+        re.search(r"\b(?:restat\w*|repeat\w*|recapitulat\w*|rehash\w*|duplicat\w*|results)\b", body, re.I)
+        or re.search(r"(?:复述|重复|照搬|堆砌|结果)", body)
+    ):
+        missing.append("whether Results were restated")
+    has_en_comp = (
         re.search(r"\b(?:prior|previous|literature|published|compar\w*|studies|trials|cohorts)\b", body, re.I)
         and re.search(r"\b(?:differ\w*|discrepan\w*|diverg\w*|heterogen\w*|reason\w*|why|explain\w*|account\w*|consisten\w*)\b", body, re.I)
-    ):
+    )
+    has_zh_comp = (
+        re.search(r"(?:既往|已有|文献|前期|同类|对比|比较|研究)", body)
+        and re.search(r"(?:差异|不同|一致|异质|原因|解释|分歧)", body)
+    )
+    if not (has_en_comp or has_zh_comp):
         missing.append("comparison with prior literature and reasons for differences")
-    if not re.search(r"\b(?:mechanis\w*|biolog\w*|pathophysiolog\w*|pathway\w*|plausib\w*)\b", body, re.I):
+    if not (
+        re.search(r"\b(?:mechanis\w*|biolog\w*|pathophysiolog\w*|pathway\w*|plausib\w*)\b", body, re.I)
+        or re.search(r"(?:机制|病理生理|通路|生物学)", body)
+    ):
         missing.append("candidate mechanisms")
-    if not re.search(r"\b(?:clinical\w*|implicat\w*|significan\w*|practice|translat\w*|decision\w*|utility)\b", body, re.I):
+    if not (
+        re.search(r"\b(?:clinical\w*|implicat\w*|significan\w*|practice|translat\w*|decision\w*|utility)\b", body, re.I)
+        or re.search(r"(?:临床(?:意义|价值|实践|启示|决策|指导|转化|应用)|实践意义)", body)
+    ):
         missing.append("clinical implications")
 
     if missing:
