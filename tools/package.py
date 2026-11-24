@@ -21,12 +21,8 @@ REQUIRED = {
     ".agent/rules/medpaper-pipeline.md",
     ".agents/skills/medpaper-pipeline/SKILL.md",
     "reference/antigravity-integration.md",
-    "INSTALL-CODEX.md",
-    ".agents/skills/medpaper-codex-pipeline/SKILL.md",
-    ".agents/skills/medpaper-codex-pipeline/agents/openai.yaml",
     "pipeline/pipeline.toml",
     "tools/wf.py",
-    "reference/codex-integration.md",
     "reference/methods-structure.md",
 }
 SECRET_RE = re.compile(
@@ -41,7 +37,8 @@ def included_files(output: Path) -> list[Path]:
     for p in sorted(ROOT.rglob("*")):
         if not p.is_file() or p.resolve() == output.resolve():
             continue
-        if p.name==".medpaper-engine.json": continue  # Regenerated from the actual package bytes.
+        if p.name == ".medpaper-engine.json":
+            continue  # Regenerated from the actual package bytes.
         rel = p.relative_to(ROOT)
         if any(part in EXCLUDED_DIRS for part in rel.parts) or p.suffix in EXCLUDED_SUFFIXES:
             continue
@@ -110,10 +107,16 @@ def main() -> int:
         for p in files:
             rel = p.relative_to(ROOT)
             zf.write(p, Path("medpaper-gemini") / rel)
-        from wfcore.engineintegrity import engine_member,BASELINE
-        baseline={"schema_version":1,"files":{p.relative_to(ROOT).as_posix():hashlib.sha256(p.read_bytes()).hexdigest()
-                  for p in files if engine_member(p.relative_to(ROOT).as_posix())}}
-        zf.writestr("medpaper-gemini/"+BASELINE,json.dumps(baseline,sort_keys=True,indent=2))
+        from wfcore.engineintegrity import BASELINE, engine_member
+        baseline = {
+            "schema_version": 1,
+            "files": {
+                p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in files
+                if engine_member(p.relative_to(ROOT).as_posix())
+            },
+        }
+        zf.writestr("medpaper-gemini/" + BASELINE, json.dumps(baseline, sort_keys=True, indent=2))
 
     with zipfile.ZipFile(output) as zf:
         bad = zf.testzip()

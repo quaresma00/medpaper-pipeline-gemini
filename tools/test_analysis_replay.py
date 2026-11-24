@@ -1,4 +1,4 @@
-"""Isolated behavioral tests for borrowed concepts, not executions of Kiro code."""
+"""Isolated behavioral tests for analysis producer receipts, selective replay, and full-text identity."""
 import json
 import os
 from pathlib import Path

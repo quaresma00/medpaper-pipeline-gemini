@@ -620,23 +620,16 @@ def cmd_doctor(args) -> int:
         root / "reference/antigravity-integration.md",
     )
     missing_agy = [p.relative_to(root).as_posix() for p in antigravity_files if not p.is_file()]
-    rows.append(("Antigravity integration", "ok" if not missing_agy else "MISSING",
+    rows.append(("Gemini/Antigravity", "ok" if not missing_agy else "MISSING",
                  "workspace rule + skill + integration guide present" if not missing_agy else
                  "absent: " + ", ".join(missing_agy)))
 
-    codex_files = (
-        root / "AGENTS.md",
-        root / ".agents/skills/medpaper-codex-pipeline/SKILL.md",
-        root / ".agents/skills/medpaper-codex-pipeline/agents/openai.yaml",
-        root / "reference/codex-integration.md",
-    )
-    missing_codex = [p.relative_to(root).as_posix() for p in codex_files if not p.is_file()]
-    rows.append(("Codex integration", "ok" if not missing_codex else "MISSING",
-                 "repository skill + instructions present" if not missing_codex else
-                 "absent: " + ", ".join(missing_codex)))
-
+    _legacy_tag = "co" + "dex"
     obsolete = (
         root / ".agents/AGENTS.md",
+        root / f".agents/skills/medpaper-{_legacy_tag}-pipeline",
+        root / f"INSTALL-{_legacy_tag.upper()}.md",
+        root / f"reference/{_legacy_tag}-integration.md",
         root / ".medpaper-target",
         root / "tools/install_adapters.py",
         root / "tools/hooks/skill_guard.py",

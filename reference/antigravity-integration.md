@@ -71,8 +71,11 @@ Antigravity provides native read-only subagent isolation via `invoke_subagent`:
   - Discovery and exploratory cross-checks are welcome, but **formal manuscript citations must
     pass through `tools/pubmed/client.py`, `build_library.py`, and `verify.py`**.
   - Legal open-access or user-authorized full-text PDFs fetched via external skills must be
-    registered with `uv run python tools/pubmed/fulltext.py register ...` so article identity and
-    SHA-256 provenance are verified. Never use illicit PDF sources or hand-edit `verified.json`.
+    registered with `uv run python tools/pubmed/fulltext.py register --citekey <citekey> --file <local-pdf> --access oa --source-url <url> --route europepmc-oa`
+    (or `--access authorized --authorization-note "..."` for institutional access) so article identity and
+    SHA-256 provenance are verified. A genuine no-abstract record stays a candidate until readable,
+    identity-confirmed, hash-valid full text is registered (`fulltext.py confirm --citekey ... --confirmed-by ... --identity-note "..."`)
+    before formal verification. Never hand-edit `verified.json` or bypass identity verification.
 - **Data acquisition & full-census enforcement**:
   - External database/API helpers may fetch data at S04, or large local user datasets may be
     registered in place via `uv run python tools/data_sources.py register ...` without copying.

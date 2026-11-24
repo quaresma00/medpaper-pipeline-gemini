@@ -2,8 +2,7 @@
 
 ## Runtime retrospective follow-up (v1.17)
 
-This adopts verified defects from the local Kiro 1.12 implementation and its anonymized
-runtime retrospective, not the study itself. Existing v1.14-v1.16 soft writing budgets,
+This consolidates verified runtime retrospective safeguards. Existing v1.14-v1.16 soft writing budgets,
 clinical labels, complete finding dispositions, delta reviews, semantic heading roles and
 presentation amendments remain authoritative; do not add duplicate gates/agents/bundles.
 
@@ -69,7 +68,7 @@ as an established fact about this engine or an unprovided paper.
 
 ## Evidence from this implementation
 
-Codex already has full-data acquisition and numeric/source binding, separate scientific
+The Gemini / Antigravity pipeline already enforces full-data acquisition and numeric/source binding, separate scientific
 and journal copies, presentation-amendment lineage, real managed build dependencies,
 guarded builder outputs and scoped validation. Analysis replay hashes only actual producer
 code/data/results, not manuscript prose; don't rerun it for wording. Existing S18 already

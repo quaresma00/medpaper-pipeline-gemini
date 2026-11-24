@@ -337,7 +337,7 @@ def main() -> int:
     ap.add_argument("--access", choices=("oa", "authorized"),
                     help="legal access basis for a registered file")
     ap.add_argument("--source-url", help="landing page or authoritative source URL")
-    ap.add_argument("--route", default="external", help="acquisition route, e.g. scansci-pdf")
+    ap.add_argument("--route", default="external", help="acquisition route, e.g. europepmc-oa or openalex-oa")
     ap.add_argument("--authorization-note",
                     help="required for institutionally authorized full text")
     ap.add_argument("--replace-existing", action="store_true",

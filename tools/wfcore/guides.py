@@ -76,7 +76,7 @@ async def browser_download(url):
     try:
         from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
     except ImportError as exc:
-        raise ValueError("Crawl4AI is optional and unavailable. Use the available Codex browser, save the official page/download, then journal.py register; no cloud account or fabricated snapshot is required") from exc
+        raise ValueError("Crawl4AI is optional and unavailable. Use the Antigravity built-in `browser` subagent (`invoke_subagent(TypeName='browser', Model='flash', ...)`), capture the official Author Guidelines page/PDF, then run `uv run python tools/journal.py register --url ... --file ...`; no cloud account or fabricated snapshot is required") from exc
     async with AsyncWebCrawler(config=BrowserConfig(headless=True)) as crawler:
         result=await crawler.arun(url=url,config=CrawlerRunConfig(cache_mode=CacheMode.BYPASS,page_timeout=35000))
         if not result.success or (result.status_code and result.status_code>=400):

@@ -91,7 +91,7 @@ resolved catalog to `.wf/resolved_facts.json`. Query `--fact-id`, `--fields`, `-
 Use bounded PNG previews for screening, original-size critical-page inspection for final QA.
 Report generated/content-checked/layout-checked/user-approved/submitted as distinct states.
 Generating files is never a claim of actual journal submission.
-# KIRO 1.15 adaptation: managed rebuild and isolated review (v1.21)
+# Managed rebuild and isolated review (v1.21)
 
 After sealing the actual S24 source revision (or at S23), run `tools/wf.py rebuild --dry-run`
 to inspect the recorded DOCX consumers, then `tools/wf.py rebuild`. It rebuilds stale managed

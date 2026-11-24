@@ -79,10 +79,9 @@ uv run python tools/wf.py check --all-checks --only "Figure 1"
 
 ## Python exceptions
 For an existing approved Matplotlib figure or concrete exception, retain its source and
-tools/figures/style.py + recipes.py. Use the installed Tavotto skill and desktop handoff
-only for Matplotlib, never for R graphs. No R-to-Matplotlib conversion is needed.
-ImageGen may critique readability but never redraw or edit statistical content; fix source
-code and inspect the deterministic new render.
+`tools/figures/style.py + recipes.py`. No R-to-Matplotlib conversion is needed.
+`image-generator` may critique readability as an optional visual critic, but never redraw or edit statistical content; fix source
+code and inspect the deterministic new render via `read_file`.
 
 ## Outputs
 - 05_figures/manifest.json

@@ -82,7 +82,7 @@ Do not infer unexported complementary counts later or replay old analysis solely
   under `temp/diagnostics/` and inspect its low-cost preview there. Record its numerical
   diagnostics and interpretation in the result JSON/log, then remove only these disposable
   task-created scratch files before closing S05. Do not number or style them as paper
-  figures, export high-resolution production formats, or open Tavotto for them. S07 owns
+  figures or export high-resolution production formats for them. S07 owns
   reader-facing display prototypes; S11 produces the approved scientific figures.
 - No p-value computed in prose. If it is not in a JSON file, it does not exist.
 - Do not silently switch the primary analysis. If it changes, that is a protocol

@@ -181,8 +181,8 @@ Warnings need attention during visual review; blocking defects must be corrected
 Keep themes/dimensions/layout parameters centralized. Use patchwork/grid rather than repeated
 pixel nudges. A formatting edit changes the relevant R source and rerenders just that figure,
 not cleaning/imputation/models. Preserve unrelated figures and the frozen scientific originals;
-journal-specific scripts/exports belong in integration. Tavotto applies only to Matplotlib
-exceptions, not R figures. No automated check replaces rendered-figure review.
+journal-specific scripts/exports belong in integration. Approved Matplotlib exceptions use
+`tools/figures/style.py + recipes.py`, not R-to-Python conversion. No automated check replaces rendered-figure review.
 
 Primary sources checked 2026-10-06:
 - [ggplot2 export](https://ggplot2.tidyverse.org/reference/ggsave.html)

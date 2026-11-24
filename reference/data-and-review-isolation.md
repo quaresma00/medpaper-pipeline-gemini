@@ -80,9 +80,8 @@ The global launcher verifies an installed baseline before overwriting engine fil
 upgrade. User data, state, environments and unrelated helpers are preserved.
 
 This detects accidental/unauthorized engine drift; it is not an OS tool-write interceptor or
-cryptographic defense against someone controlling both source and baseline. Codex's actual
-host permissions remain authoritative. Do not install Kiro-specific hooks or claim they run
-here. Study executors must not edit tools/pipeline/reference/global skills or engine-owned
+cryptographic defense against someone controlling both source and baseline. Antigravity's actual
+host permissions remain authoritative. Study executors must not edit tools/pipeline/reference/global skills or engine-owned
 state to pass a gate. Report a minimal reproducible defect for explicit workflow maintenance.
 This maintenance checkout may lack an installed baseline; never call that proof of immutability.
 

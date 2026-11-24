@@ -1,4 +1,4 @@
-# medpaper pipeline — Antigravity workspace rule (v1.30.0)
+# medpaper pipeline — Antigravity workspace rule (v1.32.0)
 
 This repository is a **gated 25-stage medical research paper pipeline**. Do not follow the
 workflow from memory; `pipeline/pipeline.toml`, `AGENTS.md`, and the active stage card own all

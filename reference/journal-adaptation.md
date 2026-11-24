@@ -29,7 +29,7 @@ do not discard edits or copy the previous journal's presentation into the new at
 
 ## Acquire complete authoritative instructions
 
-Locate the selected journal by title/ISSN with current web search/Codex browser tools. Read
+Locate the selected journal by title/ISSN with current web search or Antigravity's built-in `browser` subagent. Read
 its article-type page and relevant linked figure/table/supplement/initial-or-revision rules.
 A generic publisher page does not replace journal-specific exceptions. Fetch complete relevant
 pages, not the whole publisher site:
@@ -45,7 +45,7 @@ HTML/PDF acquisition retains original bytes and complete visible/page text. Opti
 always retained. `show` is bounded; full text and `--full` remain available. Read the whole
 applicable guide once before claiming coverage; a snippet or successful HTTP status is not
 proof. `fetch --mode auto` uses optional local Crawl4AI when direct content is blocked and
-the package/browser is available. Prefer an available Codex browser where appropriate.
+the package/browser is available. When direct HTTP fetch is incomplete or script-gated, delegate to Antigravity's built-in `browser` subagent (`invoke_subagent(TypeName="browser", Model="flash", ...)`).
 No cloud account or mandatory browser stack is required. Genuine official downloads/browser
 exports/supplied sources can be registered:
 

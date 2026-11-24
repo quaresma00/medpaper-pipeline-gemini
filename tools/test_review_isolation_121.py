@@ -24,7 +24,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 class MigrationTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory(prefix="medpaper-kiro-121-")
+        self.temp=tempfile.TemporaryDirectory(prefix="medpaper-isolation-121-")
         self.addCleanup(self.temp.cleanup); self.project=Path(self.temp.name)
         self.state=State(self.project).create("medpaper","1.21.0","S24_package_human_review")
 

@@ -4,9 +4,7 @@ For v1.24 guide acquisition and journal/article/submission-stage transfers, use
 `reference/journal-adaptation.md`. The active context binds the actual official sources,
 configuration and final-file checks; legacy `init --replace` alone cannot switch journals.
 
-Adapted from user-maintained Kiro 1.9.0, commit
-`f806de6bea8e15c8adfbaaf1f99c54fc8828be56`, retrieved 2026-10-17.
-Read for post-freeze edits, S20-S25 production, author final copies or engine migration.
+Read for post-freeze edits, S20-S24 production, author final copies or engine migration.
 
 ## Preserve approval for proven presentation changes
 

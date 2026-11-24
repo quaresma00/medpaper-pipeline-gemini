@@ -145,25 +145,19 @@ non-exclusive-category footnotes and readable physical sizing. Engineering metad
 backstage. Full regular expressions or implementation specifics belong in a supplement only
 when scientifically needed, not merely because they exist in code.
 
-## Production and Tavotto
+## Figure production and Python exceptions
 
 Read `r-first.md`: new publication graphics default to R; processing may use Python.
 Choose method-specific engines before analysis, reuse approved results instead of duplicate
-fitting, and use the R runner's real provenance/QA plus visual inspection. Tavotto is
-Matplotlib-only, not a requirement to translate R graphics into Python.
+fitting, and use the R runner's real provenance/QA plus visual inspection via `read_file`.
 
 At S10/S11 reuse approved semantics. Prefer vector PDF plus a PNG preview; create TIFF only
 when the chosen journal requires it at S23. Use co-located literal filenames for each Matplotlib
 script and PDF under `05_figures/out/` (legacy separated scripts remain readable). Keep Python
-as the source of truth. For user-facing Matplotlib figures use the installed `tavotto-figure`
-skill and its desktop handoff after rendering and visual QA; resolve the skill's actual path.
-The user's desktop-first instruction overrides the skill's default embedded canvas. Read the
-handoff JSON: success requires `ok: true`, `parameterizable: true`, `launch: "desktop"`.
-Call MCP health only when using MCP capabilities; lack of an authorized embedded canvas must
-not block desktop handoff. Report structured desktop failures and the recovery step. Never
-substitute a browser. Nonstructural visual changes stay in Tavotto overrides; data, axes and
-artists change in the producing language. Store journal-specific scripts/overrides/exports in integration,
-preserving the frozen scientific figures. Internal diagnostics do not require desktop handoff.
+as the source of truth for approved Python exceptions (`tools/figures/style.py + recipes.py`),
+and inspect every rendered PNG/PDF directly via `read_file` (optional `image-generator` critique is
+advisory only and never redraws statistical data). Store journal-specific scripts/exports in integration,
+preserving the frozen scientific figures. Internal diagnostics belong in `project/temp/`.
 
 ## Feedback and incremental work
 

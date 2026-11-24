@@ -27,7 +27,7 @@ uv run python tools/pubmed/build_library.py --add-r-citation R --add-r-citation 
 ```
 uv run python tools/pubmed/fulltext.py fetch --citekey <generated-key>
 ```
-   Use the existing `register`/identity-confirmation route in `reference/codex-integration.md`
+   Use the existing `register`/identity-confirmation route in `reference/antigravity-integration.md`
    for an acquired local file. Registration needs the candidate library identity, not prior
    verification. A missing full text is an explicit evidence gap; do not invent an abstract
    or silently substitute a less relevant citation just to pass.

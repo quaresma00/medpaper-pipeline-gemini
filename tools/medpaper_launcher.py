@@ -26,7 +26,7 @@ from pathlib import Path, PurePosixPath
 SKILL_DIR = Path(__file__).resolve().parents[1]
 ARCHIVE = SKILL_DIR / "assets" / "medpaper-gemini-ready.zip"
 ARCHIVE_ROOT = "medpaper-gemini"
-ACCEPTED_ARCHIVE_ROOTS = ("medpaper-gemini", "medpaper-codex")
+ACCEPTED_ARCHIVE_ROOTS = ("medpaper-gemini",)
 DEFAULT_LOCAL_MASTER = Path(r"F:\workspace\medpapaer\gemini")
 EXCLUDED_TEMPLATE_DIRS = {
     ".git", ".venv", "dist", "scratch", "temp",

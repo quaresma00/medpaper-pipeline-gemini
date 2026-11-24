@@ -4,10 +4,7 @@ v1.13: first review and changed science use these rounds. Proven post-approval p
 changes follow `content-aware-amendments.md`: no new review round or re-confirmation, but
 actual scoped checks/visual QA and an explicit presentation delta.
 
-Adapted from user-maintained Kiro v1.8.1, commit
-`1c49c93b9899368811849867ae382ed86c691229` (retrieved 2026-10-17).
-Codex uses its actual subagent API, project paths, scoped revisions and build receipts;
-Kiro agent names/configuration are not executable Codex APIs.
+Antigravity uses its native read-only subagent API (`invoke_subagent(TypeName="research", ...)`), project paths, scoped revisions and build receipts.
 
 ## One round, one report to the user, one question
 
@@ -37,7 +34,7 @@ the abandoned round/report remains as history. Never relabel old evidence with n
 
 The main executor may reject a preference with a concrete scientific/journal rationale.
 It cannot waive objective errors, fabricate evidence, guess author facts or approve itself.
-Codex read-only instructions are not an OS sandbox: verify input versions before and after
+Prompt-only read-only instructions are not an OS sandbox: use the read-only `research` subagent, verify input versions before and after
 review and protect scientific freezes/releases separately. All user feedback stays in
 `rework.py` scoped revisions; review rounds do not rewind stage history.
 

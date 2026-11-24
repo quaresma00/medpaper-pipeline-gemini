@@ -23,7 +23,7 @@ from pathlib import Path
 
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 CROSSREF = "https://api.crossref.org/works"
-TOOL = "medpaper-codex-pipeline"
+TOOL = "medpaper-gemini-pipeline"
 UA = f"{TOOL}/1.0 (research pipeline; contact via NCBI_API_EMAIL)"
 
 _last_call = [0.0]

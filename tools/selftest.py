@@ -895,16 +895,18 @@ def run_archetypes(proj: Path) -> None:
            "a negative sign cannot render as a missing-glyph box")
 
 
-def run_codex_integration() -> None:
-    """Repository-local Codex integration must be complete and internally consistent."""
+def run_gemini_integration() -> None:
+    """Repository-local Gemini / Antigravity integration must be complete, consistent, and free of legacy traces."""
+    import re as _re
     import tomllib
 
-    section("Codex integration")
+    section("Gemini / Antigravity integration")
     required = [
         ROOT / "AGENTS.md",
-        ROOT / ".agents/skills/medpaper-codex-pipeline/SKILL.md",
-        ROOT / ".agents/skills/medpaper-codex-pipeline/agents/openai.yaml",
-        ROOT / "reference/codex-integration.md",
+        ROOT / ".agent/rules/medpaper-pipeline.md",
+        ROOT / ".agents/skills/medpaper-pipeline/SKILL.md",
+        ROOT / "INSTALL-ANTIGRAVITY.md",
+        ROOT / "reference/antigravity-integration.md",
         ROOT / "reference/methods-structure.md",
         ROOT / "reference/rework-routing.md",
         ROOT / "tools/rework.py",
@@ -920,20 +922,21 @@ def run_codex_integration() -> None:
         ROOT / "tools/data_manifest.py",
         ROOT / "reference/data-acquisition-integrity.md",
     ]
-    record("repository Codex files exist", all(p.is_file() for p in required),
+    record("repository Gemini/Antigravity files exist", all(p.is_file() for p in required),
            ", ".join(str(p.relative_to(ROOT)) for p in required if not p.is_file()))
 
-    skill = required[1].read_text(encoding="utf-8")
-    metadata = required[2].read_text(encoding="utf-8")
+    rule_text = required[1].read_text(encoding="utf-8")
+    skill = required[2].read_text(encoding="utf-8")
+    install_guide = required[3].read_text(encoding="utf-8")
     pipe = tomllib.loads((ROOT / "pipeline/pipeline.toml").read_text(encoding="utf-8"))
     record("skill identity is valid",
-           skill.startswith("---\nname: medpaper-codex-pipeline\n") and
+           skill.startswith("---\nname: medpaper-pipeline\n") and
            "description:" in skill.split("---", 2)[1],
            "frontmatter name/description")
-    record("skill launcher names the skill",
-           'default_prompt: "Use $medpaper-codex-pipeline' in metadata and
-           "allow_implicit_invocation: false" in metadata,
-           "agents/openai.yaml")
+    record("workspace rule and installer guide agree on uv entrypoint",
+           "uv run python tools/wf.py status" in rule_text and
+           "uv run python tools/wf.py status" in install_guide,
+           ".agent/rules/medpaper-pipeline.md + INSTALL-ANTIGRAVITY.md")
     record("pipeline and skill versions agree",
            f'version: "{pipe["meta"]["version"]}"' in skill,
            f'pipeline={pipe["meta"]["version"]}')
@@ -947,11 +950,10 @@ def run_codex_integration() -> None:
     record("Antigravity adapter and skill files exist",
            all(p.is_file() for p in agy_required),
            ", ".join(str(p.relative_to(ROOT)) for p in agy_required if not p.is_file()))
-    agy_skill = agy_required[1].read_text(encoding="utf-8") if agy_required[1].is_file() else ""
     record("Antigravity skill version and uv entrypoint agree",
-           agy_skill.startswith("---\nname: medpaper-pipeline\n") and
-           f'version: "{pipe["meta"]["version"]}"' in agy_skill and
-           'entrypoint: "uv run python tools/wf.py status"' in agy_skill,
+           skill.startswith("---\nname: medpaper-pipeline\n") and
+           f'version: "{pipe["meta"]["version"]}"' in skill and
+           'entrypoint: "uv run python tools/wf.py status"' in skill,
            f'pipeline={pipe["meta"]["version"]}')
     record("all 25 stage cards exist",
            len(pipe["stage"]) == 25 and
@@ -1091,8 +1093,12 @@ def run_codex_integration() -> None:
            (ROOT / "pipeline/stages/S04_data.md").read_text(encoding="utf-8"),
            "source total + received counts + pagination + raw/code hashes + anti-cap scan")
 
+    _legacy_tag = "co" + "dex"
     legacy = [
         ROOT / ".agents/AGENTS.md",
+        ROOT / f".agents/skills/medpaper-{_legacy_tag}-pipeline",
+        ROOT / f"INSTALL-{_legacy_tag.upper()}.md",
+        ROOT / f"reference/{_legacy_tag}-integration.md",
         ROOT / ".medpaper-target",
         ROOT / "tools/install_adapters.py",
         ROOT / "tools/hooks/skill_guard.py",
@@ -1100,6 +1106,25 @@ def run_codex_integration() -> None:
     ]
     record("obsolete multi-agent adapters are absent", not any(p.exists() for p in legacy),
            ", ".join(str(p.relative_to(ROOT)) for p in legacy if p.exists()))
+
+    banned_tokens = ("co" + "dex", "ki" + "ro", "open" + "ai", "tav" + "otto", "scan" + "sci")
+    banned_rx = _re.compile("|".join(banned_tokens), _re.I)
+    skip_dirs = {".git", ".venv", "dist", "scratch", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "project"}
+    scan_exts = {".py", ".md", ".toml", ".yaml", ".yml", ".json", ".txt", ".ps1", ".r"}
+    legacy_hits: list[str] = []
+    for p in sorted(ROOT.rglob("*")):
+        rel_parts = p.relative_to(ROOT).parts
+        if any(part in skip_dirs for part in rel_parts):
+            continue
+        if banned_rx.search(p.name):
+            legacy_hits.append(f"path:{p.relative_to(ROOT).as_posix()}")
+            continue
+        if p.is_file() and p.suffix.lower() in scan_exts:
+            txt = p.read_text(encoding="utf-8", errors="replace")
+            if banned_rx.search(txt):
+                legacy_hits.append(p.relative_to(ROOT).as_posix())
+    record("zero non-Gemini legacy traces across repository", not legacy_hits,
+           ", ".join(legacy_hits[:8]) or "clean")
 
     policy_text = "\n".join(p.read_text(encoding="utf-8") for p in required)
     cards_text = "\n".join(
@@ -2399,7 +2424,7 @@ def main() -> int:
         run_reference_proof(proj)
         run_qc(proj)
         run_archetypes(proj)
-        run_codex_integration()
+        run_gemini_integration()
         run_fulltext_registration(proj)
         run_journal_eligibility(proj)
         run_manuscript_docx(proj)
@@ -2413,12 +2438,12 @@ def main() -> int:
             ("test_scoped_revision.py", "scoped revision behavioral regression suite", 1800),
             ("test_incremental_quality.py", "incremental quality behavioral regression suite", 1800),
             ("test_r_figures.py", "R figure renderer behavioral regression suite", 1800),
-            ("test_kiro_adoption.py", "cross-workflow adoption regression suite", 1800),
+            ("test_analysis_replay.py", "analysis producer receipts, selective replay, and full-text identity suite", 1800),
             ("test_reporting_deferral.py", "registration/reporting deferral regression suite", 1800),
             ("test_source_aligned.py", "source aligned validation regression suite", 1800),
             ("test_benchmark_acceptance.py", "benchmarked professional acceptance regression suite", 1800),
             ("test_review_rounds.py", "independent review rounds and native Word tables regression suite", 1800),
-            ("test_kiro_v190.py", "content-aware Kiro 1.9 migration regressions", 1800),
+            ("test_amendment_freeze.py", "content-aware presentation amendments and scientific master freeze regressions", 1800),
         ]
         post_online_suites = [
             ("test_quality_114.py", "source-first quality and explicit-version acceptance regressions", 1500),
@@ -2430,7 +2455,7 @@ def main() -> int:
             ("test_revision_efficiency_119.py", "incremental validation identity reuse and changed-evidence handling", 1800),
             ("test_scientific_decisions_120.py", "scientific decisions bind the evidence at judgment time", 1800),
             ("test_source_access_120.py", "authentic sources distinguish abstract availability from full-text access", 1800),
-            ("test_kiro_121.py", "KIRO migration: review isolation, fail-fast incremental builds and actual upload rules", 1800),
+            ("test_review_isolation_121.py", "review isolation, fail-fast incremental builds, and actual upload rules", 1800),
             ("test_medical_displays_122.py", "medical display story, actual rendered review, table hierarchy and independent R panel tags", 1800),
             ("test_medical_production_123.py", "contextual medical wording, current lint evidence and numerical forest columns", 1800),
             ("test_journal_context_124.py", "official guide acquisition, exact current target and actual-file transfer compliance", 1800),

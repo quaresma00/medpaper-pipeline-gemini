@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create and verify the local medpaper-codex environment."""
+"""Create and verify the local medpaper-gemini environment."""
 from __future__ import annotations
 
 import argparse
@@ -66,7 +66,7 @@ def install_dependencies(uv: str | None) -> bool:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="set up and verify medpaper-codex")
+    ap = argparse.ArgumentParser(description="set up and verify medpaper-gemini")
     ap.add_argument("--skip-selftest", action="store_true")
     args = ap.parse_args()
 
@@ -76,7 +76,7 @@ def main() -> int:
         return 1
 
     print("=" * 72)
-    print("medpaper-codex bootstrap")
+    print("medpaper-gemini bootstrap")
     print(f"root:   {ROOT}")
     print(f"runner: {sys.executable} ({sys.version.split()[0]})")
     print(f"uv:     {uv or 'not found; using stdlib venv/pip'}")
@@ -95,7 +95,7 @@ def main() -> int:
         if not run(cmd, label):
             return 1
 
-    print("\nSetup complete. Open this directory in Google Antigravity (or Codex) and start with:")
+    print("\nSetup complete. Open this directory in Google Antigravity and start via pwsh with:")
     print("    uv run python tools/wf.py status")
     return 0
 

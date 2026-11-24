@@ -14,7 +14,7 @@ from wfcore import journalcontext as jc, guides, guidelinerules as gr, registry,
 from wfcore.readiness import atomic_json, load
 from wfcore.state import State
 from wfcore.checks import Ctx,load_all,get
-import test_kiro_v190 as legacy
+import test_amendment_freeze as legacy
 from test_source_aligned import DEFAULT_STYLE
 
 ROOT=Path(__file__).resolve().parents[1]

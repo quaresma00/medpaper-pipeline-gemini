@@ -81,7 +81,7 @@ uv run python tools/manuscript/build_docx.py audit --manifest project/08_submiss
 ```
 8. Read `reference/efficient-quality.md`. For a feedback batch, record the build scope with
    `tools/rework.py build`; default to at most two full build cycles, then targeted correction.
-   Render every new/changed final DOCX with Microsoft Word or the Codex document workflow and inspect
+   Render every new/changed final DOCX with Microsoft Word (or PDF/image export + `read_file` inspection) and inspect
    the title/abstract, heading transitions, first/last pages, references, figure legends,
    tables, symbols, page breaks and missing glyphs. Fix the source or builder and rebuild
    only affected files.

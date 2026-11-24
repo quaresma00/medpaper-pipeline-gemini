@@ -1,6 +1,6 @@
 # Medpaper Gemini / Antigravity — current execution policy
 
-`medpaper-pipeline` (and its workspace alias `medpaper-codex-pipeline`) is the sole workflow orchestrator. The CLI and current stage card
+`medpaper-pipeline` is the sole workflow orchestrator. The CLI and current stage card
 determine work, outputs and checks. User instructions take
 precedence. Maintain one workflow, one scientific source and one build chain. Other skills
 provide a capability within the active stage; they do not create a second study or manuscript.
@@ -26,7 +26,7 @@ is the execution order despite stable IDs. Use `card <stage> --details` only whe
 | Post-freeze changes or composed Word builds | reference/content-aware-amendments.md and reference/source-aligned-validation.md |
 | Current journal/transfer and final compliance | reference/journal-adaptation.md |
 | Independent review, exact author confirmation | reference/review-rounds-and-word-tables.md |
-| External skill, Antigravity subagent, retrieval capability or plugin | reference/antigravity-integration.md and reference/codex-integration.md |
+| External skill, Antigravity subagent, retrieval capability or plugin | reference/antigravity-integration.md |
 
 The drafting guide is the writing context, not a waiver of execution checks. Retrieve a
 technical schema only while using its tool or investigating a specific problem. Detailed
@@ -86,7 +86,7 @@ references each own their topic; this policy contains no historical supersession
   baseline P values are not a default. New medical figures default to R; processing may use
   Python. Use the managed R renderer and approved results, preserve R source beside vector PDF,
   and inspect actual PNG/PDF. Missing R dependencies need repair, not silent Python fallback.
-  Preserve already-approved Python figures; justified Python exceptions use Tavotto, never R.
+  Preserve already-approved Python figures; justified Python exceptions use `tools/figures/style.py + recipes.py`, never R-to-Python conversion.
   Independent A/B tags belong at panel upper-left corners, separate from clinical titles.
 - Tool success does not replace opening/reading the actual tables and rendered figures/pages.
   Bind actual production renders in display_review.json before Results. ImageGen may act as a

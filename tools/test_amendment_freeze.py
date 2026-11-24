@@ -1,4 +1,4 @@
-"""Synthetic regressions for the user-maintained Kiro 1.9 concepts adapted to Codex."""
+"""Synthetic regressions for content-aware presentation amendments, scientific master freeze, and journal workspace isolation."""
 import json
 import os
 from pathlib import Path
