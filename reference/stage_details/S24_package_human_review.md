@@ -1,4 +1,4 @@
-# S25 - Independent reader, editor and compliance audit of the confirmed package
+# S24 - Detailed independent reader, editor and compliance audit procedure
 
 Audit a reporting checklist only if the chosen journal explicitly requires that form.
 Do not introduce a new generic catalogue or an OSF-registration demand for an ordinary
@@ -138,44 +138,16 @@ replace the release.
   unmet required local upload or unresolved cross-file mismatch is not a pass.
 
 ## Close
-```
+```powershell
 uv run python tools/wf.py check
 uv run python tools/wf.py advance --note "independent final submission audit=PASS; frozen package unchanged; remaining portal-only user tasks=<none or list>"
 ```
 
-## v1.14 execution update
-
-Read `reference/quality-before-writing.md` at this checkpoint. Its sequencing, source-based
-declarations, no free numeric whitelist, soft size budgets and exact current-version confirmation
-supersede older conflicting instructions. Do not create external-review materials by default.
-
-## Medical-reader presentation
-
-Read `reference/medical-reader-presentation.md`: check actual clinical labels, counting units,
-denominators, statistical marks and state distinctions, table footnotes and figure decoding.
-Retain necessary methods; do not imply prespecification or change counts by renaming units.
-Use the existing acceptance/review, not an additional audit. At S23 verify actual rendered
-Word pages and journal-directed legend/figure placement; don't reintroduce forbidden controls.
-
-## Structural quality and bounded rework
-
-Read `reference/structural-quality.md`. Use clinical display names and physical-size assumptions
-before production. Percentage claims bind numerator, denominator and source percentage basis.
-Every actionable point in every review section needs a stable ID and disposition, not only
-the must-fix subset. Review neutral actual artifacts; don't prime with the writer's conclusion.
-Use read-only rework preview and actual scoped checks; never infer scientific change from a
-publication label number or silently invalidate author approval. Existing privacy, freezes,
-centralized abbreviations, Word cleanup and final actual-page inspection remain in force.
-
-
-
-# Bound repeat review after a material defect
+## Bound repeat review after a material defect
 
 On a necessary repeat review, verify the previous objective defects and their actual changed
 consumers, using the existing delta/approval-lineage rules. Full current context remains
 available for consistency checks. Do not invent a new list of style preferences each pass.
 New material scientific errors, missing uploads and explicit journal-rule violations still
-block. An engine-owned formatting error must be repaired at its source; calling it an engine
-issue is never an exemption from a real journal requirement. Only an actual author choice can
-use the existing author-final-copy handoff, which is not a fabricated independent PASS.
+block. Only an actual author choice can use the existing author-final-copy handoff, which is not a fabricated independent PASS.
 

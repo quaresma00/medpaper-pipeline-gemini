@@ -170,7 +170,7 @@ stopifnot(!medpaper_layers(v + coord_cartesian(ylim=c(2,8)))$bar_baseline_zero)
         current=State(self.project).load(); self.assertEqual(current.current,"S24_package_human_review")
         self.assertEqual(current.data["engine_pin"],"1.17.0")
     def test_compact_cards_retain_the_complete_procedure_via_real_cli(self):
-        for name in ("S07_artifacts","S20_journal","S23_package","S25_submission_audit"):
+        for name in ("S07_artifacts","S20_journal","S23_package","S24_package_human_review"):
             card=ROOT/"pipeline/stages"/(name+".md")
             detail=ROOT/"reference/stage_details"/card.name
             self.assertLess(len(card.read_text(encoding="utf-8")),4000)

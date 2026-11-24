@@ -101,13 +101,7 @@ exposes a real scientific omission, use the existing scoped correction/reapprova
 never invent a performed method or silently change the frozen scientific master.
 
 ## Outputs
-Before closing, read `reference/project-benchmarking.md`, read same-journal close full texts
-and record the resulting structure/display/reference adaptations in
-`08_submission/integration/journal_benchmark.md`; bind it to this journal/article type and
-seal with `benchmark.py seal --layer journal`. Comparator-only `fulltext.py --pmid` acquisition
-must not modify the frozen scientific bibliography. Reuse already read suitable papers.
-Store explicit display caps in `submission_requirements.json.display_limits`; null means
-unstated. Apply those caps to the derived plan at S22 before Word production, not to the master.
+Store explicit display caps in `submission_requirements.json.display_limits` (`null` means unstated) and optional mandated H1 headings in `required_main_sections`. Apply display caps to the derived plan at S22 before Word production, never to the frozen scientific master.
 
 - `08_submission/journal_shortlist.md`
 - `08_submission/target_journal.json`
@@ -130,26 +124,10 @@ unstated. Apply those caps to the derived plan at S22 before Word production, no
   cannot carry a previous guide/style forward. Reuse author facts and scoped scientific sources.
 
 ## Close
-```
+```powershell
 uv run python tools/wf.py decide journal_chosen "<journal>" --why "<user choice and acceptance-fit rationale>"
 uv run python tools/wf.py check
 uv run python tools/wf.py advance --note "target=<journal>; current SCIE/JCR verified; Word rules frozen; journal deltas=<...>"
 ```
-
-## v1.14 execution update
-
-Read `reference/quality-before-writing.md` at this checkpoint. Its sequencing, source-based
-declarations, no free numeric whitelist, soft size budgets and exact current-version confirmation
-supersede older conflicting instructions. Do not create external-review materials by default.
-
-## Structural quality and bounded rework
-
-Read `reference/structural-quality.md`. Use clinical display names and physical-size assumptions
-before production. Percentage claims bind numerator, denominator and source percentage basis.
-Every actionable point in every review section needs a stable ID and disposition, not only
-the must-fix subset. Review neutral actual artifacts; don't prime with the writer's conclusion.
-Use read-only rework preview and actual scoped checks; never infer scientific change from a
-publication label number or silently invalidate author approval. Existing privacy, freezes,
-centralized abbreviations, Word cleanup and final actual-page inspection remain in force.
 
 

@@ -69,24 +69,11 @@ uv run python tools/manuscript/assemble.py
 - Immediately polish `07_manuscript/abstract.md` via `polish.py section --file project/07_manuscript/abstract.md --snapshot` / `--verify` BEFORE assembling (clear finding-first prose without work-report narration, while accurately retaining null/unfavorable outcomes, limitations, and appropriate uncertainty), and ensure total citations satisfy `literature_sufficiency`.
 
 ## Close
-Before S18/user delivery, read `reference/project-benchmarking.md`, read the complete actual
-paper and inspect rendered tables/figures. Resolve routine evidence, Methods/Discussion,
-abbreviation, legend and cross-reference defects; bind actual executor findings with
-`tools/manuscript/benchmark.py accept --review <findings.json>`. This does not replace S18.
-Out-of-range quantities need a coverage-based reason, not padded citations or lowered ranges.
+Read the complete assembled manuscript alongside rendered table previews and figure PNGs to resolve any remaining cross-reference, abbreviation, or clinical-label defects before independent review at S18. If candidate-pool references remain uncited in `06_refs/library.json`, archive them cleanly with `uv run python tools/pubmed/build_library.py --archive-uncited`.
 
-```
+```powershell
 uv run python tools/wf.py check
 uv run python tools/wf.py advance --note "full manuscript assembled; selected title: <title>; keywords=<n>; figure legends=<n>"
 ```
-
-
-## Medical-reader presentation
-
-Read `reference/medical-reader-presentation.md`: check actual clinical labels, counting units,
-denominators, statistical marks and state distinctions, table footnotes and figure decoding.
-Retain necessary methods; do not imply prespecification or change counts by renaming units.
-Use the existing acceptance/review, not an additional audit. At S23 verify actual rendered
-Word pages and journal-directed legend/figure placement; don't reintroduce forbidden controls.
 
 

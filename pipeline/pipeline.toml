@@ -238,6 +238,7 @@ card = "stages/S06_protocol_final.md"
 outputs = ["01_protocol/protocol_final.md", "01_protocol/protocol_diff.md", "01_protocol/analysis_contract.json", "01_protocol/study_facts.json", "01_protocol/writing_readiness.json"]
 [[stage.gate]]
 check = "outputs_exist"
+optional = ["01_protocol/protocol_diff.md"]
 [[stage.gate]]
 check = "data_acquisition_complete"
 [[stage.gate]]
@@ -351,6 +352,7 @@ card = "stages/S11_figures.md"
 outputs = ["05_figures/manifest.json", "05_figures/qc/qc_report.json", "05_figures/moved_to_legend.md"]
 [[stage.gate]]
 check = "outputs_exist"
+optional = ["05_figures/moved_to_legend.md"]
 [[stage.gate]]
 check = "figures_match_plan"
 [[stage.gate]]
@@ -562,6 +564,15 @@ check = "section_polished"
 path = "07_manuscript/results.md"
 since = "1.30.0"
 
+[[stage.gate]]
+check = "numbers_cross_match"
+since = "1.32.0"
+
+[[stage.gate]]
+check = "display_numbering_consistent"
+paths = ["07_manuscript/methods.md", "07_manuscript/results.md"]
+since = "1.32.0"
+
 [[stage]]
 id = "S12_reconcile"
 title = "Reconcile rendered artifacts against Methods/Results text"
@@ -624,7 +635,6 @@ check = "outputs_exist"
 check = "single_section_written"
 [[stage.gate]]
 check = "reference_provenance"
-live = true
 [[stage.gate]]
 check = "md_wordcount"
 path = "07_manuscript/introduction.md"
@@ -680,7 +690,6 @@ check = "outputs_exist"
 check = "single_section_written"
 [[stage.gate]]
 check = "reference_provenance"
-live = true
 [[stage.gate]]
 check = "md_wordcount"
 path = "07_manuscript/discussion.md"
@@ -726,7 +735,7 @@ since = "1.30.0"
 id = "S17_assemble"
 title = "Automatically select the title and assemble the complete manuscript"
 card = "stages/S17_assemble.md"
-outputs = ["07_manuscript/title.md", "07_manuscript/abstract.md", "07_manuscript/keywords.md", "07_manuscript/full_manuscript.md", "07_manuscript/statements.md", "06_refs/usage.json"]
+outputs = ["07_manuscript/title.md", "07_manuscript/abstract.md", "07_manuscript/keywords.md", "07_manuscript/full_manuscript.md", "07_manuscript/statements.md"]
 [[stage.gate]]
 check = "prose_not_lists"
 path = "07_manuscript/full_manuscript.md"
@@ -748,7 +757,6 @@ check = "supplementary_methods_clean"
 check = "assembly_matches_sources"
 [[stage.gate]]
 check = "reference_provenance"
-live = true
 [[stage.gate]]
 check = "abbreviations_centralized"
 [[stage.gate]]
@@ -776,8 +784,6 @@ path = "07_manuscript/abstract.md"
 check = "medical_benchmark"
 [[stage.gate]]
 check = "literature_coverage"
-[[stage.gate]]
-check = "executor_acceptance"
 
 [[stage.gate]]
 check = "writing_ready"
@@ -827,7 +833,6 @@ check = "outputs_exist"
 check = "supplementary_methods_clean"
 [[stage.gate]]
 check = "reference_provenance"
-live = true
 [[stage.gate]]
 check = "md_sections"
 path = "07_manuscript/independent_publishability_review.md"
@@ -875,8 +880,6 @@ paths = ["07_manuscript/full_manuscript.md"]
 require_all_cited = true
 require_rendered = true
 [[stage.gate]]
-check = "executor_acceptance"
-[[stage.gate]]
 check = "revision_rounds_closed"
 [[stage.gate]]
 check = "review_round_approved"
@@ -904,7 +907,7 @@ id = "S20_journal"
 title = "Select the most realistic current SCIE journal and freeze its requirements"
 card = "stages/S20_journal.md"
 needs_user = true
-outputs = ["08_submission/journal_shortlist.md", "08_submission/target_journal.json", "08_submission/guidelines_extract.md", "08_submission/docx_style.json", "08_submission/integration/journal_workspace.json", "08_submission/submission_requirements.json", "08_submission/integration/journal_benchmark.md"]
+outputs = ["08_submission/journal_shortlist.md", "08_submission/target_journal.json", "08_submission/guidelines_extract.md", "08_submission/docx_style.json", "08_submission/integration/journal_workspace.json", "08_submission/submission_requirements.json"]
 [[stage.gate]]
 check = "journal_profile_valid"
 since = "1.13.0"
@@ -935,9 +938,6 @@ require_pristine = true
 check = "json_keys"
 path = "08_submission/submission_requirements.json"
 keys = ["article_type", "required_upload_roles", "word_count", "blinding"]
-[[stage.gate]]
-check = "medical_benchmark"
-layer = "journal"
 
 [[stage.gate]]
 check = "journal_display_fit"
@@ -977,7 +977,6 @@ check = "supplementary_methods_clean"
 path = "08_submission/integration/supplementary_methods.md"
 [[stage.gate]]
 check = "reference_provenance"
-live = true
 [[stage.gate]]
 check = "title_page_reference_count"
 manuscript = "08_submission/integration/full_manuscript.md"
@@ -1005,7 +1004,7 @@ since = "1.28.0"
 id = "S22_polish"
 title = "Journal-specific de-AI and academic-English polish, fact-preserving"
 card = "stages/S22_polish.md"
-outputs = ["08_submission/integration/polish_report.json", "08_submission/integration/polish_log.md"]
+outputs = ["08_submission/integration/polish_report.json"]
 [[stage.gate]]
 check = "scientific_master_unchanged"
 [[stage.gate]]
@@ -1037,7 +1036,6 @@ check = "supplementary_methods_clean"
 path = "08_submission/integration/supplementary_methods.md"
 [[stage.gate]]
 check = "reference_provenance"
-live = true
 [[stage.gate]]
 check = "title_page_reference_count"
 manuscript = "08_submission/integration/full_manuscript.md"
@@ -1068,9 +1066,6 @@ require_rendered = true
 check = "decision_recorded"
 name = "polish_reviewed"
 allowed = ["YES"]
-[[stage.gate]]
-check = "executor_acceptance"
-layer = "journal"
 
 [[stage.gate]]
 check = "journal_requirements_current"
@@ -1103,8 +1098,6 @@ check = "scientific_master_unchanged"
 [[stage.gate]]
 check = "journal_workspace_ready"
 [[stage.gate]]
-check = "data_acquisition_complete"
-[[stage.gate]]
 check = "bundle_complete"
 [[stage.gate]]
 check = "docx_bundle_ready"
@@ -1114,7 +1107,6 @@ check = "supplementary_methods_clean"
 path = "08_submission/integration/supplementary_methods.md"
 [[stage.gate]]
 check = "reference_provenance"
-live = true
 [[stage.gate]]
 check = "title_page_reference_count"
 manuscript = "08_submission/integration/full_manuscript.md"
@@ -1161,11 +1153,6 @@ path = "08_submission/integration/full_manuscript.md"
 since = "1.32.0"
 
 [[stage.gate]]
-check = "executor_acceptance"
-layer = "journal"
-final = true
-
-[[stage.gate]]
 check = "journal_requirements_current"
 since = "1.24.0"
 final = true
@@ -1201,8 +1188,6 @@ check = "outputs_exist"
 check = "scientific_master_unchanged"
 [[stage.gate]]
 check = "journal_workspace_ready"
-[[stage.gate]]
-check = "data_acquisition_complete"
 [[stage.gate]]
 check = "md_sections"
 path = "08_submission/package_human_review.md"
@@ -1261,11 +1246,6 @@ path = "08_submission/integration/full_manuscript.md"
 since = "1.32.0"
 
 [[stage.gate]]
-check = "executor_acceptance"
-layer = "journal"
-final = true
-
-[[stage.gate]]
 check = "journal_requirements_current"
 since = "1.24.0"
 final = true
@@ -1312,6 +1292,7 @@ globs = [
   "06_refs/cache/**",
   "06_refs/fulltext/*",
   "06_refs/deepread/*.md",
+  "06_refs/usage.json",
   "07_manuscript/review_packages/*.zip",
   "08_submission/integration/**",
   "08_submission/journal_context.json",

@@ -1586,6 +1586,176 @@ class V132ArchitectureTests(unittest.TestCase):
             self.assertTrue(len(t_run1) > 0)
             self.assertTrue(any(item["cached"] for item in t_run2), msg=t_run2)
 
+    def test_14_lean_pipeline_reconcile_and_shorthand_context(self) -> None:
+        """Auto S12 reconcile.py, clinical shorthand context matching, passage-free benchmark coverage, and lean pipeline.toml."""
+        from manuscript import reconcile as reconcile_mod, sync_claims
+        from wfcore import benchmark, claims, registry
+
+        pipe = registry.load()
+        # 1) Verify lean pipeline.toml invariants: no executor_acceptance on stages, no S20 journal_benchmark, live provenance only at S13/S19/S24
+        for stg in pipe.stages:
+            fns = [c.get("check") for c in stg.gate]
+            self.assertNotIn("executor_acceptance", fns, msg=f"Unexpected executor_acceptance in {stg.id}")
+        s20 = pipe.stage("S20_journal")
+        self.assertNotIn("08_submission/integration/journal_benchmark.md", s20.outputs)
+        live_stages = [
+            stg.id
+            for stg in pipe.stages
+            for c in stg.gate
+            if c.get("check") == "reference_provenance" and c.get("live") is True
+        ]
+        self.assertEqual(live_stages, ["S13_reflib", "S19_human_review", "S24_package_human_review"])
+        self.assertFalse((ROOT / "pipeline/stages/S25_submission_audit.md").exists())
+        self.assertTrue((ROOT / "reference/stage_details/S24_package_human_review.md").exists())
+
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "project"
+            for d in ("01_protocol", "03_analysis/results", "04_tables/main", "05_figures/out", "07_manuscript", ".wf"):
+                (proj / d).mkdir(parents=True, exist_ok=True)
+
+            # 2) Clinical shorthand observation matches verbose exported context when polarity/adjustment/time align, while mismatched adjustment fails
+            long_ctx = {
+                "outcome": "all-cause mortality",
+                "population": "eligible adult surgical cohort aged 18 years or older",
+                "comparison": "early intervention arm versus standard care arm",
+                "model": "multivariable Cox proportional hazards regression model adjusted for age, sex, and baseline stage",
+                "timepoint": "24-month post-operative follow-up",
+                "unit": "hazard ratio",
+                "denominator": "200 patients",
+            }
+            (proj / "03_analysis/results/hr.json").write_text(
+                json.dumps({"primary": {"context": long_ctx, "values": {"hr": 1.42, "ci_low": 1.05, "ci_high": 1.92, "p": 0.022}}}),
+                encoding="utf-8",
+            )
+            (proj / "01_protocol/study_facts.json").write_text(
+                json.dumps({"numeric_facts": {"f1": {"source": "03_analysis/results/hr.json", "pointer": "/primary", "context": long_ctx}}}),
+                encoding="utf-8",
+            )
+            sent = (
+                "In the eligible adult surgical cohort comparing early intervention arm vs standard care arm over 24-month follow-up, "
+                "all-cause mortality yielded a multivariable Cox regression model hazard ratio of 1.42 (95% CI 1.05–1.92, P = 0.022; Table 1, Figure 1)."
+            )
+            res_md = proj / "07_manuscript/results.md"
+            res_md.write_text(f"# Results\n\n{sent}\n", encoding="utf-8")
+
+            shorthand_obs = {
+                "population": "eligible adult surgical cohort",
+                "comparison": "early intervention arm vs standard care arm",
+                "model": "multivariable Cox regression model",
+                "timepoint": "24-month follow-up",
+                "unit": "hazard ratio",
+            }
+            (proj / "07_manuscript/claim_bindings.json").write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "claims": [{
+                        "path": "07_manuscript/results.md",
+                        "section": ["Results"],
+                        "text": sent,
+                        "fact_ids": ["f1"],
+                        "context_evidence": {
+                            "f1": {"fact_fingerprint": "pending", "claim_fingerprint": "pending", "observations": shorthand_obs}
+                        },
+                    }],
+                }),
+                encoding="utf-8",
+            )
+            rc_sync, sync_info = sync_claims.sync_bindings(proj)
+            self.assertEqual(rc_sync, 0, msg=sync_info)
+            self.assertEqual(claims.validate_prose(proj, "07_manuscript/results.md", res_md.read_text(encoding="utf-8")), [])
+
+            # Polarity mismatch ("unadjusted Cox regression model" vs multivariable adjusted fact) MUST fail
+            bad_sent = sent.replace("multivariable Cox regression model", "unadjusted Cox regression model")
+            res_md.write_text(f"# Results\n\n{bad_sent}\n", encoding="utf-8")
+            bad_obs = dict(shorthand_obs, model="unadjusted Cox regression model")
+            (proj / "07_manuscript/claim_bindings.json").write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "claims": [{
+                        "path": "07_manuscript/results.md",
+                        "section": ["Results"],
+                        "text": bad_sent,
+                        "fact_ids": ["f1"],
+                        "context_evidence": {
+                            "f1": {"fact_fingerprint": "pending", "claim_fingerprint": "pending", "observations": bad_obs}
+                        },
+                    }],
+                }),
+                encoding="utf-8",
+            )
+            rc_bad, _ = sync_claims.sync_bindings(proj)
+            self.assertNotEqual(rc_bad, 0)
+
+            # 3) benchmark.coverage passes when target section cites declared citekeys without copying edited prose back into roles[].passage
+            (proj / "06_refs").mkdir(parents=True, exist_ok=True)
+            (proj / "06_refs/library.json").write_text(
+                json.dumps({"entries": [{"citekey": "comp1"}, {"citekey": "comp2"}]}),
+                encoding="utf-8",
+            )
+            (proj / "07_manuscript/introduction.md").write_text(
+                "# Introduction\n\nPrior randomized clinical trials established baseline surgical morbidity across tertiary referral centers [@comp1; @comp2].\n",
+                encoding="utf-8",
+            )
+            bench_payload = {
+                "benchmark_version": 1,
+                "adaptation": {
+                    "references": {
+                        "roles": [{"id": "r1", "section": "introduction", "required": True, "claim": "Baseline surgical morbidity", "citekeys": ["comp1", "comp2"]}]
+                    }
+                },
+            }
+            (proj / "01_protocol/artifact_benchmark.md").write_text(
+                f"# Benchmark\n\n```json\n{json.dumps(bench_payload)}\n```\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(benchmark.coverage(proj, "introduction"), [])
+
+            # 4) manuscript/reconcile.py generates 07_manuscript/reconciliation.md in one command
+            from tables.threeline import write_table
+            (proj / "06_refs").mkdir(parents=True, exist_ok=True)
+            (proj / "07_manuscript/methods.md").write_text("# Methods\n\nStatistical methods are summarized in Table 1.\n", encoding="utf-8")
+            write_table(
+                proj / "04_tables/main/Table_1.xlsx",
+                sheet="Table 1",
+                title="Table 1. Primary Cox model.",
+                header=["Outcome", "HR"],
+                rows=[["All-cause mortality", "1.42"]],
+                footnotes=["Abbreviations: HR, hazard ratio."],
+            )
+            (proj / "05_figures/out/Figure_1.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
+            (proj / "05_figures/figure_legends.md").write_text("# Figure legends\n\nFigure 1. Survival curve.\n", encoding="utf-8")
+            (proj / "01_protocol/artifact_plan.json").write_text(
+                json.dumps({
+                    "main_tables": [{"id": "Table 1", "sheet": "Table 1", "file": "04_tables/main/Table_1.xlsx"}],
+                    "main_figures": [{"id": "Figure 1", "file": "05_figures/out/Figure_1.pdf"}],
+                }),
+                encoding="utf-8",
+            )
+            # Restore valid results.md & claim_bindings so numbers_cross_match / claims succeed
+            res_md.write_text(f"# Results\n\n{sent}\n", encoding="utf-8")
+            (proj / "07_manuscript/claim_bindings.json").write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "claims": [{
+                        "path": "07_manuscript/results.md",
+                        "section": ["Results"],
+                        "text": sent,
+                        "fact_ids": ["f1"],
+                        "context_evidence": {
+                            "f1": {"fact_fingerprint": "pending", "claim_fingerprint": "pending", "observations": shorthand_obs}
+                        },
+                    }],
+                }),
+                encoding="utf-8",
+            )
+            self.assertEqual(sync_claims.sync_bindings(proj)[0], 0)
+            rc_rec = reconcile_mod.main(["--project", str(proj)])
+            rec_out = proj / "07_manuscript/reconciliation.md"
+            self.assertEqual(rc_rec, 0, msg=rec_out.read_text(encoding="utf-8"))
+            self.assertIn("file verified & cross-checked", rec_out.read_text(encoding="utf-8"))
+            self.assertIn("Table 1", rec_out.read_text(encoding="utf-8"))
+            self.assertIn("Figure 1", rec_out.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

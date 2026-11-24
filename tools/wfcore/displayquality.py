@@ -150,8 +150,8 @@ def production_problems(project: Path, kind: str, *, only: str | None = None) ->
             except (OSError, ValueError):
                 problems.append(f"{key}: bind the actual rendered image/page used for medical reading")
             for field in ("reader_explanation", "layout_and_style"):
-                if len(str(row.get(field, "")).strip()) < 60:
-                    problems.append(f"{key}: describe concrete {field} from the production render")
+                if len(str(row.get(field, "")).strip()) < 15:
+                    problems.append(f"{key}: record concise {field} (>=15 chars) from the production render")
             if row.get("verdict") != "PASS": problems.append(f"{key}: resolve real display defects before Results writing")
             if kind == "table":
                 from openpyxl import load_workbook

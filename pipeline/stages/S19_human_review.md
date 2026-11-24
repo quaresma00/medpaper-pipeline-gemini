@@ -86,14 +86,3 @@ uv run python tools/wf.py advance --note "current review round explicitly approv
   dependency-based work, never by reducing analysis, sources, medical judgment or QA.
 
 
-## Structural quality and bounded rework
-
-Read `reference/structural-quality.md`. Use clinical display names and physical-size assumptions
-before production. Percentage claims bind numerator, denominator and source percentage basis.
-Every actionable point in every review section needs a stable ID and disposition, not only
-the must-fix subset. Review neutral actual artifacts; don't prime with the writer's conclusion.
-Use read-only rework preview and actual scoped checks; never infer scientific change from a
-publication label number or silently invalidate author approval. Existing privacy, freezes,
-centralized abbreviations, Word cleanup and final actual-page inspection remain in force.
-
-

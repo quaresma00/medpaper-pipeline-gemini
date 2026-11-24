@@ -381,6 +381,44 @@ def results_text(text, rel, *, include_discussion: bool = False):
     return "\n\n".join(parts)
 
 
+_SHORTHAND_STOPWORDS = {
+    "the", "and", "for", "with", "from", "over", "into", "among", "across",
+    "using", "between", "versus", "vs", "model", "models", "analysis", "analyses",
+    "cohort", "group", "groups", "patients", "participants", "subjects", "study",
+}
+
+
+def _clinical_shorthand_matches(expected: str, snippet: str) -> bool:
+    """Allow concise clinical phrasing (e.g. 'multivariable Cox model') to match a longer exported
+    fact context ('Multivariable Cox proportional hazards model adjusted for age and sex') without
+    forcing 60-char boilerplate read_back prose, while blocking pole/adjustment/duration conflicts.
+    """
+    if not expected or not snippet:
+        return False
+    if _phrase(expected, snippet):
+        return True
+    exp_adj = _model_adjustment_state(expected)
+    snp_adj = _model_adjustment_state(snippet)
+    if exp_adj and snp_adj and exp_adj != snp_adj:
+        return False
+    if not exp_adj and "adjusted" in snp_adj:
+        return False
+    exp_demo = _demographic_pole(expected)
+    snp_demo = _demographic_pole(snippet)
+    if exp_demo and snp_demo and exp_demo != snp_demo:
+        return False
+    exp_dur = _duration_tags(expected)
+    snp_dur = _duration_tags(snippet)
+    if exp_dur and snp_dur and not (exp_dur & snp_dur):
+        return False
+    exp_tokens = {w for w in re.findall(r"[a-z0-9]+", expected.casefold()) if len(w) >= 3}
+    snp_tokens = [w for w in re.findall(r"[a-z0-9]+", snippet.casefold()) if len(w) >= 3]
+    salient = [w for w in snp_tokens if w not in _SHORTHAND_STOPWORDS]
+    if not salient:
+        salient = snp_tokens
+    return bool(salient) and all(w in exp_tokens for w in salient)
+
+
 def _phrase(value, text):
     value = re.sub(r"\s+", " ", value).strip()
     text = re.sub(r"\s+", " ", text)
@@ -550,6 +588,9 @@ def validate_context(project, rel, text, claim, catalog, *, required, label_look
                        not (field == "unit" and _unit_matches(expected, term))]
             if foreign and not matcher(expected, quote):
                 raise ValueError(f"{key}: {field} text names another exported context {foreign[0]!r}; resolve the finding/text attribution")
+            matcher = _unit_matches if field == "unit" else (
+                lambda exp_v, snp_v: _phrase(exp_v, snp_v) or (not foreign and _clinical_shorthand_matches(exp_v, snp_v))
+            )
             if isinstance(observed, str):
                 if not observed.strip() or observed not in quote or not matcher(expected, observed):
                     raise ValueError(f"{key}: {field} literal evidence does not align the current claim with source context {expected!r}")

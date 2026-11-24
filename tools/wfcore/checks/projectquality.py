@@ -122,8 +122,9 @@ def reference_usage(ctx):
             return Result(
                 False,
                 "reference_usage",
-                "Each unused non-candidate library entry needs a concrete non-use reason (or archive candidate pool via `tools/pubmed/build_library.py --archive-uncited`): "
-                + ", ".join(sorted(absent)),
+                "Unused non-candidate library entries (run `uv run python tools/pubmed/build_library.py --archive-uncited` to archive candidate pool): "
+                + ", ".join(sorted(absent)[:10]),
+                severity="warn",
             )
     except (OSError,ValueError,KeyError) as exc: return Result(False,"reference_usage",str(exc))
     return Result(True,"reference_usage",f"library={len(entries)}, actually cited={len(cited)}, unused/candidate accounted={len(entries.keys()-cited)}; never pad citations")

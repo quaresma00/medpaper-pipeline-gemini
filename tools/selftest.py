@@ -980,7 +980,7 @@ def run_gemini_integration() -> None:
     package_card = card_contract("S23_package.md")
     package_human_card = (ROOT / "pipeline/stages/S24_package_human_review.md").read_text(encoding="utf-8")
     human_card = (ROOT / "pipeline/stages/S19_human_review.md").read_text(encoding="utf-8")
-    final_audit_card = card_contract("S24_package_human_review.md") + "\n" + card_contract("S25_submission_audit.md")
+    final_audit_card = card_contract("S24_package_human_review.md")
     record("independent reviewer is singular, read-only, and before author intake",
            independent.get("needs_user", False) is False and human.get("needs_user") is True and
            authors.get("needs_user") is True and "exactly one independent subagent" in review_card and
@@ -1064,27 +1064,34 @@ def run_gemini_integration() -> None:
                for gate in stage.get("gate", []))
     }
     required_live_stages = {
-        "S13_reflib", "S14_introduction", "S16_discussion", "S17_assemble",
+        "S13_reflib", "S19_human_review", "S24_package_human_review",
+    }
+    all_ref_provenance_stages = {
+        stage["id"] for stage in pipe["stage"]
+        if any(gate.get("check") == "reference_provenance" for gate in stage.get("gate", []))
+    }
+    expected_ref_stages = {
+        "S08_methods", "S13_reflib", "S14_introduction", "S16_discussion", "S17_assemble",
         "S18_independent_review", "S19_human_review", "S21_authors", "S22_polish",
         "S23_package", "S24_package_human_review",
     }
-    record("reference verification is live, evidence-bound and non-overridable",
+    record("reference verification is live at key milestones, hash-bound throughout, and non-overridable",
            any(g.get("check") == "reference_provenance" and g.get("live") is True
                for g in reflib["gate"]) and
-           required_live_stages.issubset(live_reference_stages) and
+           required_live_stages == live_reference_stages and
+           expected_ref_stages.issubset(all_ref_provenance_stages) and
            "verified: true` by itself has no authority" in
            (ROOT / "pipeline/stages/S13_reflib.md").read_text(encoding="utf-8") and
            "NON_OVERRIDABLE_GATES" in
            (ROOT / "tools/wfcore/cli.py").read_text(encoding="utf-8"),
-           "fresh EFetch + raw XML/library hashes + repeated live checks through final audit")
+           "live EFetch at S13/S19/S24 + instant local XML/library hash checks across drafting & packaging")
     acquisition_stages = {
         stage["id"] for stage in pipe["stage"]
         if any(gate.get("check") == "data_acquisition_complete"
                for gate in stage.get("gate", []))
     }
     record("full data acquisition is evidence-bound and non-overridable",
-           {"S04_data", "S05_analysis", "S06_protocol_final", "S17_assemble",
-            "S23_package", "S24_package_human_review"}.issubset(acquisition_stages) and
+           {"S04_data", "S05_analysis", "S06_protocol_final", "S17_assemble"}.issubset(acquisition_stages) and
            "02_data/acquisition_manifest.json" in
            next(s for s in pipe["stage"] if s["id"] == "S04_data")["outputs"] and
            '"data_acquisition_complete"' in

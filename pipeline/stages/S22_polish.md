@@ -30,17 +30,13 @@ uv run python tools/text/polish.py snapshot
    source's 3-6 comma-delimited convention does not override that journal. Preserve the
    explicit References heading and concise Figure legends at the end.
 4. Run `tools/text/polish.py diff` and `tools/text/polish.py lint` again. Restore and redo
-   any wording edit that loses or adds a number, citation or artifact reference.
-5. Keep the existing `polish_log.md` concise: actual changes, retained context-dependent
-   terminology and substantive reading findings. Do not write a justification per harmless word.
-   New lint reports bind current sources, linter and exceptions; rerun only this cheap check
-   when those inputs change, never analysis or an unrelated Word build.
-6. Reread the complete manuscript and optional supplementary Methods, then record
-   `polish_reviewed YES` with a concrete reason.
+   any wording edit that loses or adds a number, citation or artifact reference (if wording-only
+   edits shifted bound sentences, run `uv run python tools/manuscript/sync_claims.py --layer journal --reanchor`).
+5. Reread the complete manuscript and optional supplementary Methods, then record
+   `polish_reviewed YES` with a concrete reason. (`polish_log.md` is optional.)
 
 ## Outputs
 - `08_submission/integration/polish_report.json`
-- `08_submission/integration/polish_log.md`
 
 ## Hard rules
 - Wording only. Never change a number, citekey, artifact reference or conclusion strength.
@@ -51,14 +47,7 @@ uv run python tools/text/polish.py snapshot
 - Do not add content or an AI-use disclosure during polishing.
 
 ## Close
-Complete journal preproduction executor acceptance from the same-journal benchmark and actual
-integration sources: `benchmark.py accept --layer journal --review <findings.json>`.
-Resolve Methods/Discussion organization, declaration order, main/supp legends and sourced
-limits before expensive Word. Use explicit prototype/source_file paths for unbuilt journal
-displays, never pretend a future output was inspected. Final-upload acceptance remains S23.
-Note: Per-section de-AI, anti-defensive, and clinical polish already runs at drafting (`S08`, `S09`, `S14`, `S16`, `S17`); `S22` performs whole-manuscript harmonization, house style, and immutable fact preservation.
-
-```
+```powershell
 uv run python tools/wf.py check
 uv run python tools/wf.py advance --note "journal polish complete; facts preserved; abstract/main/reference limits pass; read by eye"
 ```

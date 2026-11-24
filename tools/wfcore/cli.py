@@ -280,17 +280,12 @@ def cmd_status(args) -> int:
 
 def cmd_card(args) -> int:
     pipe, st, _ = _load(need_state=False)
-    explicit_legacy_card = None
     if args.stage:
-        if args.stage.strip() == "S25_submission_audit":
-            candidate = paths.pipeline_dir() / "stages/S25_submission_audit.md"
-            if candidate.is_file():
-                explicit_legacy_card = candidate
         stage = pipe.resolve(args.stage)
     else:
         st.load()
         stage = pipe.stage(st.current)
-    card = explicit_legacy_card or stage.card_path()
+    card = stage.card_path()
     if getattr(args,"details",False):
         detail=paths.repo_root()/"reference/stage_details"/card.name
         if detail.is_file(): card=detail

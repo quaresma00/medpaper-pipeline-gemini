@@ -34,14 +34,7 @@ already-read guidance and go directly to affected owner rules. After compaction 
 `reference/structural-quality.md` v1.17 explains runtime fixes and preserved boundaries.
 
 ## Outputs
-Before closing, read `reference/project-benchmarking.md`, survey same-journal close full texts
-(recording `observations.section_words`, citations, and displays), write
-`08_submission/integration/journal_benchmark.md`, and seal via `benchmark.py seal --layer journal`.
-When official guides mandate an explicit H1 section list or singular/plural headings, record
-`required_main_sections` in `submission_requirements.json` for S22/S23 verification. Comparator-only `fulltext.py --pmid` acquisition
-must not modify the frozen scientific bibliography. Reuse already read suitable papers.
-Store explicit display caps in `submission_requirements.json.display_limits`; null means
-unstated. Apply those caps to the derived plan at S22 before Word production, not to the master.
+When official Author Guidelines mandate an explicit H1 section sequence or singular/plural headings, record `required_main_sections` in `submission_requirements.json` for S22/S23 verification. Store explicit display caps in `submission_requirements.json.display_limits` (`null` means unstated) and apply those caps to the derived plan at S22 before Word production, never to the frozen scientific master.
 
 - `08_submission/journal_shortlist.md`
 - `08_submission/target_journal.json`

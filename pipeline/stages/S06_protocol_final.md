@@ -68,27 +68,12 @@ uv run python tools/manuscript/readiness.py freeze
 - `01_protocol/writing_readiness.json`
 
 ## Hard rules
-- Do not retro-fit the protocol to make the result look pre-specified. The diff file
-  exists so that this is impossible to do accidentally.
-- A `STOP` here is a real outcome. Report it to the user with the reasoning; do not
-  soften a dead result into a "hypothesis-generating" paper without saying so.
+- Do not retro-fit the protocol to make the result look pre-specified. Record deviations honestly in `protocol_final.md` (and `protocol_diff.md` when deviations exist).
+- A `STOP` (`NO_GO`) here is a real outcome: if S05 results show unviable SCIE Original Article potential or fatally underpowered inference, stop and advise the user immediately instead of locking a weak protocol or softening a dead result into "hypothesis-generating" filler.
 
 ## Close
 ```
 uv run python tools/wf.py check
 uv run python tools/wf.py advance --note "protocol final; K deviations; go_nogo_2=<...>; realistic tier=<...>"
 ```
-
-
-## Structural quality and bounded rework
-
-Read `reference/structural-quality.md`. Use clinical display names and physical-size assumptions
-before production. Percentage claims bind numerator, denominator and source percentage basis.
-Every actionable point in every review section needs a stable ID and disposition, not only
-the must-fix subset. Review neutral actual artifacts; don't prime with the writer's conclusion.
-Use read-only rework preview and actual scoped checks; never infer scientific change from a
-publication label number or silently invalidate author approval. Existing privacy, freezes,
-centralized abbreviations, Word cleanup and final actual-page inspection remain in force.
-If exploratory outcomes in S05 show unviable SCIE Original Article potential (`NO_GO` / low ROI), stop and advise the user immediately instead of locking a weak protocol.
-
 

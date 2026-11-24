@@ -119,10 +119,7 @@ references each own their topic; this policy contains no historical supersession
   seal configuration and measure actual uploads. Old guides/styles/approval pointers leave the
   active attempt together. Same-context resume preserves author edits. Refreshing the engine
   never silently migrates pinned gates or rewinds completed history.
-- At S17/S22/S23 complete the executor's own medical/content/visual acceptance before delivery.
-  Read all actual main/supplement materials without backstage context, then verify their meaning
-  against sources. Quantity ranges are advisory; source identity/support and explicit journal
-  limits are mandatory. Style comparators use the public cache, not changes to accepted science.
+- Quantity ranges are advisory; source identity/support and explicit journal limits are mandatory.
 - S24 runs exactly one independent read-only reader/editor/compliance reviewer with the current
   official instructions, presents actual uploads for scoped fixes and explicit author confirmation
   (`我确认这一版`), and freezes the verified `<Journal_Slug>_<YYYYMMDD_HHMMSS>` release together

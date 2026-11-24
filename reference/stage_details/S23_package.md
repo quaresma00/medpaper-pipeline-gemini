@@ -10,8 +10,8 @@ in both builder and manifest audit. Office lock files, previews and evidence are
 ## Purpose
 Produce the exact files required by the chosen journal. All uploadable prose is delivered
 as Word, with deterministic typography and no residual Pandoc/Word theme defects. This stage
-builds the package; S24 is the user's final content/format review and S25 is the independent
-journal-guideline audit.
+builds the package; S24 runs the independent reader/editor/compliance package audit and
+the user's final content/format review.
 
 ## Procedure
 Read `reference/content-aware-amendments.md`. Prefer deterministic staged builds. A local
@@ -98,7 +98,7 @@ uv run python tools/package_content.py capture --project project
    `submission_files_visually_confirmed YES`, then clean temporary/orphaned files.
 11. Run `tools/submission_qc.py measure` on final files. It updates only its marked measured
     block in the internal evidence checklist, preserving manual visual findings. Run the same
-    receipt verification at S24/S25; unchanged file/rule hashes reuse real measurements.
+    receipt verification at S24; unchanged file/rule hashes reuse real measurements.
     Read `reference/review-rounds-and-word-tables.md` for native Word table sheets/ranges,
     per-table orientation, continuous page numbers and truthful reading-copy handoffs.
 
@@ -140,21 +140,10 @@ merely because local files exist; never draft an AI-use disclosure without the e
   rebuild from or modify the frozen `07_manuscript` master for this journal's package.
 
 ## Close
-After final cleanup, rendering and cross-file QA, complete actual-upload executor acceptance:
-`tools/manuscript/benchmark.py accept --layer journal --final --review <findings.json>`.
-Inspect actual references/numbering, each main/supp legend, declarations and upload association.
-Do not present routine defects to the user as a finished package or call generation submission.
+Inspect actual references/numbering, each main/supp legend, declarations, clinical labels/units, and upload association on rendered Word pages before presenting the finished package at S24.
 
 ```
 uv run python tools/wf.py check
 uv run python tools/wf.py advance --note "submission package built and visually verified; Word typography/link/heading audit passed; ready for user package review"
 ```
-
-## Medical-reader presentation
-
-Read `reference/medical-reader-presentation.md`: check actual clinical labels, counting units,
-denominators, statistical marks and state distinctions, table footnotes and figure decoding.
-Retain necessary methods; do not imply prespecification or change counts by renaming units.
-Use the existing acceptance/review, not an additional audit. At S23 verify actual rendered
-Word pages and journal-directed legend/figure placement; don't reintroduce forbidden controls.
 

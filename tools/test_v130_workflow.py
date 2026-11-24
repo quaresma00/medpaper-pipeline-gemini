@@ -59,7 +59,7 @@ class TestV130Workflow(unittest.TestCase):
         self.assertEqual(ids.index("S08_methods"), ids.index("S11b_prewrite_review") + 1)
         self.assertEqual(ids.index("S09_results"), ids.index("S08_methods") + 1)
         self.assertEqual(ids[-1], "S24_package_human_review")
-        for name in ("S07_artifacts", "S20_journal", "S23_package", "S24_package_human_review", "S25_submission_audit"):
+        for name in ("S07_artifacts", "S20_journal", "S23_package", "S24_package_human_review"):
             card = ROOT / "pipeline/stages" / f"{name}.md"
             self.assertLess(len(card.read_text(encoding="utf-8")), 4000, f"{name} exceeded 4000 chars")
 
