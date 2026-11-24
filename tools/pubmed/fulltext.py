@@ -188,6 +188,7 @@ def try_openalex(entry: dict) -> dict | None:
 
 SCIHUB_MIRRORS = ("https://sci-hub.se", "https://sci-hub.st", "https://sci-hub.ru")
 CAPTCHA_MARKERS = ("captcha", "verify you are human", "cloudflare", "just a moment", "ddos-guard", "g-recaptcha", "hcaptcha")
+_DEAD_MIRRORS: set[str] = set()
 
 
 def _extract_scihub_pdf_url(html: str, base_url: str) -> str | None:
@@ -217,10 +218,12 @@ def try_scihub(entry: dict) -> dict | None:
     headers = {"User-Agent": "Mozilla/5.0 (compatible; MedPaperResearch/1.30)"}
     saw_captcha = False
     for mirror in SCIHUB_MIRRORS:
+        if mirror in _DEAD_MIRRORS:
+            continue
         target = f"{mirror.rstrip('/')}/{doi}"
         try:
             req = urllib.request.Request(target, headers=headers)
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=12) as resp:
                 ctype = (resp.headers.get("Content-Type") or "").lower()
                 raw = resp.read(2_500_000)
                 if raw[:4] == b"%PDF" or "application/pdf" in ctype:
@@ -255,7 +258,14 @@ def try_scihub(entry: dict) -> dict | None:
                     "authorization_note": f"Full-text PDF retrieved via {mirror} DOI lookup; automated identity verified.",
                     "note": "retrieved via Sci-Hub DOI fallback; verify PDF text clarity during deep read.",
                 }
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        except urllib.error.HTTPError as exc:
+            if exc.code >= 500:
+                _DEAD_MIRRORS.add(mirror)
+            continue
+        except (urllib.error.URLError, TimeoutError) as _exc:
+            _DEAD_MIRRORS.add(mirror)
+            continue
+        except (OSError, ValueError):
             continue
     if saw_captcha:
         return {
@@ -332,6 +342,8 @@ def main() -> int:
                     help="required for institutionally authorized full text")
     ap.add_argument("--replace-existing", action="store_true",
                     help="replace a different previously registered file for this citekey")
+    ap.add_argument("--force-refetch", action="store_true",
+                    help="re-download even when a valid local full text is already registered")
     args = ap.parse_args()
 
     lib_path = eu.refs_dir() / "library.json"
@@ -434,11 +446,35 @@ def main() -> int:
 
     results = {}
     failed = []
+    existing_manifest_path = out_dir() / MANIFEST
+    existing_retrievals: dict[str, dict] = {}
+    if existing_manifest_path.is_file():
+        try:
+            existing_retrievals = {
+                r["citekey"]: r
+                for r in json.loads(existing_manifest_path.read_text(encoding="utf-8")).get("retrievals", [])
+                if isinstance(r, dict) and r.get("citekey")
+            }
+        except (OSError, json.JSONDecodeError):
+            existing_retrievals = {}
+
     for key in dict.fromkeys(keys):
         entry = entries.get(key)
         if not entry:
             print(f"{key}: not in library.json - add it before deep-reading")
             failed.append(key)
+            continue
+        prev = existing_retrievals.get(key, {})
+        prev_rel = str(prev.get("fulltext", ""))
+        if (
+            not args.force_refetch
+            and prev.get("access") in {"oa", "authorized"}
+            and prev_rel.startswith("06_refs/fulltext/")
+            and (eu.project_root() / prev_rel).is_file()
+            and _sha256(eu.project_root() / prev_rel) == prev.get("sha256")
+        ):
+            print(f"{key}: [SKIP already retrieved] {prev.get('route')} / {prev.get('access')} / {prev_rel}")
+            results[key] = prev
             continue
         print(f"{key}: {entry.get('title', '')[:70]}")
         res = fetch_one(entry)

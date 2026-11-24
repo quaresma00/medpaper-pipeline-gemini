@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from dataclasses import asdict
+from pathlib import Path
 
 from . import paths
 from .packagefreeze import _sha256, _safe_path
@@ -20,6 +22,24 @@ INPUTS = {
                           "08_submission/target_journal.json", "08_submission/submission_requirements.json",
                           ".wf/benchmark_*_lock.json", "06_refs/library.json", "06_refs/verified.json",
                           "06_refs/fulltext/*", "06_refs/cache/*.xml"),
+    "benchmark_display_sufficiency": ("01_protocol/artifact_benchmark.md", "01_protocol/artifact_benchmark.json",
+                                      "01_protocol/artifact_plan.json", "01_protocol/analysis_contract.json",
+                                      "01_protocol/idea.json", "06_refs/library.json",
+                                      "08_submission/integration/artifact_benchmark.json",
+                                      "08_submission/integration/artifact_plan.json"),
+    "medical_display_story": ("01_protocol/artifact_plan.json", "01_protocol/artifact_benchmark.md"),
+    "medical_display_production": ("01_protocol/artifact_plan.json", "01_protocol/display_review.json",
+                                   "04_tables/**/*.xlsx", "04_tables/previews/*", "05_figures/out/*",
+                                   "05_figures/qc/*"),
+    "display_labels_clinical": ("01_protocol/artifact_plan.json", "01_protocol/analysis_contract.json",
+                                "04_tables/**/*.xlsx", "04_tables/table_captions.md",
+                                "05_figures/code/*", "05_figures/out/*", "05_figures/qc/*", "05_figures/legends.md",
+                                "08_submission/target_journal.json", "08_submission/integration/**/*",
+                                "08_submission/bundle/**/*"),
+    "tables_threeline": ("01_protocol/artifact_plan.json", "04_tables/**/*.xlsx"),
+    "tables_match_plan": ("01_protocol/artifact_plan.json", "04_tables/**/*.xlsx"),
+    "figures_match_plan": ("01_protocol/artifact_plan.json", "05_figures/out/*"),
+    "figures_qc": ("01_protocol/artifact_plan.json", "05_figures/out/*", "05_figures/qc/*"),
     "literature_coverage": ("01_protocol/artifact_benchmark.md", "06_refs/library.json", "07_manuscript/*.md"),
     "executor_acceptance": (".wf/executor_acceptance_*.json", ".wf/benchmark_*_lock.json",
                             "01_protocol/artifact_benchmark.md", "01_protocol/artifact_plan.json",
@@ -28,7 +48,7 @@ INPUTS = {
                             "06_refs/library.json", "06_refs/refs.bib", "06_refs/fulltext/*",
                             "08_submission/target_journal.json", "08_submission/submission_requirements.json",
                             "08_submission/integration/**/*", "08_submission/bundle/**/*"),
-    "md_sections": (), "md_wordcount": (), "no_ai_boilerplate": (),
+    "md_sections": (), "md_wordcount": (), "no_ai_boilerplate": (), "prose_not_lists": (),
     "supplementary_methods_clean": ("07_manuscript/supplementary_methods.md",),
     "numbers_have_provenance": ("06_refs/library.json", "06_refs/verified.json", "06_refs/fulltext/*", "06_refs/cache/*.xml",
                                 "01_protocol/protocol*.md", "03_analysis/results/*", "04_tables/**/*.xlsx",
@@ -36,14 +56,68 @@ INPUTS = {
                                 "08_submission/integration/figure_qc/*.json", "08_submission/integration/artifact_plan.json",
                                 "01_protocol/study_facts.json", "07_manuscript/claim_bindings.json",
                                 "08_submission/integration/claim_bindings.json", "00_input/author_info.json"),
+    "numbers_cross_match": ("01_protocol/artifact_plan.json", "04_tables/**/*.xlsx", "07_manuscript/results.md"),
+    "abbreviations_centralized": ("07_manuscript/*.md", "04_tables/table_captions.md", "05_figures/legends.md",
+                                  "08_submission/target_journal.json", "08_submission/integration/*.md"),
+    "discussion_workflow_valid": ("07_manuscript/discussion_brief.md", "07_manuscript/discussion_outline.md",
+                                  "07_manuscript/discussion.md", ".wf/discussion_outline_receipt.json"),
+    "discussion_discipline": ("07_manuscript/results.md", "07_manuscript/discussion.md",
+                              "07_manuscript/full_manuscript.md", "08_submission/target_journal.json",
+                              "08_submission/integration/full_manuscript.md"),
+    "polish_preserves_facts": ("08_submission/integration/**/*", "07_manuscript/*.md",
+                               ".wf/presentation_deltas.json", ".wf/revisions/*.json"),
+    "ai_tells_clean": ("08_submission/integration/polish_report.json", "08_submission/integration/*.md",
+                       "08_submission/integration/polish_allowlist.tsv", "07_manuscript/*.md"),
+    "style_consistent": ("08_submission/integration/polish_report.json", "08_submission/integration/*.md",
+                         "08_submission/integration/polish_allowlist.tsv", "07_manuscript/*.md"),
     "manuscript_structure": ("01_protocol/artifact_plan.json", "07_manuscript/title.md",
-                             "07_manuscript/full_manuscript.md", "08_submission/target_journal.json"),
+                             "07_manuscript/full_manuscript.md", "08_submission/target_journal.json",
+                             "08_submission/submission_requirements.json"),
     "docx_bundle_ready": ("08_submission/bundle/**/*", "08_submission/docx_style.json",
                           "08_submission/target_journal.json", "08_submission/submission_requirements.json",
                           "08_submission/integration/supplementary_methods.md", "01_protocol/artifact_plan.json",
                           "00_input/author_info.json"),
 }
-TTL_SECONDS = 120
+TTL_SECONDS = 3600
+_ENGINE_FILE_CACHE: dict[Path, tuple[int, int, str]] = {}
+
+
+def cached_engine_hashes(root=None) -> dict[str, str]:
+    """Compute SHA-256 of engine source files, reusing in-process (size, mtime_ns) hits via os.scandir."""
+    base = (Path(root) if root is not None else paths.repo_root()).resolve()
+    result: dict[str, str] = {}
+    valid_exts = {".py", ".r", ".toml", ".md"}
+
+    def _scan_dir(dir_path: Path, rel_prefix: str) -> None:
+        try:
+            with os.scandir(dir_path) as it:
+                for entry in it:
+                    name = entry.name
+                    if entry.is_dir(follow_symlinks=False):
+                        if name == "__pycache__" or name.startswith("."):
+                            continue
+                        _scan_dir(dir_path / name, f"{rel_prefix}/{name}")
+                    elif entry.is_file(follow_symlinks=False):
+                        dot = name.rfind(".")
+                        if dot < 0 or name[dot:].lower() not in valid_exts:
+                            continue
+                        st = entry.stat(follow_symlinks=False)
+                        p = dir_path / name
+                        hit = _ENGINE_FILE_CACHE.get(p)
+                        if hit is not None and hit[0] == st.st_size and hit[1] == st.st_mtime_ns:
+                            digest = hit[2]
+                        else:
+                            digest = _sha256(p)
+                            _ENGINE_FILE_CACHE[p] = (st.st_size, st.st_mtime_ns, digest)
+                        result[f"{rel_prefix}/{name}"] = digest
+        except OSError:
+            return
+
+    for folder in ("tools", "pipeline", "reference"):
+        folder_path = base / folder
+        if folder_path.is_dir():
+            _scan_dir(folder_path, folder)
+    return result
 
 
 def descriptor(stage, spec):
@@ -75,10 +149,7 @@ class Receipts:
         self.new = {}
         self.reused = 0
         # Once per invocation; changes to any implementation invalidate old receipts.
-        self.engine = {p.relative_to(paths.repo_root()).as_posix(): _sha256(p)
-                       for folder in ("tools", "pipeline", "reference")
-                       for p in (paths.repo_root() / folder).rglob("*")
-                       if p.is_file() and p.suffix.lower() in {".py", ".r", ".toml", ".md"}}
+        self.engine = dict(cached_engine_hashes(paths.repo_root()))
 
     def identity(self, stage, spec):
         if spec.get("check") not in INPUTS or spec.get("live", False):

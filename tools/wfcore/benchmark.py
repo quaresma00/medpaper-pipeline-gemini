@@ -34,21 +34,48 @@ def dossier(project: Path, layer="science") -> dict:
     return selected[0]
 
 
+_FULLTEXT_MEM_CACHE: dict[str, str] = {}
+
+
 def text_of(path: Path) -> str:
-    if path.suffix.lower() == ".xml":
-        return " ".join(ET.fromstring(path.read_bytes()).itertext())
-    if path.suffix.lower() in {".html", ".htm"}:
+    path = Path(path)
+    suffix = path.suffix.lower()
+    if suffix not in {".xml", ".html", ".htm", ".pdf"}:
+        raise ValueError("Comparator must be registered XML/HTML/PDF full text, not notes or an abstract")
+    digest = _sha256(path)
+    if digest in _FULLTEXT_MEM_CACHE:
+        return _FULLTEXT_MEM_CACHE[digest]
+    cache_txt_path: Path | None = None
+    if suffix == ".pdf" and path.parent.name == "fulltext" and path.parent.parent.name == "06_refs":
+        cache_dir = path.parent.parent / "cache"
+        if cache_dir.is_dir():
+            cache_txt_path = cache_dir / f"fulltext_text_{digest[:24].lower()}.txt"
+            if cache_txt_path.is_file():
+                cached_text = cache_txt_path.read_text(encoding="utf-8", errors="replace")
+                _FULLTEXT_MEM_CACHE[digest] = cached_text
+                return cached_text
+    if suffix == ".xml":
+        extracted = " ".join(ET.fromstring(path.read_bytes()).itertext())
+    elif suffix in {".html", ".htm"}:
         class Text(HTMLParser):
             def __init__(self): super().__init__(); self.parts = []
             def handle_data(self, data): self.parts.append(data)
-        parser = Text(); parser.feed(path.read_text(encoding="utf-8")); return " ".join(parser.parts)
-    if path.suffix.lower() == ".pdf":
+        parser = Text(); parser.feed(path.read_text(encoding="utf-8")); extracted = " ".join(parser.parts)
+    else:
         try:
             from pypdf import PdfReader
         except ImportError as exc:
             raise ValueError("PDF comparator needs pypdf in the verified venv, or a registered XML/HTML full text; never substitute an abstract") from exc
-        return " ".join(page.extract_text() or "" for page in PdfReader(path).pages)
-    raise ValueError("Comparator must be registered XML/HTML/PDF full text, not notes or an abstract")
+        extracted = " ".join(page.extract_text() or "" for page in PdfReader(path).pages)
+    _FULLTEXT_MEM_CACHE[digest] = extracted
+    if cache_txt_path is not None:
+        try:
+            tmp = cache_txt_path.with_suffix(".txt.tmp")
+            tmp.write_text(extracted, encoding="utf-8")
+            tmp.replace(cache_txt_path)
+        except OSError:
+            pass
+    return extracted
 
 
 def _norm(text): return re.sub(r"\s+", " ", text).strip().casefold()

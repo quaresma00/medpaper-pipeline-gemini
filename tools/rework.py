@@ -420,14 +420,37 @@ def _cmd_mark(args, project: Path, state: State) -> int:
         raise ValueError(f"unknown item {args.item}")
     if len(args.summary.strip()) < 30:
         raise ValueError("mark summary must state what changed in at least 30 characters")
-    checked_files = []
-    if not args.changed_file and not getattr(args,"checked_file",[]) and not getattr(args,"deleted_file",[]):
-        raise ValueError("mark needs --changed-file or --checked-file evidence")
     if not args.validated_by:
         raise ValueError("mark requires at least one --validated-by check or inspection")
+    changed_arg = list(args.changed_file or [])
+    checked_arg = list(getattr(args, "checked_file", []) or [])
+    deleted_arg = list(getattr(args, "deleted_file", []) or [])
+    if getattr(args, "auto_changed", False):
+        baseline_map = revision.get("baseline", {})
+        current_map = scoped.snapshot(project)
+        candidate_rels = {Path(r).as_posix() for r in item.get("affected_sources", [])}
+        allowed_scope = {Path(r).as_posix() for r in revision.get("allowed_files", [])}
+        for rel in sorted(candidate_rels | allowed_scope):
+            if scoped.renewable(rel) or not _valid_project_rel(rel):
+                continue
+            src = project / rel
+            base_dig = baseline_map.get(rel)
+            if base_dig is not None and not src.exists():
+                if rel in candidate_rels and rel not in deleted_arg:
+                    deleted_arg.append(rel)
+            elif src.is_file():
+                cur_dig = current_map.get(rel) or _sha256_file(src)
+                if base_dig is None or base_dig.casefold() != cur_dig.casefold():
+                    if rel not in changed_arg:
+                        changed_arg.append(rel)
+                elif rel in candidate_rels and rel not in checked_arg and rel not in changed_arg:
+                    checked_arg.append(rel)
+    checked_files = []
+    if not changed_arg and not checked_arg and not deleted_arg:
+        raise ValueError("mark needs --changed-file or --checked-file evidence (or pass --auto-changed)")
     changed = []
     changed_names: set[str] = set()
-    for rel in args.changed_file:
+    for rel in changed_arg:
         if not _valid_project_rel(rel):
             raise ValueError(f"unsafe changed-file path: {rel}")
         source = project / rel
@@ -441,7 +464,7 @@ def _cmd_mark(args, project: Path, state: State) -> int:
             checked_files.append(proof)
         else:
             changed.append(proof)
-    for rel in getattr(args,"checked_file",[]):
+    for rel in checked_arg:
         normalized, source = scoped._safe_path(project,rel)
         if not source.is_file() or normalized not in revision.get("baseline",{}):
             raise ValueError("checked-only source must exist in the round's baseline")
@@ -449,7 +472,7 @@ def _cmd_mark(args, project: Path, state: State) -> int:
         if revision["baseline"][normalized].casefold() != digest.casefold():
             raise ValueError("checked-only source changed; use --changed-file")
         checked_files.append({"path":normalized,"sha256":digest}); changed_names.add(normalized)
-    for rel in getattr(args, "deleted_file", []):
+    for rel in deleted_arg:
         normalized, source = scoped._safe_path(project, rel)
         if normalized not in revision.get("baseline", {}) or source.exists():
             raise ValueError("deletion receipt needs an existing baseline source that is now absent")
@@ -458,7 +481,9 @@ def _cmd_mark(args, project: Path, state: State) -> int:
     missing_sources = sorted(required_sources - changed_names)
     if missing_sources:
         raise ValueError(
-            "mark must hash every declared affected source; missing: " + ", ".join(missing_sources)
+            "mark must hash every declared affected source; missing: "
+            + ", ".join(missing_sources)
+            + " (tip: pass --auto-changed)"
         )
     item.update({
         "status": "done", "resolution": args.summary.strip(), "changed_files": changed, "checked_files":checked_files,
@@ -550,6 +575,8 @@ def main() -> int:
     parser.add_argument("--item", help="revision item id for mark")
     parser.add_argument("--changed-file", action="append", default=[],
                         help="project-relative changed source; repeat as needed")
+    parser.add_argument("--auto-changed", action="store_true",
+                        help="auto-detect changed/checked/deleted files against the round baseline during mark")
     parser.add_argument("--validated-by", action="append", default=[],
                         help="completed gate/test/inspection; repeat as needed")
     parser.add_argument("--summary", help="resolution or round-completion summary")

@@ -150,10 +150,11 @@ class IncrementalQualityTests(unittest.TestCase):
     def test_expired_receipt_and_config_change_recheck(self):
         stage = self.simple_stage()
         gates.run_stage(self.pipe, self.state, self.project, stage, record=True)
+        from wfcore.gatecache import TTL_SECONDS
         path = self.state.dir / "check_receipts.json"
         rows = json.loads(path.read_text())
         for row in rows.values():
-            row["at"] = time.time() - 121
+            row["at"] = time.time() - TTL_SECONDS - 1
         atomic_json(path, rows)
         gates.run_stage(self.pipe, self.state, self.project, stage, reuse=True)
         self.assertEqual(self.state.data["check_reuse"]["reused"], 0)

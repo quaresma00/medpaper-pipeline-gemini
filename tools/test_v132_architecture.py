@@ -1344,6 +1344,248 @@ class V132ArchitectureTests(unittest.TestCase):
             self.assertIn("Ethics approval", docx_secs)
             self.assertIn("Methods", docx_secs)
 
+    def test_13_runtime_speedup_and_anti_deadlock_tools(self) -> None:
+        """Engine hash caching, PDF/table incremental skip, sync_claims --reanchor, polish --reanchor, rework --auto-changed, and --timings."""
+        import time
+        from openpyxl import Workbook
+        from openpyxl.styles import Border, Side
+        from pypdf import PdfWriter
+        import rework as rework_mod
+        from manuscript import sync_claims
+        from tables import render_preview
+        from text import polish as polish_mod
+        from wfcore import benchmark, claims, cli, gatecache, gates, registry
+        from wfcore.packagefreeze import _sha256
+        from wfcore.state import State
+
+        pipe = registry.load()
+
+        # 1) Engine hash cache (zero _sha256 recomputation on warm hit + fast os.scandir + stat invalidation)
+        gatecache.cached_engine_hashes(ROOT)
+        t0 = time.perf_counter()
+        with mock.patch("wfcore.gatecache._sha256", side_effect=AssertionError("expected warm stat cache hit")):
+            warm_hashes = gatecache.cached_engine_hashes(ROOT)
+        warm_ms = (time.perf_counter() - t0) * 1000.0
+        self.assertLess(warm_ms, 150.0, msg=f"warm cached_engine_hashes took {warm_ms:.2f} ms")
+        warm_hashes["__mutated__"] = "bad"
+        self.assertNotIn("__mutated__", gatecache.cached_engine_hashes(ROOT))
+
+        with tempfile.TemporaryDirectory() as fake_repo_td:
+            fake_repo = Path(fake_repo_td)
+            (fake_repo / "tools").mkdir(parents=True)
+            (fake_repo / "pipeline").mkdir(parents=True)
+            sample_py = fake_repo / "tools/sample_mod.py"
+            sample_py.write_text("VALUE = 1\n", encoding="utf-8")
+            h1 = gatecache.cached_engine_hashes(fake_repo)["tools/sample_mod.py"]
+            sample_py.write_text("VALUE = 222\n", encoding="utf-8")
+            h2 = gatecache.cached_engine_hashes(fake_repo)["tools/sample_mod.py"]
+            self.assertNotEqual(h1, h2)
+
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "project"
+            for d in (
+                "01_protocol",
+                "03_analysis/results",
+                "04_tables/main",
+                "06_refs/fulltext",
+                "06_refs/cache",
+                "07_manuscript",
+                ".wf/revisions",
+            ):
+                (proj / d).mkdir(parents=True, exist_ok=True)
+            st = State(proj, ".wf").create("medpaper", "1.32.0", "S14_results")
+
+            # 2) benchmark.text_of PDF disk cache hit in 06_refs/cache/
+            pdf_path = proj / "06_refs/fulltext/comp_cohort.pdf"
+            pw = PdfWriter()
+            pw.add_blank_page(width=72, height=72)
+            with pdf_path.open("wb") as fh:
+                pw.write(fh)
+            benchmark._FULLTEXT_MEM_CACHE.clear()
+            _ = benchmark.text_of(pdf_path)
+            cache_files = list((proj / "06_refs/cache").glob("fulltext_text_*.txt"))
+            self.assertEqual(len(cache_files), 1)
+            benchmark._FULLTEXT_MEM_CACHE.clear()
+            with mock.patch("pypdf.PdfReader", side_effect=AssertionError("expected disk cache hit")):
+                _ = benchmark.text_of(pdf_path)
+
+            # 3) tables/render_preview.py --changed incremental skip
+            from tables.threeline import write_table
+            tbl_xlsx = proj / "04_tables/main/Table_1.xlsx"
+            write_table(
+                path=tbl_xlsx,
+                sheet="Table 1",
+                title="Table 1. Baseline characteristics of the synthetic cohort (N = 200).",
+                header=["Characteristic", "Overall (N = 200)"],
+                rows=[["Age, median (IQR), years", "64.0 (56.0–71.0)"]],
+                footnotes=["Abbreviations: IQR, interquartile range."],
+            )
+            (proj / "01_protocol/artifact_plan.json").write_text(
+                json.dumps({"main_tables": [{"id": "Table 1", "sheet": "Table 1", "file": "04_tables/main/Table_1.xlsx"}], "main_figures": []}),
+                encoding="utf-8",
+            )
+            rep1 = render_preview.render_all(proj, engine="python", only_changed=True)
+            self.assertTrue(rep1["tables"][0]["ok"])
+            with mock.patch("tables.render_preview._render_python", side_effect=AssertionError("expected --changed skip")):
+                rep2 = render_preview.render_all(proj, engine="python", only_changed=True)
+            self.assertTrue(rep2["tables"][0]["ok"])
+
+            # 4) manuscript/sync_claims.py --reanchor + tamper guard
+            ctx_obj = {
+                "outcome": "all-cause mortality",
+                "population": "adult cohort",
+                "comparison": "treatment group A vs group B",
+                "model": "multivariable Cox model",
+                "timepoint": "24-month follow-up",
+                "unit": "hazard ratio",
+                "denominator": "200 patients",
+                "percentage_basis": "200 eligible adult patients followed for 24 months",
+            }
+            (proj / "03_analysis/results/main.json").write_text(
+                json.dumps({
+                    "primary_hr": {
+                        "context": ctx_obj,
+                        "values": {"events": 42, "n": 200, "pct": 21.0, "hr": 1.65, "ci_low": 1.12, "ci_high": 2.43, "p_value": 0.012, "followup_months": 24},
+                    }
+                }),
+                encoding="utf-8",
+            )
+            (proj / "01_protocol/study_facts.json").write_text(
+                json.dumps({"numeric_facts": {"f_hr": {"source": "03_analysis/results/main.json", "pointer": "/primary_hr", "context": ctx_obj}}}),
+                encoding="utf-8",
+            )
+            orig_sent = (
+                "In the randomised adult cohort comparing treatment group A vs group B over 24-month follow-up, "
+                "all-cause mortality occurred in 42 of 200 patients (21.0%; multivariable Cox model hazard ratio 1.65, 95% CI 1.12–2.43, P = 0.012)."
+            )
+            edited_sent = (
+                "Across the randomized adult cohort comparing treatment group A vs group B during 24-month follow-up, "
+                "all-cause mortality occurred in 42 of 200 patients (21.0%; multivariable Cox model hazard ratio 1.65, 95% CI 1.12–2.43; P = 0.012)."
+            )
+            res_md = proj / "07_manuscript/results.md"
+            res_md.write_text(f"# Results\n\n## Primary outcome\n\n{edited_sent}\n", encoding="utf-8")
+            (proj / "07_manuscript/claim_bindings.json").write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "claims": [{
+                        "path": "07_manuscript/results.md",
+                        "section": ["Primary outcome"],
+                        "text": orig_sent,
+                        "fact_ids": ["f_hr"],
+                        "proportions": [{"fact_id": "f_hr", "numerator_key": "events", "denominator_key": "n", "reported": "21.0%"}],
+                        "context_evidence": {
+                            "f_hr": {
+                                "fact_fingerprint": "stale_fp",
+                                "claim_fingerprint": "stale_claim_fp",
+                                "observations": {
+                                    "population": "adult cohort",
+                                    "comparison": "treatment group A vs group B",
+                                    "model": "multivariable Cox model",
+                                    "timepoint": "24-month follow-up",
+                                    "unit": "hazard ratio",
+                                },
+                            }
+                        },
+                    }],
+                }),
+                encoding="utf-8",
+            )
+            self.assertNotEqual(claims.validate_prose(proj, "07_manuscript/results.md", res_md.read_text(encoding="utf-8")), [])
+            rc_sync, sync_info = sync_claims.sync_bindings(proj, reanchor=True)
+            self.assertEqual(rc_sync, 0, msg=sync_info)
+            self.assertEqual(sync_info["claims_reanchored"], 1)
+            self.assertEqual(claims.validate_prose(proj, "07_manuscript/results.md", res_md.read_text(encoding="utf-8")), [])
+
+            # Negative guard: tampered numeric value must be rejected by sync_claims --reanchor
+            tampered_sent = edited_sent.replace("1.65", "1.95")
+            res_md.write_text(f"# Results\n\n## Primary outcome\n\n{tampered_sent}\n", encoding="utf-8")
+            rc_bad, bad_info = sync_claims.sync_bindings(proj, reanchor=True)
+            self.assertEqual(rc_bad, 2, msg=bad_info)
+            res_md.write_text(f"# Results\n\n## Primary outcome\n\n{edited_sent}\n", encoding="utf-8")
+
+            # 5) text/polish.py section --reanchor allows sourced additions and blocks unsourced numbers
+            (proj / "06_refs/refs.bib").write_text("@article{adams2024,\n  title={Cohort study},\n  year={2024}\n}\n", encoding="utf-8")
+            ns_snap = type("Args", (), {"file": "07_manuscript/results.md", "project": proj, "snapshot": True, "verify": False, "reanchor": False})()
+            self.assertEqual(polish_mod.cmd_section(ns_snap), 0)
+
+            # Fabricated number 9876 must fail --reanchor
+            res_md.write_text(
+                f"# Results\n\n## Primary outcome\n\n{edited_sent} Sensitivity analysis included 9876 events [@adams2024].\n",
+                encoding="utf-8",
+            )
+            ns_reanchor_bad = type("Args", (), {"file": "07_manuscript/results.md", "project": proj, "snapshot": False, "verify": False, "reanchor": True})()
+            self.assertEqual(polish_mod.cmd_section(ns_reanchor_bad), 2)
+
+            # Grounded addition (24 months from main.json + valid citekey @adams2024) fails plain --verify but succeeds with --reanchor
+            res_md.write_text(
+                f"# Results\n\n## Primary outcome\n\n{edited_sent} Median follow-up duration remained 24 months [@adams2024].\n",
+                encoding="utf-8",
+            )
+            ns_verify = type("Args", (), {"file": "07_manuscript/results.md", "project": proj, "snapshot": False, "verify": True, "reanchor": False})()
+            self.assertEqual(polish_mod.cmd_section(ns_verify), 2)
+            ns_reanchor_ok = type("Args", (), {"file": "07_manuscript/results.md", "project": proj, "snapshot": False, "verify": False, "reanchor": True})()
+            self.assertEqual(polish_mod.cmd_section(ns_reanchor_ok), 0)
+
+            # 6) rework.py mark --auto-changed + gates.run_stage timings & cache hit
+            methods_md = proj / "07_manuscript/methods.md"
+            methods_md.write_text("# Methods\n\nCohort methods text.\n", encoding="utf-8")
+            base_snap = {
+                "07_manuscript/results.md": "0" * 64,
+                "07_manuscript/methods.md": _sha256(methods_md),
+            }
+            st.data["current"] = "S19_human_review"
+            st.data["active_revision_round"] = "rev_001"
+            st.save()
+            rev_path = proj / ".wf/revisions/rev_001.json"
+            rev_path.write_text(
+                json.dumps({
+                    "round_id": "rev_001",
+                    "schema_version": 2,
+                    "status": "active",
+                    "review_stage": "S19_human_review",
+                    "earliest_stage": "S14_results",
+                    "allowed_files": ["07_manuscript/results.md", "07_manuscript/methods.md"],
+                    "baseline": base_snap,
+                    "items": [{
+                        "id": "item_1",
+                        "status": "open",
+                        "kind": "results-prose",
+                        "owning_stage": "S14_results",
+                        "affected_sources": ["07_manuscript/results.md", "07_manuscript/methods.md"],
+                        "request": "Clarify follow-up duration in Results.",
+                        "acceptance_criteria": ["Follow-up stated"],
+                    }],
+                }),
+                encoding="utf-8",
+            )
+            mark_args = type(
+                "MarkArgs",
+                (),
+                {
+                    "item": "item_1",
+                    "summary": "Clarified 24-month follow-up in results.md and verified methods.md required no edits.",
+                    "changed_file": [],
+                    "checked_file": [],
+                    "deleted_file": [],
+                    "auto_changed": True,
+                    "validated_by": ["wf check S14_results"],
+                },
+            )()
+            self.assertEqual(rework_mod._cmd_mark(mark_args, proj, st), 0)
+            saved_rev = json.loads(rev_path.read_text(encoding="utf-8"))
+            self.assertEqual([x["path"] for x in saved_rev["items"][0]["changed_files"]], ["07_manuscript/results.md"])
+            self.assertEqual([x["path"] for x in saved_rev["items"][0]["checked_files"]], ["07_manuscript/methods.md"])
+
+            st.data.pop("active_revision_round", None)
+            st.data["current"] = "S10_tables"
+            st.save()
+            t_run1: list[dict] = []
+            _ = gates.run_stage(pipe, st, proj, pipe.stage("S10_tables"), reuse=True, record=True, break_on_blocker=False, timings=t_run1)
+            t_run2: list[dict] = []
+            _ = gates.run_stage(pipe, st, proj, pipe.stage("S10_tables"), reuse=True, record=True, break_on_blocker=False, timings=t_run2)
+            self.assertTrue(len(t_run1) > 0)
+            self.assertTrue(any(item["cached"] for item in t_run2), msg=t_run2)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

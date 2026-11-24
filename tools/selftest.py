@@ -2404,89 +2404,87 @@ def main() -> int:
         run_journal_eligibility(proj)
         run_manuscript_docx(proj)
         run_polish(proj)
-        optimized = subprocess.run([sys.executable, str(ROOT / "tools/test_optimization.py")],
-                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
-        record("optimization behavioral regression suite", optimized.returncode == 0,
-               (optimized.stdout + optimized.stderr)[-1200:].strip())
-        scoped = subprocess.run([sys.executable, str(ROOT / "tools/test_scoped_revision.py")],
-                                capture_output=True, text=True, encoding="utf-8", errors="replace")
-        record("scoped revision behavioral regression suite", scoped.returncode == 0,
-               (scoped.stdout + scoped.stderr)[-1800:].strip())
-        incremental = subprocess.run([sys.executable, str(ROOT / "tools/test_incremental_quality.py")],
-                                     capture_output=True, text=True, encoding="utf-8", errors="replace")
-        record("incremental quality behavioral regression suite", incremental.returncode == 0,
-               (incremental.stdout + incremental.stderr)[-1800:].strip())
-        r_figures = subprocess.run([sys.executable, str(ROOT / "tools/test_r_figures.py")],
-                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
-        record("R figure renderer behavioral regression suite", r_figures.returncode == 0,
-               (r_figures.stdout + r_figures.stderr)[-1800:].strip())
-        transfer = subprocess.run([sys.executable, str(ROOT / "tools/test_kiro_adoption.py")],
-                                  capture_output=True, text=True, encoding="utf-8", errors="replace")
-        record("cross-workflow adoption regression suite", transfer.returncode == 0,
-               (transfer.stdout + transfer.stderr)[-1800:].strip())
-        reporting = subprocess.run([sys.executable, str(ROOT / "tools/test_reporting_deferral.py")],
-                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
-        record("registration/reporting deferral regression suite", reporting.returncode == 0,
-               (reporting.stdout + reporting.stderr)[-1800:].strip())
-        aligned = subprocess.run([sys.executable, str(ROOT / "tools/test_source_aligned.py")],
-                                 capture_output=True,text=True,encoding="utf-8",errors="replace")
-        record("source aligned validation regression suite",aligned.returncode==0,
-               (aligned.stdout+aligned.stderr)[-1800:].strip())
-        benchmarked = subprocess.run([sys.executable, str(ROOT / "tools/test_benchmark_acceptance.py")],
-                                    capture_output=True, text=True, encoding="utf-8", errors="replace")
-        record("benchmarked professional acceptance regression suite", benchmarked.returncode == 0,
-               (benchmarked.stdout + benchmarked.stderr)[-1800:].strip())
-        rounds = subprocess.run([sys.executable, str(ROOT / "tools/test_review_rounds.py")],
-                                capture_output=True, text=True, encoding="utf-8", errors="replace")
-        record("independent review rounds and native Word tables regression suite", rounds.returncode == 0,
-               (rounds.stdout + rounds.stderr)[-1800:].strip())
-        migration = subprocess.run([sys.executable, str(ROOT / "tools/test_kiro_v190.py")],
-                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
-        record("content-aware Kiro 1.9 migration regressions", migration.returncode == 0,
-               (migration.stdout + migration.stderr)[-1800:].strip())
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import time as _time
+
+        pre_online_suites = [
+            ("test_optimization.py", "optimization behavioral regression suite", 1200),
+            ("test_scoped_revision.py", "scoped revision behavioral regression suite", 1800),
+            ("test_incremental_quality.py", "incremental quality behavioral regression suite", 1800),
+            ("test_r_figures.py", "R figure renderer behavioral regression suite", 1800),
+            ("test_kiro_adoption.py", "cross-workflow adoption regression suite", 1800),
+            ("test_reporting_deferral.py", "registration/reporting deferral regression suite", 1800),
+            ("test_source_aligned.py", "source aligned validation regression suite", 1800),
+            ("test_benchmark_acceptance.py", "benchmarked professional acceptance regression suite", 1800),
+            ("test_review_rounds.py", "independent review rounds and native Word tables regression suite", 1800),
+            ("test_kiro_v190.py", "content-aware Kiro 1.9 migration regressions", 1800),
+        ]
+        post_online_suites = [
+            ("test_quality_114.py", "source-first quality and explicit-version acceptance regressions", 1500),
+            ("test_medical_presentation.py", "medical-reader prose tables figures and layout regressions", 1500),
+            ("test_structural_quality_116.py", "clinical-label review-closure numbering and percentage regressions", 1500),
+            ("test_runtime_quality_117.py", "runtime retrospective Unicode IO stacks job-safety and compact-resume regressions", 1800),
+            ("test_isolation_118.py", "isolated data references exact replay engine drift and review-decision regressions", 1800),
+            ("test_reader_review_119.py", "medical independent-review coverage and authentic finding locations", 1800),
+            ("test_revision_efficiency_119.py", "incremental validation identity reuse and changed-evidence handling", 1800),
+            ("test_scientific_decisions_120.py", "scientific decisions bind the evidence at judgment time", 1800),
+            ("test_source_access_120.py", "authentic sources distinguish abstract availability from full-text access", 1800),
+            ("test_kiro_121.py", "KIRO migration: review isolation, fail-fast incremental builds and actual upload rules", 1800),
+            ("test_medical_displays_122.py", "medical display story, actual rendered review, table hierarchy and independent R panel tags", 1800),
+            ("test_medical_production_123.py", "contextual medical wording, current lint evidence and numerical forest columns", 1800),
+            ("test_journal_context_124.py", "official guide acquisition, exact current target and actual-file transfer compliance", 1800),
+            ("test_medical_authoring_125.py", "clinical drafting context, source-preserving R recipes and measured legacy forest layout", 1800),
+            ("test_context_bindings_126.py", "current scientific context and per-occurrence result attribution", 1800),
+            ("test_design_data_126.py", "design-specific contracts and actual complex-join unit reconciliation", 1800),
+            ("test_table_proportions_126.py", "actual table percentage denominators and non-count percentage scope", 1800),
+            ("test_runtime_km_126.py", "unified real R environments and source-bound uncensored KM applicability", 1800),
+            ("test_review_hardening_127.py", "S16 Discussion bindings, S09/S10 measure & table context, S11 figure annotations, S25 force guard and cross-drive launcher", 1800),
+            ("test_workflow_128.py", "single-source page-1 author block, default display placement, isolated Discussion workflow & audit, and Supplemental_File naming", 1800),
+            ("test_clinical_display_labels_129.py", "clinical reader presentation, zero code variables, display dictionary, and non-overridable display_labels_clinical gate", 1800),
+            ("test_v130_workflow.py", "v1.30.0 S11b prewrite SCIE review, immediate section polish, non-CAPTCHA Sci-Hub, >=3 comparator sufficiency, citation floors, and journal+timestamp releases", 1800),
+            ("test_v132_architecture.py", "v1.32.0 multi-track reference provenance, genre-aware quotas, clinical units & proportions, lossless Word table inheritance, bounded replay rtol, and R composite recipes", 1800),
+        ]
+
+        all_suites = pre_online_suites + post_online_suites
+        max_workers = max(1, min(6, os.cpu_count() or 4))
+        suite_tmp_base = tmp / "_suite_tmp"
+        suite_tmp_base.mkdir(parents=True, exist_ok=True)
+        print(f"\nrunning {len(all_suites)} isolated regression suites ({max_workers} parallel workers)")
+        print("-" * 70, flush=True)
+
+        def _exec_suite(idx_item: tuple[int, tuple[str, str, int]]):
+            s_idx, (script, label, tail_len) = idx_item
+            sub_tmp = suite_tmp_base / f"s{s_idx:02d}_{Path(script).stem}"
+            sub_tmp.mkdir(parents=True, exist_ok=True)
+            child_env = {**os.environ, "TMP": str(sub_tmp), "TEMP": str(sub_tmp), "TMPDIR": str(sub_tmp)}
+            t0 = _time.perf_counter()
+            proc = subprocess.run(
+                [sys.executable, str(ROOT / "tools" / script)],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", env=child_env,
+            )
+            elapsed = _time.perf_counter() - t0
+            return s_idx, script, label, proc.returncode == 0, (proc.stdout + proc.stderr)[-tail_len:].strip(), elapsed
+
+        suite_outcomes: dict[int, tuple[str, bool, str]] = {}
+        done_count = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futs = [pool.submit(_exec_suite, (i, spec)) for i, spec in enumerate(all_suites)]
+            for fut in as_completed(futs):
+                s_idx, script, label, ok, snippet, elapsed = fut.result()
+                done_count += 1
+                status_str = "OK" if ok else "FAIL"
+                print(f"  [{done_count:>2}/{len(all_suites)}] {script:<36} {status_str:<4} ({elapsed:.1f}s)", flush=True)
+                suite_outcomes[s_idx] = (label, ok, snippet)
+
+        for i in range(len(pre_online_suites)):
+            label, ok, snippet = suite_outcomes[i]
+            record(label, ok, snippet)
         if args.online:
             run_online(proj)
-        quality = subprocess.run([sys.executable, str(ROOT / "tools/test_quality_114.py")],
-                                  capture_output=True,text=True,encoding="utf-8",errors="replace")
-        record("source-first quality and explicit-version acceptance regressions",quality.returncode==0,
-               (quality.stdout+quality.stderr)[-1500:].strip())
-        medical = subprocess.run([sys.executable,str(ROOT/"tools/test_medical_presentation.py")],
-                                 capture_output=True,text=True,encoding="utf-8",errors="replace")
-        record("medical-reader prose tables figures and layout regressions",medical.returncode==0,
-               (medical.stdout+medical.stderr)[-1500:].strip())
-        structural = subprocess.run([sys.executable,str(ROOT/"tools/test_structural_quality_116.py")],
-                                    capture_output=True,text=True,encoding="utf-8",errors="replace")
-        record("clinical-label review-closure numbering and percentage regressions",structural.returncode==0,
-               (structural.stdout+structural.stderr)[-1500:].strip())
-        runtime = subprocess.run([sys.executable,str(ROOT/"tools/test_runtime_quality_117.py")],
-                                 capture_output=True,text=True,encoding="utf-8",errors="replace")
-        record("runtime retrospective Unicode IO stacks job-safety and compact-resume regressions",runtime.returncode==0,
-               (runtime.stdout+runtime.stderr)[-1800:].strip())
-        isolation = subprocess.run([sys.executable,str(ROOT/"tools/test_isolation_118.py")],
-                                   capture_output=True,text=True,encoding="utf-8",errors="replace")
-        record("isolated data references exact replay engine drift and review-decision regressions",isolation.returncode==0,
-               (isolation.stdout+isolation.stderr)[-1800:].strip())
-        for script,label in (("test_reader_review_119.py","medical independent-review coverage and authentic finding locations"),
-                             ("test_revision_efficiency_119.py","incremental validation identity reuse and changed-evidence handling"),
-                             ("test_scientific_decisions_120.py","scientific decisions bind the evidence at judgment time"),
-                             ("test_source_access_120.py","authentic sources distinguish abstract availability from full-text access"),
-                             ("test_kiro_121.py","KIRO migration: review isolation, fail-fast incremental builds and actual upload rules"),
-                             ("test_medical_displays_122.py","medical display story, actual rendered review, table hierarchy and independent R panel tags"),
-                             ("test_medical_production_123.py","contextual medical wording, current lint evidence and numerical forest columns"),
-                             ("test_journal_context_124.py","official guide acquisition, exact current target and actual-file transfer compliance"),
-                             ("test_medical_authoring_125.py","clinical drafting context, source-preserving R recipes and measured legacy forest layout"),
-                             ("test_context_bindings_126.py","current scientific context and per-occurrence result attribution"),
-                             ("test_design_data_126.py","design-specific contracts and actual complex-join unit reconciliation"),
-                             ("test_table_proportions_126.py","actual table percentage denominators and non-count percentage scope"),
-                             ("test_runtime_km_126.py","unified real R environments and source-bound uncensored KM applicability"),
-                             ("test_review_hardening_127.py","S16 Discussion bindings, S09/S10 measure & table context, S11 figure annotations, S25 force guard and cross-drive launcher"),
-                             ("test_workflow_128.py","single-source page-1 author block, default display placement, isolated Discussion workflow & audit, and Supplemental_File naming"),
-                             ("test_clinical_display_labels_129.py","clinical reader presentation, zero code variables, display dictionary, and non-overridable display_labels_clinical gate"),
-                             ("test_v130_workflow.py","v1.30.0 S11b prewrite SCIE review, immediate section polish, non-CAPTCHA Sci-Hub, >=3 comparator sufficiency, citation floors, and journal+timestamp releases"),
-                             ("test_v132_architecture.py","v1.32.0 multi-track reference provenance, genre-aware quotas, clinical units & proportions, lossless Word table inheritance, bounded replay rtol, and R composite recipes")):
-            current = subprocess.run([sys.executable,str(ROOT/"tools"/script)],
-                                     capture_output=True,text=True,encoding="utf-8",errors="replace")
-            record(label,current.returncode==0,(current.stdout+current.stderr)[-1800:].strip())
+        for i in range(len(pre_online_suites), len(all_suites)):
+            label, ok, snippet = suite_outcomes[i]
+            record(label, ok, snippet)
     finally:
         if args.keep or args.workdir:
             print(f"\nkept: {tmp}")

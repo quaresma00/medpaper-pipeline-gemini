@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 
 from . import checks
 from .checks import Ctx, Result
@@ -18,6 +19,7 @@ def run_stage(
     break_on_blocker: bool = True,
     only: str | None = None,
     verbose: bool = False,
+    timings: list[dict] | None = None,
 ) -> list[Result]:
     checks.load_all()
     results: list[Result] = []
@@ -58,16 +60,23 @@ def run_stage(
         if verbose:
             call_spec["_verbose"] = True
         ctx = Ctx(pipeline=pipeline, state=state, project=project, stage=stage, spec=call_spec)
+        t0 = time.perf_counter()
+        was_cached = False
         try:
             identity = receipts.identity(stage, spec) if receipts else None
             res = receipts.get(identity) if receipts and effective_reuse else None
-            if res is None:
+            if res is not None:
+                was_cached = True
+            else:
                 res = fn(ctx)
                 # Pure checks must not change the very inputs they certify.
                 if receipts and identity and identity == receipts.identity(stage, spec):
                     receipts.put(identity, res)
         except Exception as exc:  # noqa: BLE001 - a broken check must not brick the pipeline
             res = Result(False, name, f"check raised {type(exc).__name__}: {exc}")
+        elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+        if timings is not None:
+            timings.append({"check": name, "ms": elapsed_ms, "cached": was_cached, "ok": res.ok})
         if "severity" in spec and not res.ok:
             res.severity = spec["severity"]
         results.append(res)

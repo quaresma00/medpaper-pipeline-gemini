@@ -215,7 +215,15 @@ def is_up_to_date(project: Path, figure_id: str) -> bool:
     return True
 
 
-def render_many(project: Path, figure_ids: list[str] | None = None, *, only_changed: bool = False, timeout: int = 180) -> list[dict]:
+def render_many(
+    project: Path,
+    figure_ids: list[str] | None = None,
+    *,
+    only_changed: bool = False,
+    timeout: int = 180,
+    jobs: int | None = None,
+) -> list[dict]:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     project = project.resolve()
     state = State(project).load()
     journal_mode = state.current in {"S23_package", "S24_package_human_review"} or permits(project, "S23_package")
@@ -232,17 +240,32 @@ def render_many(project: Path, figure_ids: list[str] | None = None, *, only_chan
         ]
     if not targets:
         raise ValueError("No R figures declared in artifact_plan.json")
-    out: list[dict] = []
+    results_by_idx: dict[int, dict] = {}
+    pending: list[tuple[int, str]] = []
     total = len(targets)
     for idx, fid in enumerate(targets, 1):
         if only_changed and is_up_to_date(project, fid):
             print(f"[R render {idx}/{total}] {fid} [SKIP unchanged]", flush=True)
-            out.append({"figure": fid, "engine": "R", "skipped": True})
-            continue
-        print(f"[R render {idx}/{total}] {fid} ...", flush=True)
-        res = render(project, fid, timeout)
-        out.append(res)
-    return out
+            results_by_idx[idx] = {"figure": fid, "engine": "R", "skipped": True}
+        else:
+            pending.append((idx, fid))
+
+    max_workers = max(1, int(jobs if jobs is not None else min(4, os.cpu_count() or 2)))
+    if len(pending) <= 1 or max_workers == 1:
+        for idx, fid in pending:
+            print(f"[R render {idx}/{total}] {fid} ...", flush=True)
+            results_by_idx[idx] = render(project, fid, timeout)
+    else:
+        workers = min(max_workers, len(pending))
+        print(f"[R render] Rendering {len(pending)} figure(s) across {workers} parallel Rscript workers...", flush=True)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            fut_map = {pool.submit(render, project, fid, timeout): (idx, fid) for idx, fid in pending}
+            for fut in as_completed(fut_map):
+                idx, fid = fut_map[fut]
+                res = fut.result()
+                print(f"[R render {idx}/{total}] {fid} [DONE]", flush=True)
+                results_by_idx[idx] = res
+    return [results_by_idx[idx] for idx in range(1, total + 1)]
 
 
 def main():
@@ -250,6 +273,7 @@ def main():
     parser.add_argument("--figure", action="append", default=[], help="figure id to render (repeatable)")
     parser.add_argument("--all", action="store_true", help="render all declared R figures")
     parser.add_argument("--changed", action="store_true", help="skip figures whose script, data, policy, and outputs are unchanged")
+    parser.add_argument("--jobs", type=int, default=None, help="parallel Rscript worker count for multi-figure renders")
     parser.add_argument("--project", type=Path, default=ROOT / "project")
     parser.add_argument("--timeout", type=int, default=180)
     args = parser.parse_args()
@@ -264,6 +288,7 @@ def main():
                 figure_ids=args.figure if args.figure else None,
                 only_changed=args.changed,
                 timeout=args.timeout,
+                jobs=args.jobs,
             )
             print(json.dumps({"figures": results}, ensure_ascii=False))
         return 0

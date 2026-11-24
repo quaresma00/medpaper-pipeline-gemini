@@ -110,6 +110,22 @@ def _source_record(article) -> dict:
     }
 
 
+_PARSED_PUBMED_FILE_CACHE: dict[Path, tuple[int, int, str, dict[str, dict]]] = {}
+
+
+def _cached_pubmed_file(cache_path: Path) -> tuple[str, dict[str, dict]]:
+    resolved = cache_path.resolve()
+    st = resolved.stat()
+    hit = _PARSED_PUBMED_FILE_CACHE.get(resolved)
+    if hit is not None and hit[0] == st.st_size and hit[1] == st.st_mtime_ns:
+        return hit[2], hit[3]
+    blob = resolved.read_bytes()
+    digest = hashlib.sha256(blob).hexdigest()
+    parsed = parse_pubmed_payload(blob)
+    _PARSED_PUBMED_FILE_CACHE[resolved] = (st.st_size, st.st_mtime_ns, digest, parsed)
+    return digest, parsed
+
+
 def parse_pubmed_payload(blob: bytes | str) -> dict[str, dict]:
     try:
         root = ET.fromstring(blob)
@@ -517,8 +533,7 @@ def validate_local_proof(project: Path, required_keys: set[str] | None = None,
         if ev_source == SOURCE:
             if cache_path not in payload_cache:
                 try:
-                    digest = file_sha256(cache_path)
-                    payload_cache[cache_path] = (digest, parse_pubmed_payload(cache_path.read_bytes()))
+                    payload_cache[cache_path] = _cached_pubmed_file(cache_path)
                 except (OSError, ValueError) as exc:
                     problems.append(f"{key}: cannot parse verification payload ({exc})")
                     continue

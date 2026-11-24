@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -12,6 +13,7 @@ from .readiness import atomic_json
 
 RECEIPTS = ".wf/build_receipts.json"
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_RECEIPT_LOCK = threading.RLock()
 
 
 def content_parts(path: Path) -> list[str]:
@@ -81,8 +83,9 @@ def record(project: Path, output: Path, sources: list[Path], *, entrypoints=None
     from .paths import repo_root
     row["engine_inputs"]=[name for name in inputs if any(Path(name).is_relative_to(repo_root()/folder)
                                                        for folder in ("tools","pipeline","reference"))]
-    receipts = load(project); receipts[rel] = row
-    atomic_json(project / RECEIPTS, receipts)
+    with _RECEIPT_LOCK:
+        receipts = load(project); receipts[rel] = row
+        atomic_json(project / RECEIPTS, receipts)
     return row
 
 

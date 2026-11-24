@@ -523,7 +523,10 @@ def validate_context(project, rel, text, claim, catalog, *, required, label_look
         fact = catalog[key]
         item = evidence[key]
         if not isinstance(item, dict) or item.get("fact_fingerprint") != fact["fingerprint"] or item.get("claim_fingerprint") != fingerprint(quote):
-            raise ValueError(f"{key}: stale/missing fact or claim context fingerprint; read the affected finding and current text again")
+            raise ValueError(
+                f"{key}: stale/missing fact or claim context fingerprint; read the affected finding and current text again "
+                "(or run: uv run python tools/manuscript/sync_claims.py --reanchor)"
+            )
         observations = item.get("observations")
         applicable = {field for field in PROSE_CONTEXT_KEYS if not _not_applicable(fact["context"][field])}
         if not isinstance(observations, dict) or not applicable <= observations.keys() or set(observations) - CONTEXT_KEYS:
@@ -652,7 +655,10 @@ def validate_prose(project, rel, text, *, already_masked: bool = False):
                 continue
             quote = row.get("text", "")
             if not isinstance(quote, str) or not quote.strip() or quote not in body:
-                raise ValueError("claim text is missing or changed; update the affected binding")
+                raise ValueError(
+                    "claim text is missing or changed; update the affected binding "
+                    "(or run: uv run python tools/manuscript/sync_claims.py --reanchor)"
+                )
             floats, strings, p_values = claim_values({**row, "_project": project}, catalog, quote)
             current_context = context_required or row.get("context_evidence") is not None
             if current_context:

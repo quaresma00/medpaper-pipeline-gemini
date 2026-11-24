@@ -208,7 +208,8 @@ def cmd_status(args) -> int:
             print("Next: " + payload["next"])
             print("Status does not run network/checks. Use check for current validation; --full for diagnostics.")
         return 0
-    results = gates.run_stage(pipe, st, proj, stage)
+    outputs_present = bool(stage.outputs) and all((proj / o).exists() for o in stage.outputs)
+    results = gates.run_stage(pipe, st, proj, stage, reuse=True, break_on_blocker=not outputs_present)
     ok, blocking, warned = gates.summarize(results)
 
     if args.json:
@@ -316,12 +317,15 @@ def cmd_check(args) -> int:
     fail_fast = bool(getattr(args, "fail_fast", False))
     all_checks = bool(getattr(args, "all_checks", False) or only or (outputs_present and not fail_fast))
     verbose = bool(getattr(args, "verbose", False) or getattr(args, "full_errors", False))
+    want_timings = bool(getattr(args, "timings", False))
+    gate_timings: list[dict] | None = [] if want_timings else None
     results = gates.run_stage(
         pipe, st, proj, stage,
         reuse=True, record=True,
         break_on_blocker=not all_checks,
         only=only,
         verbose=verbose,
+        timings=gate_timings,
     )
     ok, blocking, warned = gates.summarize(results)
     if not only:
@@ -329,12 +333,16 @@ def cmd_check(args) -> int:
                                  "failures": [f"{r.check}: {r.detail}" for r in results if not r.ok]}
         st.save()
     if args.json:
-        print(json.dumps({
+        payload_out = {
             "stage": stage.id, "gate_ok": ok, "blocking": blocking, "warnings": warned,
             "partial_only": only,
             "results": [{"check": r.check, "ok": r.ok, "label": r.label,
                          "detail": r.detail, "hints": r.hints} for r in results],
-        }, indent=2, ensure_ascii=False))
+        }
+        if gate_timings is not None:
+            payload_out["timings"] = gate_timings
+            payload_out["total_ms"] = round(sum(t["ms"] for t in gate_timings), 2)
+        print(json.dumps(payload_out, indent=2, ensure_ascii=False))
         return 0 if ok else 2
     if getattr(args, "summary", False) or getattr(args, "quiet", False):
         if not (getattr(args, "quiet", False) and ok):
@@ -343,6 +351,13 @@ def cmd_check(args) -> int:
     print(f"gate: {stage.id} - {stage.title}" + (f" [only: {only}]" if only else ""))
     print(DASH)
     _gate_lines(results if getattr(args, "full", False) else [r for r in results if not r.ok])
+    if gate_timings is not None:
+        total_ms = sum(t["ms"] for t in gate_timings)
+        reused_n = sum(1 for t in gate_timings if t["cached"])
+        print(f"timings: total={total_ms:.1f} ms ({reused_n}/{len(gate_timings)} cached)")
+        for item in sorted(gate_timings, key=lambda x: x["ms"], reverse=True):
+            tag = "cached" if item["cached"] else "ran"
+            print(f"  {item['ms']:7.1f} ms  [{tag:<6}]  {item['check']}")
     print(DASH)
     if not ok and any(r.check == "dependent_checks_pending" for r in results) and not all_checks:
         print("tip: pass `--all-checks` (and optionally `--only \"Table 1\" --verbose`) to evaluate all remaining checks in one pass.")
@@ -395,7 +410,8 @@ def cmd_advance(args) -> int:
         print("Close the active scoped revision before advancing; --force cannot bypass it.")
         return 2
     stage = pipe.stage(st.current)
-    results = gates.run_stage(pipe, st, proj, stage, reuse=True)
+    outputs_present = bool(stage.outputs) and all((proj / o).exists() for o in stage.outputs)
+    results = gates.run_stage(pipe, st, proj, stage, reuse=True, break_on_blocker=not outputs_present)
     ok, blocking, _ = gates.summarize(results)
     non_overridable_failures = [
         r for r in results
@@ -782,6 +798,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--only", help="focus display/table/figure/section checks on one item (e.g. 'Table 1', 'Figure 2', 'results.md')")
     p.add_argument("--verbose", "-v", action="store_true", help="show full diagnostic items instead of truncating")
     p.add_argument("--full-errors", action="store_true", help="alias for --verbose: print all diagnostic items without truncation")
+    p.add_argument("--timings", action="store_true", help="print per-gate execution time in ms and cache-hit status")
     p.add_argument("stage", nargs="?")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_check)

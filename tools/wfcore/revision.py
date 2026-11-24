@@ -54,11 +54,10 @@ def snapshot(project: Path) -> dict[str, str]:
 
 def input_signature(project: Path, revision: dict, files: dict | None = None) -> str:
     from . import paths
+    from .gatecache import cached_engine_hashes
     from .state import State
     state = State(project).load()
-    engine = {p.relative_to(paths.repo_root()).as_posix(): _sha256(p)
-              for folder in ("tools", "pipeline", "reference") for p in (paths.repo_root() / folder).rglob("*")
-              if p.is_file() and p.suffix.lower() in {".py", ".r", ".toml", ".md"}}
+    engine = cached_engine_hashes(paths.repo_root())
     files = snapshot(project) if files is None else files
     # Project-local join files already participate in snapshot. Follow only actually
     # consumed external references using cheap stat identity, not full source rereads.
@@ -498,14 +497,15 @@ def refresh_evidence(project: Path, pipeline, state, revision: dict) -> None:
 
 def record_build(project: Path, output: Path, sources: list[Path], *, entrypoints=None, tool=None, parameters=None) -> None:
     """A real builder receipt, not a user-typed 'validated' label."""
-    from .buildproof import record
-    receipt = record(project, output, sources, entrypoints=entrypoints, tool=tool, parameters=parameters)
-    revision = active(project)
-    if not revision or revision.get("schema_version") != 2:
-        return
-    rel = output.resolve().relative_to(project.resolve()).as_posix()
-    revision.setdefault("build_receipts", {})[rel] = receipt
-    atomic_json(project / ".wf/revisions" / f"{revision['round_id']}.json", revision)
+    from .buildproof import _RECEIPT_LOCK, record
+    with _RECEIPT_LOCK:
+        receipt = record(project, output, sources, entrypoints=entrypoints, tool=tool, parameters=parameters)
+        revision = active(project)
+        if not revision or revision.get("schema_version") != 2:
+            return
+        rel = output.resolve().relative_to(project.resolve()).as_posix()
+        revision.setdefault("build_receipts", {})[rel] = receipt
+        atomic_json(project / ".wf/revisions" / f"{revision['round_id']}.json", revision)
 
 
 def baseline_capture_allowed(project: Path) -> bool:

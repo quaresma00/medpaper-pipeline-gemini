@@ -390,14 +390,124 @@ def _render_python(ws, out_base: Path, dpi: int) -> list[Path]:
     return written
 
 
-def render_all(project: Path, tables_filter: list[str] | None = None, engine: str = "auto", dpi: int = 220) -> dict:
+def _render_excel_com_batch(
+    jobs: list[tuple[str, Path, str, Path]],
+    dpi: int,
+) -> dict[str, list[Path]]:
+    """Render multiple (tid, xlsx, sheet_name, out_base) items inside ONE Excel.Application COM session."""
+    if not jobs or os.name != "nt" or not shutil.which("pdftoppm"):
+        return {}
+    pwsh = shutil.which("pwsh") or shutil.which("powershell")
+    if not pwsh:
+        return {}
+    results: dict[str, list[Path]] = {}
+    with tempfile.TemporaryDirectory(prefix="medpaper_tbl_batch_") as tmpdir:
+        tmp = Path(tmpdir)
+        spec_list = []
+        for idx, (tid, xlsx, sheet_name, _) in enumerate(jobs):
+            pdf_p = tmp / f"tbl_{idx}.pdf"
+            spec_list.append({
+                "idx": idx,
+                "tid": tid,
+                "xlsx": str(xlsx),
+                "sheet": sheet_name,
+                "pdf": str(pdf_p),
+            })
+        spec_json = tmp / "jobs.json"
+        spec_json.write_text(json.dumps(spec_list, ensure_ascii=False), encoding="utf-8")
+        ps_script = tmp / "batch_export.ps1"
+        ps_script.write_text(
+            "\n".join([
+                "$ErrorActionPreference = 'Stop'",
+                f"$jobs = Get-Content -LiteralPath '{str(spec_json).replace(chr(39), chr(39)*2)}' -Raw -Encoding UTF8 | ConvertFrom-Json",
+                "$excel = $null",
+                "$openBooks = @{}",
+                "try {",
+                "  $excel = New-Object -ComObject Excel.Application",
+                "  $excel.Visible = $false",
+                "  $excel.DisplayAlerts = $false",
+                "  $excel.ScreenUpdating = $false",
+                "  foreach ($j in $jobs) {",
+                "    $xp = [string]$j.xlsx",
+                "    if (-not $openBooks.ContainsKey($xp)) {",
+                "      $openBooks[$xp] = $excel.Workbooks.Open($xp, 0, $true)",
+                "    }",
+                "    $wb = $openBooks[$xp]",
+                "    $ws = $wb.Worksheets.Item([string]$j.sheet)",
+                "    $ws.ExportAsFixedFormat(0, [string]$j.pdf)",
+                "  }",
+                "} finally {",
+                "  foreach ($wb in $openBooks.Values) { if ($wb -ne $null) { $wb.Close($false) | Out-Null } }",
+                "  if ($excel -ne $null) { $excel.Quit() | Out-Null }",
+                "}",
+            ]),
+            encoding="utf-8",
+        )
+        try:
+            proc = subprocess.run(
+                [pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ps_script)],
+                capture_output=True, text=True, timeout=max(60, 25 * len(jobs)),
+            )
+            if proc.returncode != 0:
+                return {}
+            pdftoppm = shutil.which("pdftoppm")
+            for idx, (tid, _, _, out_base) in enumerate(jobs):
+                pdf_p = tmp / f"tbl_{idx}.pdf"
+                if not pdf_p.is_file():
+                    continue
+                prefix = tmp / f"page_{idx}"
+                pproc = subprocess.run(
+                    [pdftoppm, "-png", "-r", str(dpi), str(pdf_p), str(prefix)],
+                    capture_output=True, text=True, timeout=45,
+                )
+                if pproc.returncode != 0:
+                    continue
+                pages = sorted(tmp.glob(f"page_{idx}-*.png"))
+                if not pages:
+                    continue
+                written: list[Path] = []
+                for p_idx, page in enumerate(pages, 1):
+                    target = out_base if p_idx == 1 else out_base.with_name(f"{out_base.stem}_p{p_idx}.png")
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(page, target)
+                    _crop_whitespace(target)
+                    written.append(target)
+                if written:
+                    results[tid] = written
+        except (OSError, subprocess.TimeoutExpired):
+            return results
+    return results
+
+
+def render_all(
+    project: Path,
+    tables_filter: list[str] | None = None,
+    engine: str = "auto",
+    dpi: int = 220,
+    *,
+    only_changed: bool = False,
+) -> dict:
     entries = _table_entries(project, tables_filter)
     if not entries:
         raise ValueError("No matching tables found in 01_protocol/artifact_plan.json or 04_tables/.")
     qc_results: list[dict] = []
     previews_dir = project / "04_tables" / "previews"
     previews_dir.mkdir(parents=True, exist_ok=True)
+    qc_path = project / "04_tables" / "qc" / "table_qc_report.json"
+    prior_by_id: dict[str, dict] = {}
+    if qc_path.is_file():
+        try:
+            prior_by_id = {
+                str(t["id"]): t
+                for t in json.loads(qc_path.read_text(encoding="utf-8")).get("tables", [])
+                if isinstance(t, dict) and t.get("id")
+            }
+        except (OSError, json.JSONDecodeError):
+            prior_by_id = {}
+
     total = len(entries)
+    prepared: list[tuple[int, str, Path, str, Path, list[dict], str]] = []
+    cached_by_idx: dict[int, dict] = {}
 
     for idx, entry in enumerate(entries, 1):
         tid = str(entry.get("id") or entry.get("sheet") or f"Table_{idx}")
@@ -405,51 +515,77 @@ def render_all(project: Path, tables_filter: list[str] | None = None, engine: st
         _, xlsx_path = _safe_path(project, str(entry["file"]))
         if not xlsx_path.is_file():
             raise ValueError(f"{tid}: workbook missing at {entry['file']}")
-        print(f"[table render {idx}/{total}] {tid} ({entry['file']})", flush=True)
+        xlsx_sha = _sha256(xlsx_path)
+        prev = prior_by_id.get(tid)
+        if only_changed and prev and prev.get("xlsx_sha256") == xlsx_sha and prev.get("ok"):
+            prev_pages = prev.get("pages") or []
+            prev_first = project / str(prev.get("preview", ""))
+            if (
+                prev_pages
+                and prev_first.is_file()
+                and _sha256(prev_first) == prev.get("preview_sha256")
+                and all((project / rel_p).is_file() for rel_p in prev_pages)
+            ):
+                print(f"[table render {idx}/{total}] {tid} [SKIP unchanged]", flush=True)
+                cached_by_idx[idx] = prev
+                continue
 
         wb = load_workbook(xlsx_path, data_only=True)
         try:
             ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.active
+            actual_sheet = ws.title
             layout_checks = _inspect_sheet_layout(ws)
-            out_base = previews_dir / f"{_slug(tid)}.png"
-            written_pages: list[Path] | None = None
-            used_engine = "python"
-            if engine in {"auto", "excel"}:
-                written_pages = _render_excel_com(xlsx_path, ws.title, out_base, dpi)
-                if written_pages:
-                    used_engine = "excel"
-                elif engine == "excel":
-                    raise ValueError("Excel COM / pdftoppm unavailable for --engine excel")
-            if not written_pages:
-                written_pages = _render_python(ws, out_base, dpi)
         finally:
             wb.close()
+        out_base = previews_dir / f"{_slug(tid)}.png"
+        prepared.append((idx, tid, xlsx_path, actual_sheet, out_base, layout_checks, xlsx_sha))
+
+    batch_excel_pages: dict[str, list[Path]] = {}
+    if len(prepared) >= 2 and engine in {"auto", "excel"}:
+        batch_excel_pages = _render_excel_com_batch(
+            [(tid, xp, sh, ob) for _, tid, xp, sh, ob, _, _ in prepared],
+            dpi,
+        )
+
+    rendered_by_idx: dict[int, dict] = dict(cached_by_idx)
+    for idx, tid, xlsx_path, actual_sheet, out_base, layout_checks, xlsx_sha in prepared:
+        print(f"[table render {idx}/{total}] {tid} ({xlsx_path.relative_to(project).as_posix()})", flush=True)
+        written_pages: list[Path] | None = batch_excel_pages.get(tid)
+        used_engine = "excel" if written_pages else "python"
+        if not written_pages and engine in {"auto", "excel"}:
+            written_pages = _render_excel_com(xlsx_path, actual_sheet, out_base, dpi)
+            if written_pages:
+                used_engine = "excel"
+            elif engine == "excel":
+                raise ValueError("Excel COM / pdftoppm unavailable for --engine excel")
+        if not written_pages:
+            wb = load_workbook(xlsx_path, data_only=True)
+            try:
+                ws = wb[actual_sheet]
+                written_pages = _render_python(ws, out_base, dpi)
+            finally:
+                wb.close()
 
         rel_pages = [p.relative_to(project).as_posix() for p in written_pages]
         blocking = [c for c in layout_checks if not c["ok"] and c["severity"] == "fail"]
-        qc_results.append({
+        rendered_by_idx[idx] = {
             "id": tid,
-            "sheet": ws.title,
+            "sheet": actual_sheet,
             "xlsx": xlsx_path.relative_to(project).as_posix(),
-            "xlsx_sha256": _sha256(xlsx_path),
+            "xlsx_sha256": xlsx_sha,
             "engine": used_engine,
             "preview": rel_pages[0],
             "preview_sha256": _sha256(written_pages[0]),
             "pages": rel_pages,
             "ok": not blocking,
             "checks": layout_checks,
-        })
+        }
         for c in layout_checks:
             tag = "PASS" if c["ok"] else ("FAIL" if c["severity"] == "fail" else "WARN")
             print(f"  [{tag}] {c['check']:<28} {c['detail']}", flush=True)
 
-    qc_path = project / "04_tables" / "qc" / "table_qc_report.json"
-    existing_by_id: dict[str, dict] = {}
-    if tables_filter and qc_path.is_file():
-        try:
-            existing_by_id = {t["id"]: t for t in json.loads(qc_path.read_text(encoding="utf-8")).get("tables", []) if t.get("id")}
-        except (OSError, json.JSONDecodeError):
-            existing_by_id = {}
+    qc_results = [rendered_by_idx[i] for i in range(1, total + 1)]
+    existing_by_id: dict[str, dict] = dict(prior_by_id) if tables_filter else {}
     for row in qc_results:
         existing_by_id[row["id"]] = row
     merged = list(existing_by_id.values()) if tables_filter else qc_results
@@ -459,13 +595,18 @@ def render_all(project: Path, tables_filter: list[str] | None = None, engine: st
         "tables": merged,
     }
     atomic_json(qc_path, report)
-    print(f"Table QC report written -> {qc_path.relative_to(project).as_posix()} ({len(qc_results)} rendered)", flush=True)
+    print(
+        f"Table QC report written -> {qc_path.relative_to(project).as_posix()} "
+        f"({len(prepared)} rendered, {len(cached_by_idx)} skipped unchanged)",
+        flush=True,
+    )
     return report
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--all", action="store_true", help="render all planned tables")
+    ap.add_argument("--changed", action="store_true", help="skip tables whose workbook and rendered preview PNGs are unchanged")
     ap.add_argument("--table", action="append", default=[], help="table id/sheet to render (repeatable)")
     ap.add_argument("--engine", choices=["auto", "excel", "python"], default="auto")
     ap.add_argument("--dpi", type=int, default=220)
@@ -475,7 +616,13 @@ def main() -> int:
         ap.error("pass --all or --table <ID>")
     project = args.project.resolve() if args.project else wfpaths.project_dir().resolve()
     try:
-        report = render_all(project, tables_filter=args.table if args.table else None, engine=args.engine, dpi=args.dpi)
+        report = render_all(
+            project,
+            tables_filter=args.table if args.table else None,
+            engine=args.engine,
+            dpi=args.dpi,
+            only_changed=args.changed,
+        )
         fails = sum(1 for row in report["tables"] if not row.get("ok"))
         return 2 if fails else 0
     except (OSError, ValueError, KeyError) as exc:

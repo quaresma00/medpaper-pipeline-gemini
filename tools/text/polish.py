@@ -880,6 +880,62 @@ def cmd_section(args) -> int:
         print(f"Section polish snapshot saved: project/.wf/section_polish/{slug}.snapshot.json")
         return 0
 
+    if getattr(args, "reanchor", False):
+        if not (rel.startswith("07_manuscript/") and rel.endswith(".md") and rel != "07_manuscript/full_manuscript.md"):
+            print(
+                f"--reanchor is restricted to component sections under 07_manuscript/*.md (got {rel})",
+                file=sys.stderr,
+            )
+            return 2
+        from wfcore.checks.numbers import _offenders, _scrub, load_allowlist, results_pool, NUM_RE
+        from wfcore.checks.refs import BIB, bib_keys, citekeys as extract_citekeys
+        from wfcore.journalspec import admin_scrub
+        from wfcore.sourceclaims import mask as mask_external
+
+        used_keys = set(extract_citekeys(text))
+        bib_path = proj / BIB
+        if used_keys and bib_path.is_file():
+            unknown_keys = sorted(used_keys - bib_keys(bib_path.read_text(encoding="utf-8")))
+            if unknown_keys:
+                print(
+                    f"Cannot re-anchor {rel}: unknown citekey(s) absent from {BIB}: {', '.join(unknown_keys[:8])}",
+                    file=sys.stderr,
+                )
+                return 2
+        masked_text, ext_problems = mask_external(proj, rel, text)
+        if ext_problems:
+            print(
+                f"Cannot re-anchor {rel}: unsourced external citation claim(s): {'; '.join(ext_problems[:4])}",
+                file=sys.stderr,
+            )
+            return 2
+        floats, strings, sources = results_pool(proj)
+        allowed = load_allowlist(proj) if rel.endswith(("methods.md", "supplementary_methods.md")) else set()
+        scrubbed_admin = admin_scrub(masked_text, proj, rel)
+        if not sources and NUM_RE.search(_scrub(scrubbed_admin)):
+            bad_no_pool = _offenders(scrubbed_admin, set(), set(), allowed)
+            if bad_no_pool:
+                shown = "; ".join(f"line {ln}: {tok}" for ln, tok in bad_no_pool[:8])
+                print(f"Cannot re-anchor {rel}: untraceable number(s) without analysis results -> {shown}", file=sys.stderr)
+                return 2
+        else:
+            bad_nums = _offenders(scrubbed_admin, floats, strings, allowed)
+            if bad_nums:
+                shown = "; ".join(f"line {ln}: {tok}" for ln, tok in bad_nums[:8])
+                print(f"Cannot re-anchor {rel}: number(s) lack provenance in 03_analysis/results/*.json -> {shown}", file=sys.stderr)
+                return 2
+        atomic_json(
+            snap_path,
+            {
+                "rel": rel,
+                "snapshot_at": now(),
+                "reanchored": True,
+                "snapshot_sha256": _sha256(resolved),
+                "facts": facts(text),
+            },
+        )
+        print(f"Section polish snapshot safely re-anchored for {rel} after provenance check.")
+
     if not snap_path.is_file():
         print(f"Missing pre-polish section snapshot for {rel}. Run with --snapshot BEFORE polishing.", file=sys.stderr)
         return 2
@@ -935,6 +991,12 @@ def cmd_section(args) -> int:
         print(f"Section polish verification FAILED for {rel}: {receipt['summary']}", file=sys.stderr)
         for fp in fact_problems:
             print(f"  [FACT DRIFT] {fp}", file=sys.stderr)
+        if fact_problems and rel.startswith("07_manuscript/") and rel != "07_manuscript/full_manuscript.md":
+            print(
+                f"  [TIP] If you intentionally added sourced scientific findings/citations to {rel}, run: "
+                f"uv run python tools/text/polish.py section --file {rel} --reanchor",
+                file=sys.stderr,
+            )
         for r in medical_risks:
             print(f"  [{r['locator']}] [{r['kind']}] {r['excerpt']!r} -> {r['message']}", file=sys.stderr)
         for x in strict_ai:
@@ -972,6 +1034,7 @@ def main() -> int:
     group = p.add_mutually_exclusive_group(required=True)
     group.add_argument("--snapshot", action="store_true", help="take pre-polish fact snapshot of this section")
     group.add_argument("--verify", action="store_true", help="verify fact preservation and seal section polish receipt")
+    group.add_argument("--reanchor", action="store_true", help="re-anchor section snapshot after verified sourced additions and seal receipt")
     p.set_defaults(fn=cmd_section)
 
     args = ap.parse_args()

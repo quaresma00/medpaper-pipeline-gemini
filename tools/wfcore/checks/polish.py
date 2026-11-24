@@ -68,20 +68,45 @@ def polish_snapshot_exists(ctx: Ctx) -> Result:
 
 @check("polish_preserves_facts")
 def polish_preserves_facts(ctx: Ctx) -> Result:
-    """Delegates to the tool so the CLI and the gate can never disagree."""
+    """Delegates to text.polish.cmd_diff in-process so CLI and gate never disagree without subprocess startup cost."""
+    import contextlib
+    import io
+    import os
     tool = Path(__file__).resolve().parents[2] / "text" / "polish.py"
     if not tool.exists():
         return Result(False, "polish_preserves_facts", f"tool missing: {tool}")
     try:
-        proc = subprocess.run(
-            [sys.executable, str(tool), "diff"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180,
-            env={**_env(ctx)},
-        )
-    except Exception as exc:  # noqa: BLE001
-        return Result(False, "polish_preserves_facts", f"could not run polish.py diff: {exc}")
-    out = (proc.stdout or "") + (proc.stderr or "")
-    if proc.returncode == 0:
+        from text import polish as polish_mod
+        buf = io.StringIO()
+        old_proj = os.environ.get("MEDPAPER_PROJECT")
+        old_root = os.environ.get("MEDPAPER_ROOT")
+        os.environ["MEDPAPER_PROJECT"] = str(ctx.project)
+        os.environ["MEDPAPER_ROOT"] = str(Path(__file__).resolve().parents[3])
+        try:
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+                rc = polish_mod.cmd_diff(type("_Args", (), {})())
+        finally:
+            if old_proj is None:
+                os.environ.pop("MEDPAPER_PROJECT", None)
+            else:
+                os.environ["MEDPAPER_PROJECT"] = old_proj
+            if old_root is None:
+                os.environ.pop("MEDPAPER_ROOT", None)
+            else:
+                os.environ["MEDPAPER_ROOT"] = old_root
+        out = buf.getvalue()
+    except Exception:  # noqa: BLE001 - safe fallback to subprocess
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(tool), "diff"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180,
+                env={**_env(ctx)},
+            )
+            rc = proc.returncode
+            out = (proc.stdout or "") + (proc.stderr or "")
+        except Exception as exc:  # noqa: BLE001
+            return Result(False, "polish_preserves_facts", f"could not run polish.py diff: {exc}")
+    if rc == 0:
         return Result(True, "polish_preserves_facts",
                       "every number, citekey and figure/table reference survived the polish")
     if ctx.stage.id in {"S24_package_human_review", "S25_submission_audit"}:
