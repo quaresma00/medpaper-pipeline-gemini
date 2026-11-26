@@ -128,14 +128,31 @@ def build_freeze(project: Path) -> dict:
 
 def _journal_slug(project: Path) -> str:
     target_path = project / "08_submission/target_journal.json"
-    name = "Target_Journal"
+    ctx_path = project / "08_submission/journal_context.json"
+    name = ""
     if target_path.is_file():
         try:
             data = json.loads(target_path.read_text(encoding="utf-8"))
-            name = str(data.get("journal_name") or data.get("name") or data.get("title") or data.get("short_name") or "Target_Journal")
+            ident = data.get("identity") if isinstance(data.get("identity"), dict) else {}
+            name = str(
+                data.get("journal")
+                or data.get("journal_name")
+                or ident.get("journal")
+                or data.get("name")
+                or data.get("title")
+                or data.get("short_name")
+                or ""
+            ).strip()
         except (OSError, ValueError, TypeError):
-            pass
-    slug = re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_")[:48]
+            name = ""
+    if not name and ctx_path.is_file():
+        try:
+            cdata = json.loads(ctx_path.read_text(encoding="utf-8"))
+            cident = cdata.get("identity") if isinstance(cdata.get("identity"), dict) else {}
+            name = str(cident.get("journal") or cdata.get("journal") or "").strip()
+        except (OSError, ValueError, TypeError):
+            name = ""
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", name or "Target_Journal").strip("_")[:48]
     return slug or "Target_Journal"
 
 
@@ -153,7 +170,7 @@ def _resolve_release_dir(project: Path, freeze_id: str) -> Path:
                         return child
                 except (OSError, ValueError):
                     pass
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     base = releases_root / f"{slug}_{stamp}"
     if base.exists():
         return releases_root / f"{slug}_{stamp}_{freeze_id[:6]}"

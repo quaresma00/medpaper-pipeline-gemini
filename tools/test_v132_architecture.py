@@ -2061,6 +2061,84 @@ jsonlite::write_json(meta, "{meta_shared}", auto_unbox=TRUE, null="null")
                 amb_saved = json.loads((proj / "07_manuscript/claim_bindings.json").read_text(encoding="utf-8"))
                 self.assertEqual(amb_saved["claims"][0]["fact_ids"], ["AMBIGUOUS_SELECT_ONE"])
 
+    def test_16_multi_journal_switch_release_and_archive_folders(self) -> None:
+        """Journal A freeze -> journal.py begin switch to Journal B -> Journal B freeze yields side-by-side <Journal>_<LocalDate> folders."""
+        from datetime import datetime
+        from wfcore import journalcontext, packagefreeze as pf
+
+        local_today = datetime.now().astimezone().strftime("%Y%m%d")
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "project"
+            (proj / "08_submission/bundle").mkdir(parents=True)
+            (proj / ".wf").mkdir(parents=True)
+
+            # 1) First journal ("BMJ Open") using standard `journal` key (no `journal_name` key)
+            target_a = {
+                "journal": "BMJ Open",
+                "issn": "2044-6055",
+                "article_type": "Original research",
+                "submission_stage": "initial",
+            }
+            with mock.patch("wfcore.scientificfreeze.verify", return_value=(True, [], {"freeze_id": "SCI_FREEZE_1"})):
+                journalcontext.begin(proj, target_a)
+
+            (proj / "08_submission/bundle").mkdir(parents=True, exist_ok=True)
+            (proj / "08_submission/bundle/manuscript.docx").write_bytes(b"PK\x03\x04journal-A-docx")
+            (proj / "08_submission/bundle/manifest.json").write_text(
+                json.dumps({"items": [{"role": "manuscript", "file": "08_submission/bundle/manuscript.docx", "upload": True}]}),
+                encoding="utf-8",
+            )
+            for req in pf.REQUIRED_EVIDENCE:
+                if not (proj / req).is_file():
+                    (proj / req).write_text('{"ok":true}\n' if req.endswith(".json") else "guide A\n", encoding="utf-8")
+
+            freeze_a = json.loads(pf.write_freeze(proj).read_text(encoding="utf-8"))
+            rel_a = freeze_a["release_dir"]
+            self.assertRegex(rel_a, rf"^08_submission/releases/BMJ_Open_{local_today}_\d{{6}}(?:_[A-Fa-f0-9]{{6}})?$")
+            self.assertTrue(pf.verify_freeze(proj)[0])
+
+            # 2) Switch to second journal ("Annals of Internal Medicine")
+            target_b = {
+                "journal": "Annals of Internal Medicine",
+                "issn": "0003-4819",
+                "article_type": "Original Research",
+                "submission_stage": "initial",
+            }
+            with mock.patch("wfcore.scientificfreeze.verify", return_value=(True, [], {"freeze_id": "SCI_FREEZE_1"})):
+                ctx_b = journalcontext.begin(proj, target_b)
+
+            # Verify previous working files were archived under BMJ_Open_<LocalDate>_<Time> (NOT Previous_Journal!)
+            prev_arch = str(ctx_b.get("previous_archive", ""))
+            self.assertRegex(prev_arch, rf"^08_submission/journal_archives/BMJ_Open_{local_today}_\d{{6}}$")
+            self.assertTrue((proj / prev_arch).is_dir())
+            # And Journal A's final release package remains untouched!
+            self.assertTrue((proj / rel_a / "manuscript.docx").is_file())
+
+            # 3) Build & freeze Journal B package -> side-by-side Annals_of_Internal_Medicine_<LocalDate>_<Time> release!
+            (proj / "08_submission/bundle").mkdir(parents=True, exist_ok=True)
+            (proj / "08_submission/bundle/manuscript.docx").write_bytes(b"PK\x03\x04journal-B-docx")
+            (proj / "08_submission/bundle/manifest.json").write_text(
+                json.dumps({"items": [{"role": "manuscript", "file": "08_submission/bundle/manuscript.docx", "upload": True}]}),
+                encoding="utf-8",
+            )
+            for req in pf.REQUIRED_EVIDENCE:
+                if not (proj / req).is_file():
+                    (proj / req).write_text('{"ok":true}\n' if req.endswith(".json") else "guide B\n", encoding="utf-8")
+
+            freeze_b = json.loads(pf.write_freeze(proj).read_text(encoding="utf-8"))
+            rel_b = freeze_b["release_dir"]
+            self.assertRegex(
+                rel_b,
+                rf"^08_submission/releases/Annals_of_Internal_Medicine_{local_today}_\d{{6}}(?:_[A-Fa-f0-9]{{6}})?$",
+            )
+            self.assertTrue(pf.verify_freeze(proj)[0])
+
+            # Both Journal A and Journal B release directories coexist cleanly under 08_submission/releases/
+            release_dirs = sorted(p.name for p in (proj / "08_submission/releases").iterdir() if p.is_dir())
+            self.assertEqual(len(release_dirs), 2, msg=release_dirs)
+            self.assertTrue(any(d.startswith(f"BMJ_Open_{local_today}_") for d in release_dirs))
+            self.assertTrue(any(d.startswith(f"Annals_of_Internal_Medicine_{local_today}_") for d in release_dirs))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
