@@ -30,6 +30,100 @@ INTEGRATION_MS_REL = "08_submission/integration/full_manuscript.md"
 MASTER_TITLE_REL = "07_manuscript/title.md"
 MANIFEST_REL = "08_submission/bundle/manifest.json"
 
+
+def default_profile_path() -> Path:
+    import os
+    override = os.environ.get("MEDPAPER_AUTHOR_PROFILE", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    return (Path.home() / ".gemini" / "medpaper_author_profile.json").resolve()
+
+
+def sync_author_profile(
+    project: Path,
+    *,
+    profile_path: Path | None = None,
+    save_to_profile: bool = False,
+    overwrite_project: bool = False,
+) -> tuple[int, dict]:
+    """Import reusable author/affiliation/ORCID/funding defaults from profile or save current author_info to profile."""
+    prof = (profile_path or default_profile_path()).expanduser().resolve()
+    proj_author = project / AUTHOR_REL
+    if save_to_profile:
+        if not proj_author.is_file():
+            return 2, {"error": f"missing {AUTHOR_REL} to save"}
+        data = json.loads(proj_author.read_text(encoding="utf-8"))
+        errs = validate_author_info(data, strict=True)
+        if errs:
+            return 2, {"error": "; ".join(errs)}
+        prof.parent.mkdir(parents=True, exist_ok=True)
+        from .readiness import atomic_json
+        # Strip study-specific ethics/trial registration numbers while keeping reusable team identity & funding defaults
+        reusable = {
+            k: v for k, v in data.items()
+            if k in {"authors", "affiliations", "corresponding", "funding", "conflicts_of_interest", "acknowledgements"}
+        }
+        atomic_json(prof, reusable)
+        return 0, {"mode": "saved_profile", "profile": str(prof), "authors": len(reusable.get("authors", []))}
+
+    if not prof.is_file():
+        return 2, {"error": f"author profile not found at {prof}"}
+    preset = json.loads(prof.read_text(encoding="utf-8"))
+    if not isinstance(preset, dict):
+        return 2, {"error": f"invalid JSON object in {prof}"}
+
+    existing = {}
+    if proj_author.is_file():
+        if not overwrite_project:
+            existing = json.loads(proj_author.read_text(encoding="utf-8"))
+    merged = {**preset, **existing} if (existing and not overwrite_project) else dict(preset)
+    proj_author.parent.mkdir(parents=True, exist_ok=True)
+    from .readiness import atomic_json
+    from .revision import guard_outputs
+    guard_outputs(project, [proj_author])
+    atomic_json(proj_author, merged)
+    errs = validate_author_info(merged, strict=False)
+    return (0 if not errs else 2), {
+        "mode": "imported_profile",
+        "profile": str(prof),
+        "destination": AUTHOR_REL,
+        "validation_warnings": errs,
+    }
+
+
+def missing_intake_checklist(project: Path) -> list[str]:
+    """Return concise bullet items still needed from the user so S20 and S21 can be answered in one turn."""
+    proj_author = project / AUTHOR_REL
+    prof = default_profile_path()
+    source_obj: dict = {}
+    source_tag = "none"
+    if proj_author.is_file():
+        try:
+            source_obj = json.loads(proj_author.read_text(encoding="utf-8"))
+            source_tag = AUTHOR_REL
+        except (OSError, json.JSONDecodeError):
+            source_obj = {}
+    elif prof.is_file():
+        try:
+            source_obj = json.loads(prof.read_text(encoding="utf-8"))
+            source_tag = f"preset ({prof.name})"
+        except (OSError, json.JSONDecodeError):
+            source_obj = {}
+
+    items: list[str] = []
+    errs = validate_author_info(source_obj, strict=True) if source_obj else ["missing all author/affiliation/ORCID/corresponding fields"]
+    if errs:
+        items.append(f"Authors, institutional affiliations, corresponding email/address, and lead ORCID (status from {source_tag}: {'; '.join(errs[:3])})")
+    else:
+        names = [a.get("name", "?") for a in source_obj.get("authors", []) if isinstance(a, dict)]
+        items.append(f"Confirm or adjust pre-filled author order from {source_tag}: {', '.join(names)}")
+    if not str(source_obj.get("funding", "")).strip():
+        items.append("Funding / grant number(s) (or confirm 'None')")
+    if not str(source_obj.get("conflicts_of_interest", "")).strip():
+        items.append("Conflicts of interest declaration (or confirm 'None declared')")
+    items.append("Study-specific CRediT author contributions & institutional ethics approval number (if applicable)")
+    return items
+
 ORCID_RE = re.compile(r"^(?:https?://orcid\.org/)?(\d{4}-\d{4}-\d{4}-\d{3}[\dX])$", re.I)
 EMAIL_SIMPLE_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"

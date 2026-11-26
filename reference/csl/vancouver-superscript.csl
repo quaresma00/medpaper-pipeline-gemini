@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<style xmlns="http://purl.org/net/xbiblio/csl" class="in-text" version="1.0" demote-non-dropping-particle="sort-only" page-range-format="minimal">
+  <info>
+    <title>Vancouver (superscript)</title>
+    <id>http://www.zotero.org/styles/vancouver-superscript</id>
+    <link href="http://www.zotero.org/styles/vancouver-superscript" rel="self"/>
+    <category citation-format="numeric"/>
+    <category field="medicine"/>
+    <updated>2026-01-01T00:00:00+00:00</updated>
+  </info>
+  <macro name="author">
+    <names variable="author" suffix=". ">
+      <name sort-separator=" " initialize-with="" name-as-sort-order="all" delimiter=", " delimiter-precedes-last="always"/>
+      <substitute>
+        <names variable="editor"/>
+        <text variable="title"/>
+      </substitute>
+    </names>
+  </macro>
+  <macro name="year-date">
+    <date variable="issued">
+      <date-part name="year"/>
+    </date>
+  </macro>
+  <citation collapse="citation-number">
+    <sort>
+      <key variable="citation-number"/>
+    </sort>
+    <layout delimiter="," vertical-align="sup">
+      <text variable="citation-number"/>
+    </layout>
+  </citation>
+  <bibliography et-al-min="7" et-al-use-first="6" second-field-align="flush">
+    <layout>
+      <text variable="citation-number" suffix=". "/>
+      <text macro="author"/>
+      <text variable="title" suffix=". "/>
+      <choose>
+        <if type="article-journal article-magazine" match="any">
+          <group delimiter=" " suffix=".">
+            <text variable="container-title" form="short" strip-periods="true"/>
+            <group>
+              <text macro="year-date"/>
+              <text variable="volume" prefix=";"/>
+              <text variable="issue" prefix="(" suffix=")"/>
+              <text variable="page" prefix=":"/>
+            </group>
+          </group>
+        </if>
+        <else>
+          <group delimiter=". " suffix=".">
+            <text variable="publisher"/>
+            <text macro="year-date"/>
+          </group>
+        </else>
+      </choose>
+      <text variable="DOI" prefix=" doi:"/>
+    </layout>
+  </bibliography>
+</style>

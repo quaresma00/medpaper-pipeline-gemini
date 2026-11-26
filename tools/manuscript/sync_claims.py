@@ -396,14 +396,56 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--project", type=Path, default=None, help="override project root")
     ap.add_argument("--layer", choices=["auto", "science", "journal"], default="auto")
-    ap.add_argument("--file", help="restrict sync to one markdown file (e.g. 07_manuscript/results.md)")
+    ap.add_argument("--file", help="restrict sync/scaffold to one file (e.g. 07_manuscript/results.md or 04_tables/main/Table1.xlsx)")
     ap.add_argument("--reanchor", action="store_true", help="re-anchor wording-only sentence edits with identical numeric multiset")
+    ap.add_argument("--bootstrap-facts", action="store_true", help="scan 03_analysis/results/*.json and bootstrap/merge 01_protocol/study_facts.json")
+    ap.add_argument("--scaffold-claims", action="store_true", help="auto-scaffold unambiguous table/prose bindings into 07_manuscript/claim_bindings.json")
     ap.add_argument("--dry-run", action="store_true", help="report updates without modifying files")
     ap.add_argument("--no-validate", action="store_true", help="skip post-sync claims.validate_prose check")
     ap.add_argument("--json", action="store_true", help="print JSON summary")
     args = ap.parse_args(argv)
 
     proj = project_root(args.project)
+    if args.bootstrap_facts:
+        from wfcore.claimscaffold import bootstrap_study_facts
+        rc, info = bootstrap_study_facts(proj, dry_run=args.dry_run)
+        if args.json:
+            print(json.dumps(info, indent=2, ensure_ascii=False))
+            return rc
+        if rc != 0:
+            print(f"bootstrap_facts error: {info.get('error')}", file=sys.stderr)
+            return rc
+        print(
+            f"bootstrapped {info['study_facts_file']}: added={info['facts_added']}, "
+            f"total={info['facts_total']}, pending_context={len(info['pending_context_facts'])}"
+        )
+        if info["pending_context_facts"]:
+            print(
+                f"  [ACTION NEEDED] Fill PENDING_CLINICAL_CONTEXT for: {', '.join(info['pending_context_facts'][:10])}",
+                file=sys.stderr,
+            )
+        return 0
+
+    if args.scaffold_claims:
+        from wfcore.claimscaffold import scaffold_claim_bindings
+        rc, info = scaffold_claim_bindings(proj, only_file=args.file, dry_run=args.dry_run)
+        if args.json:
+            print(json.dumps(info, indent=2, ensure_ascii=False))
+            return rc
+        if "error" in info:
+            print(f"scaffold_claims error: {info['error']}", file=sys.stderr)
+            return rc
+        print(
+            f"scaffolded {info['binding_file']}: "
+            f"table_cells={info['table_cells_added']} (ambiguous={info['table_cells_ambiguous']}), "
+            f"prose={info['prose_claims_added']} (ambiguous={info['prose_claims_ambiguous']}, pending_ctx={info['prose_pending_context']})"
+        )
+        if rc != 0:
+            print(
+                "  [ACTION NEEDED] Resolve AMBIGUOUS_SELECT_ONE or pending observations in 07_manuscript/claim_bindings.json",
+                file=sys.stderr,
+            )
+        return rc
     rc, info = sync_bindings(
         proj,
         layer=args.layer,

@@ -9,7 +9,7 @@ Collect user-owned authorship and compliance facts only after the scientific man
 been assembled, independently reviewed, user-reviewed and matched to a journal.
 
 ## This stage needs the user
-Reuse already supplied facts and ask once for only journal-required missing items. Keep
+Reuse already supplied facts (including any combined S20 reply or reusable `~/.gemini/medpaper_author_profile.json` imported via `uv run python tools/manuscript/author_block.py profile`) and pause ONLY if journal-required items remain missing; once validated, save reusable team defaults with `author_block.py profile --save`. Keep
 `00_input/author_info.json` as the single administrative source for every consuming file.
 Ask for the exact author order and names, affiliations, ORCIDs, corresponding-author
 details, funding/grants and conflicts only when missing. Derive supported ethics/consent and

@@ -344,6 +344,8 @@ def main() -> int:
                     help="replace a different previously registered file for this citekey")
     ap.add_argument("--force-refetch", action="store_true",
                     help="re-download even when a valid local full text is already registered")
+    ap.add_argument("--from-library-no-abstract", action="store_true",
+                    help="include all library.json entries lacking a PubMed abstract in one unified batch")
     args = ap.parse_args()
 
     lib_path = eu.refs_dir() / "library.json"
@@ -363,8 +365,10 @@ def main() -> int:
         if not dr_path.exists():
             eu.die("deepread_index.json missing; pass --citekey instead")
         keys += [i["citekey"] for i in json.loads(dr_path.read_text(encoding="utf-8")).get("selected", [])]
+    if args.from_library_no_abstract:
+        keys += [k for k, e in entries.items() if not str(e.get("abstract", "") or "").strip() and e.get("pool_role") != "candidate"]
     if not keys:
-        eu.die("give at least one --citekey (or --all-deepread)")
+        eu.die("give at least one --citekey (or --all-deepread / --from-library-no-abstract)")
 
     if args.command == "confirm":
         if len(keys) != 1 or not (args.confirmed_by or "").strip() or len((args.identity_note or "").strip()) < 30:
@@ -430,6 +434,20 @@ def main() -> int:
         record = record_retrieval(entry, result)
         print(f"{key}: registered {record['fulltext']}")
         print(f"    route={record['route']} access={record['access']} sha256={record['sha256']}")
+        # Prune resolved item from unified pending_fulltext_requests.{json,md}
+        req_json = eu.project_root() / ".wf/pending_fulltext_requests.json"
+        req_md = eu.project_root() / ".wf/pending_fulltext_requests.md"
+        if req_json.is_file():
+            try:
+                pending_rows = [r for r in json.loads(req_json.read_text(encoding="utf-8")).get("pending", []) if r.get("citekey") != key]
+                if pending_rows:
+                    atomic_json(req_json, {"pending": pending_rows})
+                else:
+                    req_json.unlink()
+                    if req_md.is_file():
+                        req_md.unlink()
+            except (OSError, json.JSONDecodeError):
+                pass
         if not args.no_stub:
             notes = eu.project_root() / "06_refs" / "deepread" / f"{key}.md"
             notes.parent.mkdir(parents=True, exist_ok=True)

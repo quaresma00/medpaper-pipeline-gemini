@@ -625,6 +625,16 @@ mode = "library"
 since = "1.30.0"
 
 [[stage]]
+id = "S15_deepread"
+title = "Read the core full texts needed for Introduction and Discussion arguments"
+card = "stages/S15_deepread.md"
+outputs = ["06_refs/deepread/deepread_index.json"]
+[[stage.gate]]
+check = "outputs_exist"
+[[stage.gate]]
+check = "deepread_complete"
+
+[[stage]]
 id = "S14_introduction"
 title = "Write Introduction"
 card = "stages/S14_introduction.md"
@@ -668,16 +678,6 @@ check = "section_balance_health"
 mode = "intro"
 path = "07_manuscript/introduction.md"
 since = "1.32.0"
-
-[[stage]]
-id = "S15_deepread"
-title = "Read the full texts needed for the Discussion arguments"
-card = "stages/S15_deepread.md"
-outputs = ["06_refs/deepread/deepread_index.json"]
-[[stage.gate]]
-check = "outputs_exist"
-[[stage.gate]]
-check = "deepread_complete"
 
 [[stage]]
 id = "S16_discussion"

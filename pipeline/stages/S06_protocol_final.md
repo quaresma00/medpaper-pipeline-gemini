@@ -24,7 +24,7 @@ the effect size and the data's limits are known. This is the last cheap exit.
    one line each. This becomes the honest basis for any "pre-specified" claim in Methods.
 3. Before decisions, read `reference/efficient-quality.md`. Persist the scientific rules in
    `01_protocol/analysis_contract.json` and the four-part clinical story in
-   `01_protocol/study_facts.json`; link findings to executed result JSONs. Resolve material
+   `01_protocol/study_facts.json` (run `uv run python tools/manuscript/sync_claims.py --bootstrap-facts` first to auto-discover structured result nodes from `03_analysis/results/*.json`, then complete any `PENDING_CLINICAL_CONTEXT` fields); link findings to executed result JSONs. Resolve material
    clinical ambiguity, preserve relevant null/contradictory findings and reconcile every
    planned primary/secondary outcome with its result or explained limitation. Do not invent
    validation or silently replace a failed primary question with a favourable exploratory one.

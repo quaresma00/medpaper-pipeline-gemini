@@ -60,10 +60,11 @@ write_table(
              "script": "04_tables/code/table1.py", "n_rows": 0, "source_results": ["03_analysis/results/baseline.json"]}]}
 ```
    - Clinical display labels & de-AI/de-engineering polish: Every table title (`04_tables/table_captions.md` and row 1), column header, row stub, cell value, and footnote must be publication-ready for medical clinicians. Raw column names (`sbp`, `bmi`, `age_yrs`), raw database codes, bare boolean `TRUE`/`FALSE`, bare package columns (`coef`, `p_val`), AI clichés (`delve into`, `underscores`), engineering/workflow jargon (`dataframe`, `script`, `JSON`, `CSV`, `locked protocol`), spelled-out clinical age/window words (`eighteen to sixty-four`, `thirty-day`), internal tier codes (`Tier A/B/C`), repeated `Prefix:` rows (`>=4` times instead of `group_rows`/`indent_rows`), and work-report narration are prohibited and blocked by `display_labels_clinical`. Retain honest null/unfavorable findings and uncertainty in all tables.
-4. Run the table builder, render official visual previews (`tools/tables/render_preview.py`), and inspect all checks in one pass:
+4. Run the table builder, scaffold source-bound cell mappings (`sync_claims.py --scaffold-claims`), render official visual previews (`tools/tables/render_preview.py`), and inspect all checks in one pass:
 ```powershell
 uv run python project/04_tables/code/build_tables.py --only Table1
-uv run python tools/tables/render_preview.py --all
+uv run python tools/manuscript/sync_claims.py --scaffold-claims
+uv run python tools/tables/render_preview.py --all --changed
 uv run python tools/wf.py check --all-checks --only "Table 1"
 ```
    The builder must support selecting an affected workbook (`--only Table2`).

@@ -11,146 +11,15 @@ import re
 from decimal import Decimal
 from pathlib import Path
 
+from .lexicon import measure_families_map, unit_synonyms_map
 from .packagefreeze import _safe_path
 
 CONTEXT_KEYS = {"outcome", "population", "comparison", "model", "timepoint", "unit", "denominator"}
 PROSE_CONTEXT_KEYS = {"population", "comparison", "model", "timepoint"}
 
-# Controlled effect-measure and summary-scale families.
-# Short abbreviations ("OR", "HR", "RR", etc.) MUST match case-sensitively so ordinary
-# English conjunctions such as "or" are never misread as an odds ratio.
-MEASURE_FAMILIES: dict[str, dict[str, tuple[str, ...]]] = {
-    "hazard_ratio": {
-        "phrases": (
-            "subdistribution hazard ratio", "subdistribution hazard ratios",
-            "cause-specific hazard ratio", "cause-specific hazard ratios",
-            "cox hazard ratio", "cox hazard ratios",
-            "hazard ratio", "hazard ratios",
-        ),
-        "abbr": ("aHR", "sHR", "csHR", "HRs", "HR"),
-    },
-    "odds_ratio": {
-        "phrases": ("adjusted odds ratio", "crude odds ratio", "odds ratio", "odds ratios"),
-        "abbr": ("aOR", "cOR", "ORs", "OR"),
-    },
-    "risk_ratio": {
-        "phrases": (
-            "adjusted risk ratio", "relative risk", "relative risks",
-            "risk ratio", "risk ratios", "prevalence ratio", "prevalence ratios",
-        ),
-        "abbr": ("aRR", "RRs", "RR", "aPR", "PR"),
-    },
-    "rate_ratio": {
-        "phrases": (
-            "incidence rate ratio", "incidence rate ratios",
-            "rate ratio", "rate ratios",
-        ),
-        "abbr": ("aIRR", "IRRs", "IRR"),
-    },
-    "risk_difference": {
-        "phrases": (
-            "absolute risk reduction", "absolute risk difference",
-            "risk difference", "risk differences",
-        ),
-        "abbr": ("ARD", "ARR", "RD"),
-    },
-    "mean_difference": {
-        "phrases": (
-            "between-group difference", "difference in means",
-            "adjusted difference", "mean difference", "mean differences",
-        ),
-        "abbr": ("MD",),
-    },
-    "standardized_mean_difference": {
-        "phrases": (
-            "standardized mean difference", "standardised mean difference",
-            "standardized difference", "standardised difference",
-        ),
-        "abbr": ("SMD", "ASD"),
-    },
-    "auc": {
-        "phrases": (
-            "area under the receiver operating characteristic curve",
-            "area under the roc curve", "area under the curve",
-            "concordance statistic", "concordance index",
-            "c-statistic", "c-index",
-        ),
-        "abbr": ("AUROC", "AUC"),
-    },
-    "correlation": {
-        "phrases": (
-            "pearson correlation", "spearman correlation",
-            "correlation coefficient",
-        ),
-        "abbr": (),
-    },
-    "regression_slope": {
-        "phrases": (
-            "linear regression coefficient", "regression coefficient",
-            "regression slope", "adjusted beta", "beta coefficient",
-        ),
-        "abbr": ("β",),
-    },
-    "rmst_difference": {
-        "phrases": (
-            "restricted mean survival time difference",
-            "difference in restricted mean survival time",
-            "rmst difference",
-        ),
-        "abbr": ("ΔRMST", "dRMST"),
-    },
-    "geometric_mean_ratio": {
-        "phrases": (
-            "geometric mean ratio", "geometric mean ratios", "fold change",
-        ),
-        "abbr": ("GMR",),
-    },
-    "diagnostic_sensitivity": {
-        "phrases": ("diagnostic sensitivity", "true positive rate"),
-        "abbr": (),
-    },
-    "diagnostic_specificity": {
-        "phrases": ("diagnostic specificity", "true negative rate"),
-        "abbr": (),
-    },
-    "predictive_value": {
-        "phrases": ("positive predictive value", "negative predictive value"),
-        "abbr": ("PPV", "NPV"),
-    },
-    "reclassification": {
-        "phrases": (
-            "net reclassification improvement",
-            "integrated discrimination improvement",
-        ),
-        "abbr": ("NRI", "IDI"),
-    },
-    "heterogeneity_i2": {
-        "phrases": ("heterogeneity statistic", "between-study variance", "i-squared"),
-        "abbr": ("I²", "I2"),
-    },
-    "mendelian_randomization_ivw": {
-        "phrases": (
-            "inverse-variance weighted estimate", "ivw estimate",
-            "mr-egger slope", "weighted median estimate",
-        ),
-        "abbr": ("IVW",),
-    },
-}
-
-UNIT_SYNONYMS: dict[str, tuple[str, ...]] = {
-    "years": ("year", "years", "yr", "yrs"),
-    "year": ("year", "years", "yr", "yrs"),
-    "months": ("month", "months", "mo", "mos"),
-    "month": ("month", "months", "mo", "mos"),
-    "weeks": ("week", "weeks", "wk", "wks"),
-    "week": ("week", "weeks", "wk", "wks"),
-    "days": ("day", "days"),
-    "day": ("day", "days"),
-    "hours": ("hour", "hours", "hr", "hrs"),
-    "hour": ("hour", "hours", "hr", "hrs"),
-    "percent": ("percent", "percentage", "%"),
-    "percentage": ("percent", "percentage", "%"),
-}
+# Declarative clinical effect-measure families & unit synonyms loaded from reference/clinical_lexicon.toml.
+MEASURE_FAMILIES: dict[str, dict[str, tuple[str, ...]]] = measure_families_map()
+UNIT_SYNONYMS: dict[str, tuple[str, ...]] = unit_synonyms_map()
 
 _EXEMPT_UNIT_RE = re.compile(
     r"^\s*(?:counts?|n|number(?:\s+of\s+\w+)?|events?|patients?|participants?|"

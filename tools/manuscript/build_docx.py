@@ -47,6 +47,59 @@ PIPE_TABLE_DIVIDER_RE = re.compile(
 )
 
 
+CSL_BUNDLED_DIR = ROOT / "reference" / "csl"
+CSL_ALIASES = {
+    "vancouver": "vancouver.csl",
+    "icmje": "vancouver.csl",
+    "nlm": "vancouver.csl",
+    "vancouver-brackets": "vancouver-brackets.csl",
+    "springer": "vancouver-brackets.csl",
+    "bmc": "vancouver-brackets.csl",
+    "elsevier": "elsevier-vancouver.csl",
+    "elsevier-vancouver": "elsevier-vancouver.csl",
+    "vancouver-superscript": "vancouver-superscript.csl",
+    "bmj": "vancouver-superscript.csl",
+    "wiley": "vancouver-superscript.csl",
+    "ama": "ama.csl",
+    "jama": "ama.csl",
+    "nature": "nature.csl",
+    "lancet": "thelancet.csl",
+    "thelancet": "thelancet.csl",
+    "apa": "apa.csl",
+}
+
+
+def resolve_csl_path(raw: Path | str | None) -> Path | None:
+    """Resolve an explicit .csl file path or bundled style name under reference/csl/."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    p = Path(s)
+    if p.is_file():
+        return p.resolve()
+    proj_cand = project_root() / s
+    if proj_cand.is_file():
+        return proj_cand.resolve()
+    repo_cand = ROOT / s
+    if repo_cand.is_file():
+        return repo_cand.resolve()
+    key = s.lower()
+    if key.endswith(".csl"):
+        key_no_ext = key[:-4]
+    else:
+        key_no_ext = key
+    mapped = CSL_ALIASES.get(key_no_ext, f"{key_no_ext}.csl")
+    bundled = CSL_BUNDLED_DIR / mapped
+    if bundled.is_file():
+        return bundled.resolve()
+    raise FileNotFoundError(
+        f"CSL style {s!r} not found as path or in bundled reference/csl/ "
+        f"(available: {', '.join(sorted(f.stem for f in CSL_BUNDLED_DIR.glob('*.csl')))})"
+    )
+
+
 def project_root() -> Path:
     raw = os.environ.get("MEDPAPER_PROJECT")
     return Path(raw).resolve() if raw else ROOT / "project"
@@ -729,6 +782,8 @@ def build(args) -> int:
         profile_inputs.append(author_input)
     patch_path = getattr(args, "csl_patch", None) or project_root()/"08_submission/integration/csl_patch.json"
     patch_path = patch_path if patch_path.is_file() else None
+    resolved_csl = resolve_csl_path(args.csl) if getattr(args, "csl", None) else None
+    args.csl = resolved_csl
     if patch_path:
         if not args.csl: raise ValueError("CSL patch needs an explicitly sourced base --csl")
         profile_inputs.append(patch_path)
@@ -891,6 +946,12 @@ def main() -> int:
     p.add_argument("--manifest", type=Path, required=True)
     p.add_argument("--style-config", type=Path, required=True)
     p.set_defaults(fn=audit_manifest)
+    p_csl = sub.add_parser("list-csl", help="list bundled offline medical CSL styles in reference/csl/")
+    p_csl.set_defaults(
+        fn=lambda _a: (
+            print("\n".join(sorted(f.name for f in CSL_BUNDLED_DIR.glob("*.csl")))) or 0
+        )
+    )
     args = ap.parse_args()
     return args.fn(args)
 

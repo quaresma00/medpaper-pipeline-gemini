@@ -1,0 +1,188 @@
+# ==============================================================================
+# Declarative Clinical Effect-Measure, Unit & Display Lexicon
+# ==============================================================================
+# Centralizes domain terminology consumed by tools/wfcore/claims.py and
+# tools/wfcore/displaylabels.py so specialty clinical measures can be extended
+# declaratively without bloating core validation engines.
+# Short abbreviations in `abbr` match case-sensitively so ordinary English
+# conjunctions such as "or" are never misread as an odds ratio.
+# ==============================================================================
+
+[meta]
+version = "1.0.0"
+
+[measure_families.hazard_ratio]
+phrases = [
+  "subdistribution hazard ratio", "subdistribution hazard ratios",
+  "cause-specific hazard ratio", "cause-specific hazard ratios",
+  "cox hazard ratio", "cox hazard ratios",
+  "hazard ratio", "hazard ratios",
+]
+abbr = ["aHR", "sHR", "csHR", "HRs", "HR"]
+
+[measure_families.odds_ratio]
+phrases = ["adjusted odds ratio", "crude odds ratio", "odds ratio", "odds ratios"]
+abbr = ["aOR", "cOR", "ORs", "OR"]
+
+[measure_families.risk_ratio]
+phrases = [
+  "adjusted risk ratio", "relative risk", "relative risks",
+  "risk ratio", "risk ratios", "prevalence ratio", "prevalence ratios",
+]
+abbr = ["aRR", "RRs", "RR", "aPR", "PR"]
+
+[measure_families.rate_ratio]
+phrases = [
+  "incidence rate ratio", "incidence rate ratios",
+  "rate ratio", "rate ratios",
+]
+abbr = ["aIRR", "IRRs", "IRR"]
+
+[measure_families.risk_difference]
+phrases = [
+  "absolute risk reduction", "absolute risk difference",
+  "risk difference", "risk differences",
+]
+abbr = ["ARD", "ARR", "RD"]
+
+[measure_families.mean_difference]
+phrases = [
+  "between-group difference", "difference in means",
+  "adjusted difference", "mean difference", "mean differences",
+]
+abbr = ["MD"]
+
+[measure_families.standardized_mean_difference]
+phrases = [
+  "standardized mean difference", "standardised mean difference",
+  "standardized difference", "standardised difference",
+]
+abbr = ["SMD", "ASD"]
+
+[measure_families.auc]
+phrases = [
+  "area under the receiver operating characteristic curve",
+  "area under the roc curve", "area under the curve",
+  "concordance statistic", "concordance index",
+  "c-statistic", "c-index",
+]
+abbr = ["AUROC", "AUC"]
+
+[measure_families.correlation]
+phrases = ["pearson correlation", "spearman correlation", "correlation coefficient"]
+abbr = []
+
+[measure_families.regression_slope]
+phrases = [
+  "linear regression coefficient", "regression coefficient",
+  "regression slope", "adjusted beta", "beta coefficient",
+]
+abbr = ["β"]
+
+[measure_families.rmst_difference]
+phrases = [
+  "restricted mean survival time difference",
+  "difference in restricted mean survival time",
+  "rmst difference",
+]
+abbr = ["ΔRMST", "dRMST"]
+
+[measure_families.geometric_mean_ratio]
+phrases = ["geometric mean ratio", "geometric mean ratios", "fold change"]
+abbr = ["GMR"]
+
+[measure_families.diagnostic_sensitivity]
+phrases = ["diagnostic sensitivity", "true positive rate"]
+abbr = []
+
+[measure_families.diagnostic_specificity]
+phrases = ["diagnostic specificity", "true negative rate"]
+abbr = []
+
+[measure_families.predictive_value]
+phrases = ["positive predictive value", "negative predictive value"]
+abbr = ["PPV", "NPV"]
+
+[measure_families.reclassification]
+phrases = ["net reclassification improvement", "integrated discrimination improvement"]
+abbr = ["NRI", "IDI"]
+
+[measure_families.heterogeneity_i2]
+phrases = ["heterogeneity statistic", "between-study variance", "i-squared"]
+abbr = ["I²", "I2"]
+
+[measure_families.mendelian_randomization_ivw]
+phrases = [
+  "inverse-variance weighted estimate", "ivw estimate",
+  "mr-egger slope", "weighted median estimate",
+]
+abbr = ["IVW"]
+
+# Specialty clinical trial & cohort measures
+[measure_families.objective_response_rate]
+phrases = [
+  "objective response rate", "overall response rate",
+  "disease control rate", "complete response rate",
+]
+abbr = ["ORR", "DCR", "CRR"]
+
+[measure_families.vaccine_efficacy]
+phrases = ["vaccine efficacy", "vaccine effectiveness"]
+abbr = ["VE"]
+
+[measure_families.number_needed_to_treat]
+phrases = ["number needed to treat", "number needed to harm"]
+abbr = ["NNT", "NNH"]
+
+[measure_families.longitudinal_slope]
+phrases = [
+  "annualized slope", "annualised slope", "annual decline",
+  "egfr slope", "rate of decline", "annual change",
+]
+abbr = []
+
+[measure_families.win_ratio]
+phrases = ["win ratio", "win odds", "net treatment benefit"]
+abbr = ["WR"]
+
+[measure_families.intraclass_correlation]
+phrases = [
+  "intraclass correlation coefficient", "concordance correlation coefficient",
+  "cohen's kappa", "weighted kappa",
+]
+abbr = ["ICC", "CCC"]
+
+[unit_synonyms]
+years = ["year", "years", "yr", "yrs"]
+year = ["year", "years", "yr", "yrs"]
+months = ["month", "months", "mo", "mos"]
+month = ["month", "months", "mo", "mos"]
+weeks = ["week", "weeks", "wk", "wks"]
+week = ["week", "weeks", "wk", "wks"]
+days = ["day", "days"]
+day = ["day", "days"]
+hours = ["hour", "hours", "hr", "hrs"]
+hour = ["hour", "hours", "hr", "hrs"]
+percent = ["percent", "percentage", "%"]
+percentage = ["percent", "percentage", "%"]
+
+[display_rules]
+camel_biomed_allow = [
+  "pka", "pkb", "mcnemar", "macos", "dejavu",
+  "pubmed", "biorxiv", "medrxiv", "openfda",
+  "ukbiobank", "clinicaltrials",
+]
+binary_kv_allowed_keys = [
+  "n", "p", "hr", "or", "rr", "irr", "smd", "auc", "ci", "sd", "iqr", "se",
+  "df", "k", "r", "r2", "i2", "q", "score", "grade", "stage", "class", "type",
+  "phase", "step", "visit", "day", "week", "month", "year", "cycle", "dose",
+  "level", "tertile", "quartile", "quintile", "decile", "parity", "gravidity",
+  "ecog", "asa", "nyha", "mrs", "killip", "timi", "glasgow", "sofa", "apache",
+  "cha2ds2-vasc", "has-bled", "child-pugh", "meld", "aki", "ckd", "gold", "bi-rads",
+  "nihss", "recist", "ctcae", "clavien-dindo", "figo", "ajcc", "gleason",
+]
+machine_stub_headers = [
+  "variable", "variables", "feature", "features", "covariate", "covariates",
+  "predictor", "predictors", "field", "fields", "column", "columns",
+  "parameter", "parameters", "term", "terms",
+]

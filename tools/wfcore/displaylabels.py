@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from . import xlsxlite
+from .lexicon import display_set
 from .packagefreeze import _safe_path
 from .readiness import load
 
@@ -29,22 +30,8 @@ SNAKE_CASE_RE = re.compile(
 )
 
 # Multi-word programming camelCase (e.g. followUpDays, baselineSbp, predProb, hospLos).
-# Single-letter prefixes (eGFR, cTnI, mRNA, sST2, uACR) and all-caps suffixes
-# (miRNA, siRNA, scRNA, cfDNA, ctDNA, ddPCR, rtPCR) do NOT match [a-z]{2,}[A-Z][a-z]{2,}.
 CAMEL_CASE_RE = re.compile(r"(?<![A-Za-z0-9\-])([a-z]{2,}[A-Z][a-z]{2,}[A-Za-z0-9]*)\b")
-CAMEL_BIOMED_ALLOW = {
-    "pka",
-    "pkb",
-    "mcnemar",
-    "macos",
-    "dejavu",
-    "pubmed",
-    "biorxiv",
-    "medrxiv",
-    "openfda",
-    "ukbiobank",
-    "clinicaltrials",
-}
+CAMEL_BIOMED_ALLOW = display_set("camel_biomed_allow")
 
 # R / Python / formula / dataframe syntax leaked into display labels.
 FORMULA_SYNTAX_RE = re.compile(
@@ -61,14 +48,7 @@ FORMULA_SYNTAX_RE = re.compile(
 RAW_BOOL_EXACT_RE = re.compile(r"^\s*(?:TRUE|FALSE|True|False)\s*$")
 RAW_BOOL_KV_RE = re.compile(r"(?:=|:)\s*(?:TRUE|FALSE|True|False)\b|\b(?:TRUE|FALSE)\s*\(")
 RAW_BINARY_KV_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9\s\-]{1,28}?)\s*(?:=|:)\s*([01])\b")
-BINARY_KV_ALLOWED_KEYS = {
-    "n", "p", "hr", "or", "rr", "irr", "smd", "auc", "ci", "sd", "iqr", "se",
-    "df", "k", "r", "r2", "i2", "q", "score", "grade", "stage", "class", "type",
-    "phase", "step", "visit", "day", "week", "month", "year", "cycle", "dose",
-    "level", "tertile", "quartile", "quintile", "decile", "parity", "gravidity",
-    "ecog", "asa", "nyha", "mrs", "killip", "timi", "glasgow", "sofa", "apache",
-    "cha2ds2-vasc", "has-bled", "child-pugh", "meld", "aki", "ckd", "gold", "bi-rads",
-}
+BINARY_KV_ALLOWED_KEYS = display_set("binary_kv_allowed_keys")
 NUMBERED_GROUP_CODE_RE = re.compile(
     r"\b(?:Group|Arm|Cluster|Cohort|Treat(?:ment)?|Exposure|Stratum)\s+(?:[01]|[2-9](?!\s*[:(\u2013\-]))\b",
     re.I,
@@ -88,24 +68,7 @@ RAW_STAT_HEADER_RE = re.compile(
 )
 
 # Machine-oriented first-column headers in clinical tables.
-MACHINE_STUB_HEADERS = {
-    "variable",
-    "variables",
-    "feature",
-    "features",
-    "covariate",
-    "covariates",
-    "predictor",
-    "predictors",
-    "field",
-    "fields",
-    "column",
-    "columns",
-    "parameter",
-    "parameters",
-    "term",
-    "terms",
-}
+MACHINE_STUB_HEADERS = display_set("machine_stub_headers")
 
 # Analytics-report / notebook titles instead of clinical subject titles.
 ANALYTICS_TITLE_RE = re.compile(

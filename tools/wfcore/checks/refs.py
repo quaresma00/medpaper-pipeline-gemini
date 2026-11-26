@@ -624,20 +624,30 @@ def deepread_complete(ctx: Ctx) -> Result:
 @check("deepread_cited")
 def deepread_cited(ctx: Ctx) -> Result:
     rel = ctx.spec["path"]
+    target_role = "introduction" if "introduction" in rel else "discussion"
     idx_rel = "06_refs/deepread/deepread_index.json"
     if not ctx.p(rel).exists() or not ctx.p(idx_rel).exists():
-        return Result(False, "deepread_cited", "discussion or deepread index missing")
-    sel = [i.get("citekey") for i in ctx.read_json(idx_rel).get("selected", []) if i.get("citekey")]
+        return Result(False, "deepread_cited", f"{target_role} or deepread index missing")
+    raw_sel = ctx.read_json(idx_rel).get("selected", [])
+    sel = []
+    for item in raw_sel:
+        if not isinstance(item, dict) or not item.get("citekey"):
+            continue
+        role = str(item.get("role", "discussion")).strip().lower()
+        if role in {target_role, "both", "all"}:
+            sel.append(item["citekey"])
+    if not sel:
+        return Result(True, "deepread_cited", f"0 {target_role}-scoped deep-read papers required")
     used = set(citekeys(ctx.read(rel)))
     absent = [k for k in sel if k not in used]
     if absent:
         return Result(
             False,
             "deepread_cited",
-            "deep-read paper(s) never cited in the Discussion: " + ", ".join(absent),
-            ["If a paper turned out irrelevant, drop it from deepread_index.json and record why."],
+            f"deep-read paper(s) never cited in the {target_role.capitalize()}: " + ", ".join(absent),
+            ["If a paper turned out irrelevant, drop it from deepread_index.json (or adjust its role) and record why."],
         )
-    return Result(True, "deepread_cited", f"all {len(sel)} deep-read paper(s) engaged in the Discussion")
+    return Result(True, "deepread_cited", f"all {len(sel)} deep-read paper(s) engaged in the {target_role.capitalize()}")
 
 
 @check("guidelines_sourced")

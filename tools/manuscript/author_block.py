@@ -84,6 +84,34 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_profile(args: argparse.Namespace) -> int:
+    project = args.project.resolve() if args.project else project_root()
+    rc, info = authorblock.sync_author_profile(
+        project,
+        profile_path=args.profile,
+        save_to_profile=args.save,
+        overwrite_project=args.overwrite,
+    )
+    if rc != 0 and "error" in info:
+        print(f"author_block profile: {info['error']}", file=sys.stderr)
+        return rc
+    if args.save:
+        print(f"saved reusable author profile -> {info['profile']} ({info['authors']} author(s))")
+    else:
+        print(f"imported author profile {info['profile']} -> {info['destination']}")
+        for w in info.get("validation_warnings", []):
+            print(f"  [WARN] {w}", file=sys.stderr)
+    return rc
+
+
+def cmd_checklist(args: argparse.Namespace) -> int:
+    project = args.project.resolve() if args.project else project_root()
+    print("## Combined S20-S21 Author & Declaration Intake Checklist")
+    for item in authorblock.missing_intake_checklist(project):
+        print(f"- {item}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="render and verify single-source author information for manuscript page 1 and optional title page"
@@ -103,6 +131,17 @@ def main() -> int:
     p_check.add_argument("--project", type=Path, default=None)
     p_check.add_argument("--stage", default="S23_package")
     p_check.set_defaults(fn=cmd_check)
+
+    p_prof = sub.add_parser("profile", help="import reusable author defaults into 00_input/author_info.json or --save current info to ~/.gemini/medpaper_author_profile.json")
+    p_prof.add_argument("--project", type=Path, default=None)
+    p_prof.add_argument("--profile", type=Path, default=None)
+    p_prof.add_argument("--save", action="store_true", help="save current validated 00_input/author_info.json as reusable profile")
+    p_prof.add_argument("--overwrite", action="store_true", help="overwrite existing 00_input/author_info.json from profile")
+    p_prof.set_defaults(fn=cmd_profile)
+
+    p_chk = sub.add_parser("checklist", help="print concise missing author/statement items to ask alongside S20 journal selection")
+    p_chk.add_argument("--project", type=Path, default=None)
+    p_chk.set_defaults(fn=cmd_checklist)
 
     args = parser.parse_args()
     return args.fn(args)

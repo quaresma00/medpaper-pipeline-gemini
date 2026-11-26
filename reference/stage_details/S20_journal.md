@@ -36,7 +36,7 @@ from a `journal-switch`, which still preserves the same accepted science.
    realistic acceptance reasoning, APC and turnaround when currently verifiable, and the
    main rejection risk. Rank by acceptance probability and study fit. Q3/Q4 and low-impact
    journals are fully acceptable and should outrank prestige targets with poor odds.
-4. Present the shortlist and wait for the user's choice. Do not default to the highest
+4. Present the shortlist **together with** the concise author/declaration intake checklist (`uv run python tools/manuscript/author_block.py checklist`, pre-filled from `~/.gemini/medpaper_author_profile.json` if present) and wait for the user's single combined reply (target journal + author/grant confirmation) so S20 -> S21 -> S22 -> S23 can proceed without a second pause. Do not default to the highest
    impact factor.
 5. Write the actual next target to a task-local JSON, with ISSN, article_type,
    submission_stage and existing SCIE/JCR/integrity/guide fields. Run `journal.py begin`

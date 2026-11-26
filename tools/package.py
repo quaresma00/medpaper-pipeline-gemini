@@ -12,7 +12,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TEXT_SUFFIXES = {".md", ".toml", ".yaml", ".yml", ".json", ".py", ".txt", ".ps1", ".r"}
+TEXT_SUFFIXES = {".md", ".toml", ".yaml", ".yml", ".json", ".py", ".txt", ".ps1", ".r", ".csl"}
 EXCLUDED_DIRS = {".git", ".venv", "dist", "scratch", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".log", ".tmp"}
 REQUIRED = {
@@ -21,6 +21,8 @@ REQUIRED = {
     ".agent/rules/medpaper-pipeline.md",
     ".agents/skills/medpaper-pipeline/SKILL.md",
     "reference/antigravity-integration.md",
+    "reference/clinical_lexicon.toml",
+    "reference/csl/vancouver-brackets.csl",
     "pipeline/pipeline.toml",
     "tools/wf.py",
     "reference/methods-structure.md",

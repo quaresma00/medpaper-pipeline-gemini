@@ -10,7 +10,7 @@ their actual clinical context and named values from executed code; never retrofi
 results to satisfy a writing gate.
 
 Read `reference/r-first.md`: do not default every method to Python. R statistical producers
-write the same full-precision result JSON/provenance. Keep one producer per finding and
+write the same full-precision result JSON/provenance (source `tools/analysis/results.R` + `tools/analysis/clinical_exports.R` to emit `study_facts`-ready `{context, values}` nodes for Table 1 continuous/categorical SMD, GLM OR/RR/beta, Cox HR + Schoenfeld PH checks, and RCS summaries). Keep one producer per finding and
 separate S05 statistical computation from S11 display-only R rendering.
 
 ## Purpose

@@ -1,4 +1,4 @@
-# S15 - Deep-read the papers that carry the Discussion
+# S15 - Deep-read the core full texts BEFORE writing Introduction & Discussion
 
 Registration also checks the acquired article's own identity. Do not accept a DOI found
 in a bibliography as proof. For PDF/title-only cases, inspect the actual first page and
@@ -7,21 +7,22 @@ get explicit reader confirmation; `fulltext.py confirm --citekey KEY --confirmed
 not an automatic AI verdict. Wrong identities block; never invent user confirmation.
 
 ## Purpose
-Read the sources needed for real method/result comparisons and competing explanations.
+Obtain and read the full texts required for **both** Introduction (mechanistic chain, precise gap) and Discussion (method/result comparisons, competing explanations) **before** drafting S14 Introduction or S16 Discussion, and consolidate any paywalled PDF requests into a single user handoff.
 Reuse the S07 full texts already read; obtain further sources only for unresolved arguments.
 There is no fixed deep-read quantity; substantive coverage, source identity and notes matter.
 
 ## Procedure
-1. Select the papers that the Discussion genuinely depends on. Typically:
+1. Select all papers whose full text is genuinely required for Introduction and Discussion (plus any non-candidate no-abstract entries from `library.json`). Typically:
+   - the foundational mechanistic/burden papers anchoring the Introduction's specific gap,
    - the closest prior study on the same question (whatever the direction of its result),
    - the study that most disagrees with your finding,
    - the methodological reference your approach stands on,
    - the largest or most authoritative study in the area,
    - the paper a reviewer will ask "why does your result differ from this one".
    Selection is by argumentative need, not by impact factor.
-2. Fetch full text across automated routes (Europe PMC / PMC, Unpaywall, OpenAlex, plus automatic DOI-verified Sci-Hub mirror fallback). Any mirror presenting a CAPTCHA or anti-bot gate is skipped automatically without evasion:
+2. Fetch all selected full texts in **one unified batch** across automated routes (Europe PMC / PMC, Unpaywall, OpenAlex, plus automatic DOI-verified Sci-Hub mirror fallback; `--from-library-no-abstract` includes any remaining no-abstract library entries):
 ```
-uv run python tools/pubmed/fulltext.py fetch --citekey smith2023 --citekey lee2021
+uv run python tools/pubmed/fulltext.py fetch --citekey smith2023 --citekey lee2021 --from-library-no-abstract
 ```
    Retrieved files are saved to `06_refs/fulltext/` and recorded in `06_refs/fulltext/retrieval_manifest.json`.
 3. If `fulltext.py fetch` leaves missing items (exit code 2), STOP and show `project/.wf/pending_fulltext_requests.md` (citekey, Title, PMID, DOI link) directly to the user so they can provide the local PDF(s) to register:

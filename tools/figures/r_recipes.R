@@ -247,18 +247,53 @@ medpaper_roc <- function(data, legend_title=NULL) {
     ggplot2::labs(x="1 - Specificity",y="Sensitivity",colour=legend_title) + medpaper_theme()
 }
 
-medpaper_calibration <- function(data, probability_label="Outcome probability") {
+medpaper_calibration <- function(data, probability_label="Outcome probability",
+                                 ci_band=FALSE, metric_label=NULL,
+                                 distribution_data=NULL, dist_bins=30L, dist_height=0.26) {
   medpaper_require("ggplot2")
   medpaper_check_numeric(data,c("predicted","observed"))
   if (!"group" %in% names(data) || any(data$predicted<0 | data$predicted>1 | data$observed<0 | data$observed>1)) stop("Invalid approved calibration coordinates/groups")
   data$group <- medpaper_label(data$group)
   probability_label <- medpaper_label(probability_label)
-  ggplot2::ggplot(data,ggplot2::aes(x=predicted,y=observed,colour=group,group=group)) +
-    ggplot2::geom_abline(slope=1,intercept=0,linetype="dashed",linewidth=.3,colour="grey50") +
+  p_cal <- ggplot2::ggplot(data,ggplot2::aes(x=predicted,y=observed,colour=group,group=group)) +
+    ggplot2::geom_abline(slope=1,intercept=0,linetype="dashed",linewidth=.3,colour="grey50")
+  if (isTRUE(ci_band) && all(c("lower", "upper") %in% names(data))) {
+    medpaper_check_numeric(data, c("lower", "upper"))
+    p_cal <- p_cal + ggplot2::geom_ribbon(
+      ggplot2::aes(ymin=lower, ymax=upper, fill=group), alpha=0.14, colour=NA, show.legend=FALSE)
+  }
+  p_cal <- p_cal +
     ggplot2::geom_line(linewidth=.5) + ggplot2::geom_point(size=1.5) +
     ggplot2::coord_equal(xlim=c(0,1),ylim=c(0,1)) +
     ggplot2::labs(x=paste("Predicted",tolower(probability_label)),y=paste("Observed",tolower(probability_label))) + medpaper_theme()
+  if (!is.null(metric_label) && nzchar(trimws(metric_label))) {
+    p_cal <- p_cal + ggplot2::annotate(
+      "text", x=0.03, y=0.94, label=trimws(metric_label),
+      hjust=0, vjust=1, size=8.3/ggplot2::.pt, colour="black")
+  }
+  if (is.null(distribution_data)) return(p_cal)
+
+  medpaper_require("patchwork")
+  medpaper_check_numeric(distribution_data, "predicted")
+  if (any(distribution_data$predicted < 0 | distribution_data$predicted > 1))
+    stop("Calibration distribution predicted probabilities must lie in [0, 1]")
+  p_cal_top <- p_cal +
+    ggplot2::coord_cartesian(xlim=c(0, 1), ylim=c(0, 1)) +
+    ggplot2::labs(x=NULL) +
+    ggplot2::theme(axis.text.x=ggplot2::element_blank(),
+                   axis.ticks.x=ggplot2::element_blank(),
+                   plot.margin=ggplot2::margin(2, 4, 1, 4, unit="mm"))
+  p_dist <- ggplot2::ggplot(distribution_data, ggplot2::aes(x=predicted)) +
+    ggplot2::geom_histogram(bins=as.integer(dist_bins), fill="grey75", colour="grey30", linewidth=0.25) +
+    ggplot2::coord_cartesian(xlim=c(0, 1)) +
+    ggplot2::labs(x=paste("Predicted", tolower(probability_label)), y="Count") +
+    medpaper_theme() +
+    ggplot2::theme(plot.margin=ggplot2::margin(0.5, 4, 2.5, 4, unit="mm"))
+  composed <- patchwork::wrap_plots(p_cal_top, p_dist, ncol=1L, heights=c(1, dist_height))
+  list(plot=composed, panels=list(p_cal_top, p_dist))
 }
+
+medpaper_calibration_composite <- medpaper_calibration
 
 # Neutral selection diagram for cohorts/records (supports single or multi-source roots,
 # multi-reason exclusion detail lists, and optional orthogonal CONSORT/STROBE connectors).
@@ -462,7 +497,9 @@ medpaper_plot_groups <- function(data, fields) {
 
 # A dose-response curve (including an already-fitted restricted cubic spline), not
 # a spline estimator: exported reference, coordinates and uncertainty stay unchanged.
-medpaper_dose_response <- function(data, x_label, y_label, null=NULL) {
+medpaper_dose_response <- function(data, x_label, y_label, null=NULL,
+                                   ref_exposure=NULL, p_label=NULL,
+                                   distribution_data=NULL, dist_bins=30L, dist_height=0.28) {
   medpaper_check_numeric(data,c("exposure","estimate","lower","upper"))
   medpaper_plot_groups(data,"group")
   if(any(data$lower>data$estimate | data$estimate>data$upper) || anyDuplicated(data[c("group","exposure")])) stop("Complete unique dose/interval coordinates required")
@@ -476,8 +513,42 @@ medpaper_dose_response <- function(data, x_label, y_label, null=NULL) {
     if(length(null)!=1L || !is.finite(null)) stop("Explicit finite reference value required")
     p <- p+ggplot2::geom_hline(yintercept=null,linetype="dashed",linewidth=.3)
   }
-  p
+  if(!is.null(ref_exposure)) {
+    if(length(ref_exposure)!=1L || !is.finite(ref_exposure)) stop("Explicit finite ref_exposure required")
+    p <- p + ggplot2::geom_vline(xintercept=ref_exposure, linetype="dotted", linewidth=.35, colour="grey35")
+  }
+  if(!is.null(p_label) && nzchar(trimws(p_label))) {
+    x_rng <- range(data$exposure, na.rm=TRUE)
+    y_rng <- range(c(data$lower, data$upper), na.rm=TRUE)
+    p <- p + ggplot2::annotate(
+      "text", x=x_rng[1] + 0.03 * diff(x_rng), y=y_rng[2] - 0.05 * diff(y_rng),
+      label=trimws(p_label), hjust=0, vjust=1, size=8.3/ggplot2::.pt, colour="black")
+  }
+  if(is.null(distribution_data)) return(p)
+
+  medpaper_require("patchwork")
+  medpaper_check_numeric(distribution_data, "exposure")
+  x_lims <- range(c(data$exposure, distribution_data$exposure), na.rm=TRUE)
+  p_top <- p +
+    ggplot2::coord_cartesian(xlim=x_lims) +
+    ggplot2::labs(x=NULL) +
+    ggplot2::theme(axis.text.x=ggplot2::element_blank(),
+                   axis.ticks.x=ggplot2::element_blank(),
+                   plot.margin=ggplot2::margin(2, 4, 1, 4, unit="mm"))
+  p_hist <- ggplot2::ggplot(distribution_data, ggplot2::aes(x=exposure)) +
+    ggplot2::geom_histogram(bins=as.integer(dist_bins), fill="grey78", colour="grey30", linewidth=0.25) +
+    ggplot2::coord_cartesian(xlim=x_lims) +
+    ggplot2::labs(x=x_label, y="Count") +
+    medpaper_theme() +
+    ggplot2::theme(plot.margin=ggplot2::margin(0.5, 4, 2.5, 4, unit="mm"))
+  if(!is.null(ref_exposure)) {
+    p_hist <- p_hist + ggplot2::geom_vline(xintercept=ref_exposure, linetype="dotted", linewidth=.35, colour="grey35")
+  }
+  composed <- patchwork::wrap_plots(p_top, p_hist, ncol=1L, heights=c(1, dist_height))
+  list(plot=composed, panels=list(p_top, p_hist))
 }
+
+medpaper_rcs_composite <- medpaper_dose_response
 
 medpaper_decision_curve <- function(data, y_label="Net benefit") {
   medpaper_check_numeric(data,c("threshold","net_benefit"));medpaper_plot_groups(data,"group")

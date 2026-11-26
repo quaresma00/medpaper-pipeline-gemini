@@ -1756,6 +1756,268 @@ class V132ArchitectureTests(unittest.TestCase):
             self.assertIn("Table 1", rec_out.read_text(encoding="utf-8"))
             self.assertIn("Figure 1", rec_out.read_text(encoding="utf-8"))
 
+    def test_15_six_workflow_optimizations_end_to_end(self) -> None:
+        """Test all 6 upgrades: R clinical_exports + fact bootstrap/claim scaffold, S15->S14 order & deepread roles, author preset/checklist, bundled CSLs, composite RCS/calibration, and clinical_lexicon.toml."""
+        from manuscript import build_docx, sync_claims
+        from tables.threeline import write_table
+        from wfcore import authorblock, claims, registry
+        from wfcore.checks import Ctx, get, load_all
+        from wfcore.state import State
+
+        load_all()
+        pipe = registry.load()
+
+        # 1) Verify S15_deepread precedes S14_introduction and S16_discussion
+        sids = [s.id for s in pipe.stages]
+        self.assertLess(sids.index("S13_reflib"), sids.index("S15_deepread"))
+        self.assertLess(sids.index("S15_deepread"), sids.index("S14_introduction"))
+        self.assertLess(sids.index("S14_introduction"), sids.index("S16_discussion"))
+
+        # 2) Verify declarative clinical_lexicon.toml loaded 23+ families including specialty clinical metrics
+        for fam in (
+            "objective_response_rate",
+            "vaccine_efficacy",
+            "number_needed_to_treat",
+            "longitudinal_slope",
+            "win_ratio",
+            "intraclass_correlation",
+        ):
+            self.assertIn(fam, claims.MEASURE_FAMILIES)
+        self.assertIn("objective_response_rate", claims.measure_families("ORR was 42.5%"))
+        self.assertIn("win_ratio", claims.measure_families("Primary composite WR 1.38"))
+        self.assertIn("intraclass_correlation", claims.measure_families("Inter-reader ICC 0.91"))
+        self.assertEqual(claims.measure_families("patients with stage II or stage III disease"), set())
+
+        # 3) Verify all 8 bundled medical CSL styles resolve and compile cleanly via pandoc --citeproc
+        expected_csls = {
+            "vancouver.csl",
+            "vancouver-brackets.csl",
+            "vancouver-superscript.csl",
+            "ama.csl",
+            "nature.csl",
+            "thelancet.csl",
+            "elsevier-vancouver.csl",
+            "apa.csl",
+        }
+        actual_csls = {p.name for p in (ROOT / "reference/csl").glob("*.csl")}
+        self.assertTrue(expected_csls.issubset(actual_csls), msg=actual_csls)
+        self.assertEqual(build_docx.resolve_csl_path("jama").name, "ama.csl")
+        self.assertEqual(build_docx.resolve_csl_path("springer").name, "vancouver-brackets.csl")
+
+        pandoc_bin = shutil.which("pandoc")
+        if pandoc_bin:
+            with tempfile.TemporaryDirectory() as csl_td:
+                ctd = Path(csl_td)
+                bib = ctd / "t.bib"
+                bib.write_text(
+                    "@article{smith2025,\n  author={Smith, John A. and Doe, Jane B.},\n  title={Clinical trial outcome},\n  journal={J Clin Med},\n  year={2025},\n  volume={12},\n  number={3},\n  pages={101-109},\n  doi={10.1000/jcm.2025.1}\n}\n",
+                    encoding="utf-8",
+                )
+                md = ctd / "t.md"
+                md.write_text("Prior evidence confirmed efficacy [@smith2025].\n\n# References\n", encoding="utf-8")
+                for csl_name in sorted(expected_csls):
+                    csl_file = build_docx.resolve_csl_path(csl_name)
+                    res_p = subprocess.run(
+                        [pandoc_bin, str(md), "--citeproc", "--bibliography", str(bib), "--csl", str(csl_file), "-t", "plain"],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertEqual(res_p.returncode, 0, msg=f"CSL {csl_name} failed pandoc: {res_p.stderr}")
+                    self.assertIn("Smith", res_p.stdout)
+
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "project"
+            for d in (
+                "00_input",
+                "01_protocol",
+                "03_analysis/results",
+                "04_tables/main",
+                "06_refs/deepread",
+                "07_manuscript",
+                ".wf",
+            ):
+                (proj / d).mkdir(parents=True, exist_ok=True)
+            st = State(proj, ".wf").create("medpaper", "1.32.0", "S09_results")
+
+            # 4) Verify S15/S16 deepread_cited role scoping (introduction vs discussion)
+            (proj / "06_refs/deepread/deepread_index.json").write_text(
+                json.dumps({
+                    "selected": [
+                        {"citekey": "intro_mech2024", "role": "introduction"},
+                        {"citekey": "disc_comp2025", "role": "discussion"},
+                    ]
+                }),
+                encoding="utf-8",
+            )
+            (proj / "07_manuscript/introduction.md").write_text("# Introduction\n\nMechanism established [@intro_mech2024].\n", encoding="utf-8")
+            (proj / "07_manuscript/discussion.md").write_text("# Discussion\n\nCompared with prior cohort [@disc_comp2025].\n", encoding="utf-8")
+            self.assertTrue(
+                get("deepread_cited")(Ctx(pipe, st, proj, pipe.stage("S16_discussion"), {"path": "07_manuscript/discussion.md"})).ok
+            )
+            self.assertTrue(
+                get("deepread_cited")(Ctx(pipe, st, proj, pipe.stage("S14_introduction"), {"path": "07_manuscript/introduction.md"})).ok
+            )
+
+            # 5) Verify reusable author profile save/import & S20-S21 combined intake checklist
+            profile_file = Path(td) / "author_profile.json"
+            (proj / "00_input/author_info.json").write_text(
+                json.dumps({
+                    "authors": [{"name": "Alice Chen", "affiliations": ["1"], "orcid": "0000-0002-1825-0097"}],
+                    "affiliations": [{"id": "1", "name": "Department of Cardiology, University Hospital"}],
+                    "corresponding": {"name": "Alice Chen", "email": "alice@example.org", "address": "100 Medical Ave, City"},
+                    "funding": "Supported by Clinical Science Grant 2025-01.",
+                    "conflicts_of_interest": "None declared.",
+                    "ethics_approval": "IRB-STUDY-SPECIFIC-999",
+                }),
+                encoding="utf-8",
+            )
+            rc_save, save_info = authorblock.sync_author_profile(proj, profile_path=profile_file, save_to_profile=True)
+            self.assertEqual(rc_save, 0, msg=save_info)
+            saved_prof_obj = json.loads(profile_file.read_text(encoding="utf-8"))
+            self.assertNotIn("ethics_approval", saved_prof_obj)
+
+            proj2 = Path(td) / "project2"
+            (proj2 / ".wf").mkdir(parents=True)
+            rc_imp, imp_info = authorblock.sync_author_profile(proj2, profile_path=profile_file)
+            self.assertEqual(rc_imp, 0, msg=imp_info)
+            chk_items = authorblock.missing_intake_checklist(proj2)
+            self.assertTrue(any("Alice Chen" in item for item in chk_items), msg=chk_items)
+
+            # 6) Verify R clinical_exports.R + composite RCS/calibration plots + --bootstrap-facts + --scaffold-claims
+            rscript = shutil.which("Rscript")
+            if rscript:
+                r_test = Path(td) / "run_exports_and_plots.R"
+                out_json = (proj / "03_analysis/results/clinical_summary.json").as_posix()
+                cal_pdf = (Path(td) / "cal_comp.pdf").as_posix()
+                rcs_pdf = (Path(td) / "rcs_comp.pdf").as_posix()
+                r_code = f"""
+source("{(ROOT / 'tools/figures/r_style.R').as_posix()}")
+source("{(ROOT / 'tools/figures/r_recipes.R').as_posix()}")
+source("{(ROOT / 'tools/analysis/clinical_exports.R').as_posix()}")
+medpaper_label <- function(x) x
+medpaper_colours <- function(n, palette="okabe_ito") rep("#0072B2", n)
+
+set.seed(42)
+n_sim <- 40L
+age <- round(rnorm(n_sim, mean=62, sd=8), 1)
+grp <- factor(rep(c("Intervention", "Standard care"), each=n_sim/2L), levels=c("Intervention", "Standard care"))
+sex <- factor(sample(c("Female", "Male"), n_sim, replace=TRUE), levels=c("Female", "Male"))
+
+cont_res <- medpaper_export_continuous(age, grp, var_label="Baseline age", population="Eligible adult cohort", unit="years")
+cat_res <- medpaper_export_categorical(sex, grp, var_label="Biological sex", population="Eligible adult cohort")
+
+trt_num <- as.integer(grp == "Intervention")
+evt_glm <- rbinom(n_sim, 1L, prob=ifelse(trt_num == 1L, 0.35, 0.25))
+df_glm <- data.frame(event=evt_glm, trt=trt_num, age=age)
+fit_glm <- glm(event ~ trt + age, data=df_glm, family=binomial())
+glm_res <- medpaper_export_glm_effect(
+  fit_glm, term="trt", outcome="30-day complication",
+  population="Eligible adult cohort", comparison="Intervention vs Standard care",
+  model_label="Multivariable logistic regression model", timepoint="30-day follow-up", n_events=sum(evt_glm)
+)
+
+if (requireNamespace("survival", quietly=TRUE)) {{
+  t_surv <- round(rexp(n_sim, rate=ifelse(trt_num == 1L, 0.06, 0.09)) + 1.0, 2)
+  s_surv <- rbinom(n_sim, 1L, prob=0.7)
+  df_surv <- data.frame(time=t_surv, status=s_surv, trt=trt_num, age=age)
+  fit_cox <- survival::coxph(survival::Surv(time, status) ~ trt + age, data=df_surv)
+  cox_res <- medpaper_export_cox_hr(
+    fit_cox, term="trt", outcome="All-cause mortality",
+    population="Eligible adult cohort", comparison="Intervention vs Standard care",
+    model_label="Multivariable Cox regression model", timepoint="24-month follow-up"
+  )
+  stopifnot(!is.null(cox_res$values$hr), !is.null(cox_res$values$ph_p_global))
+}} else {{
+  cox_res <- list()
+}}
+
+payload <- list(age = cont_res$overall, sex = cat_res$overall, primary_or = glm_res, primary_cox = cox_res)
+writeLines(jsonlite::toJSON(payload, auto_unbox=TRUE, digits=6, pretty=TRUE), "{out_json}")
+
+# Verify composite calibration & composite RCS return list(plot, panels) while plain calls return ggplot
+cal_df <- data.frame(predicted=c(0.1, 0.5, 0.8), observed=c(0.12, 0.48, 0.79), lower=c(0.05, 0.38, 0.68), upper=c(0.20, 0.58, 0.89), group="Derivation")
+dist_cal <- data.frame(predicted=seq(0.05, 0.95, length.out=40))
+p_cal_plain <- medpaper_calibration(cal_df)
+stopifnot(inherits(p_cal_plain, "gg"))
+comp_cal <- medpaper_calibration_composite(cal_df, ci_band=TRUE, metric_label="Brier = 0.09", distribution_data=dist_cal)
+stopifnot(is.list(comp_cal), length(comp_cal$panels) == 2L)
+ggplot2::ggsave("{cal_pdf}", comp_cal$plot, width=5, height=5)
+
+rcs_df <- data.frame(exposure=c(10, 20, 30, 40), estimate=c(0.85, 1.00, 1.35, 1.80), lower=c(0.65, 1.00, 1.10, 1.30), upper=c(1.10, 1.00, 1.66, 2.50), group="Overall")
+dist_rcs <- data.frame(exposure=seq(8, 42, length.out=50))
+comp_rcs <- medpaper_rcs_composite(rcs_df, "Biomarker (ng/mL)", "Adjusted hazard ratio", null=1, ref_exposure=20, p_label="P overall = 0.004", distribution_data=dist_rcs)
+stopifnot(is.list(comp_rcs), length(comp_rcs$panels) == 2L)
+ggplot2::ggsave("{rcs_pdf}", comp_rcs$plot, width=5, height=5)
+"""
+                r_test.write_text(r_code, encoding="utf-8")
+                r_proc = subprocess.run([rscript, str(r_test)], capture_output=True, text=True, check=False)
+                self.assertEqual(r_proc.returncode, 0, msg=f"R clinical_exports/composite plots failed:\n{r_proc.stderr}\n{r_proc.stdout}")
+                self.assertTrue(Path(cal_pdf).is_file())
+                self.assertTrue(Path(rcs_pdf).is_file())
+
+                # Now run --bootstrap-facts on the R-exported JSON -> zero pending context!
+                rc_boot = sync_claims.main(["--project", str(proj), "--bootstrap-facts"])
+                self.assertEqual(rc_boot, 0)
+                boot_facts = json.loads((proj / "01_protocol/study_facts.json").read_text(encoding="utf-8"))["numeric_facts"]
+                self.assertGreaterEqual(len(boot_facts), 3)
+                for f_entry in boot_facts.values():
+                    for cv in f_entry["context"].values():
+                        self.assertNotEqual(cv, "PENDING_CLINICAL_CONTEXT")
+
+                # Build a three-line table and Results prose using exact exported values, then run --scaffold-claims!
+                exported_raw = json.loads(Path(out_json).read_text(encoding="utf-8"))
+                sex_vals = exported_raw["sex"]["values"]
+                age_vals = exported_raw["age"]["values"]
+                n_fem = sex_vals["n_female"]
+                n_tot = sex_vals["n_nonmissing"]
+                pct_fem = f"{sex_vals['pct_female']:.1f}"
+                age_mean = f"{age_vals['mean']:.1f}"
+                age_sd = f"{age_vals['sd']:.2f}"
+
+                tbl_path = proj / "04_tables/main/Table_1.xlsx"
+                write_table(
+                    tbl_path,
+                    sheet="Table 1",
+                    title="Table 1. Baseline characteristics of the eligible adult cohort.",
+                    header=["Characteristic", "Overall cohort"],
+                    rows=[
+                        ["Baseline age, mean (SD), years", f"{age_mean} ({age_sd})"],
+                        ["Female biological sex, n (%)", f"{n_fem} ({pct_fem}%)"],
+                    ],
+                    footnotes=["Abbreviations: SD, standard deviation."],
+                )
+                (proj / "07_manuscript/results.md").write_text(
+                    "# Results\n\n"
+                    f"In the Eligible adult cohort (Overall cohort) at Baseline, descriptive proportions showed Female biological sex in {n_fem} of {n_tot} participants ({pct_fem}%).\n",
+                    encoding="utf-8",
+                )
+
+                rc_scaf = sync_claims.main(["--project", str(proj), "--scaffold-claims"])
+                self.assertEqual(rc_scaf, 0, msg=(proj / "07_manuscript/claim_bindings.json").read_text(encoding="utf-8"))
+                self.assertEqual(
+                    claims.validate_prose(proj, "07_manuscript/results.md", (proj / "07_manuscript/results.md").read_text(encoding="utf-8")),
+                    [],
+                )
+                self.assertEqual(claims.validate_tables(proj, [tbl_path]), [])
+
+                # Negative guard: ambiguous twin facts with identical numbers must emit AMBIGUOUS_SELECT_ONE (never guess!)
+                raw_doc = json.loads(Path(out_json).read_text(encoding="utf-8"))
+                twin_node = json.loads(json.dumps(raw_doc["age"]))
+                twin_node["context"]["population"] = "Alternative cohort B"
+                raw_doc["age_alt"] = twin_node
+                Path(out_json).write_text(json.dumps(raw_doc, indent=2), encoding="utf-8")
+                self.assertEqual(sync_claims.main(["--project", str(proj), "--bootstrap-facts"]), 0)
+                (proj / "07_manuscript/claim_bindings.json").unlink()
+                (proj / "07_manuscript/results.md").write_text(
+                    f"# Results\n\nBaseline age was {age_mean} ({age_sd}) years.\n",
+                    encoding="utf-8",
+                )
+                rc_amb = sync_claims.main(["--project", str(proj), "--scaffold-claims", "--file", "07_manuscript/results.md"])
+                self.assertEqual(rc_amb, 2)
+                amb_saved = json.loads((proj / "07_manuscript/claim_bindings.json").read_text(encoding="utf-8"))
+                self.assertEqual(amb_saved["claims"][0]["fact_ids"], ["AMBIGUOUS_SELECT_ONE"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -45,7 +45,7 @@ uncertainty; a successful model run is not the result narrative.
    the exact source effect scale or its controlled clinical abbreviation (e.g. `hazard ratio` /
    `HR`, never swapping `HR`, `RR` and `OR`), and any non-95% confidence interval must match
    an explicit `interval_level` in the executed fact. Keep provenance metadata in
-   `07_manuscript/claim_bindings.json` and existing analysis notes, never in published prose.
+   `07_manuscript/claim_bindings.json` (run `uv run python tools/manuscript/sync_claims.py --scaffold-claims --file 07_manuscript/results.md` after drafting to auto-generate unambiguous sentence bindings, proportion keys, and fingerprints, then resolve any flagged `AMBIGUOUS_SELECT_ONE` items) and existing analysis notes, never in published prose.
 
 ## Outputs
 - `07_manuscript/results.md`

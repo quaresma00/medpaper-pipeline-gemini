@@ -21,7 +21,7 @@ The authoritative master template defaults on this machine to `F:\workspace\medp
 
 ## Execution Loop & Core Commands
 
-Read `AGENTS.md` once and load routed `reference/*.md` guides on demand (`wf card <STAGE> --details` on first pass of split stages). Note the display-first sequence: **`S07_artifacts` -> `S10_tables` -> `S11_figures` -> `S11b_prewrite_review` -> `S08_methods` -> `S09_results` -> `S12_reconcile`**.
+Read `AGENTS.md` once and load routed `reference/*.md` guides on demand (`wf card <STAGE> --details` on first pass of split stages). Note the display-first and deepread-first sequences: **`S07_artifacts` -> `S10_tables` -> `S11_figures` -> `S11b_prewrite_review` -> `S08_methods` -> `S09_results` -> `S12_reconcile` -> `S13_reflib` -> `S15_deepread` -> `S14_introduction` -> `S16_discussion`**.
 
 | Command | Purpose |
 |---|---|
@@ -35,8 +35,10 @@ Read `AGENTS.md` once and load routed `reference/*.md` guides on demand (`wf car
 | `uv run python tools/tables/render_preview.py --all [--changed]` | Three-line table PNG preview & layout QC |
 | `uv run python tools/figures/render_r.py --all [--changed]` | Parallel R clinical figure renderer |
 | `uv run python tools/text/polish.py section --file <md> --snapshot\|--verify\|--reanchor` | Immediate per-section clinical de-AI polish & safe re-anchor |
-| `uv run python tools/manuscript/sync_claims.py [--reanchor]` | Sync fact/claim fingerprints and re-anchor wording-only edits |
+| `uv run python tools/manuscript/sync_claims.py [--bootstrap-facts\|--scaffold-claims\|--reanchor]` | Bootstrap `study_facts.json`, scaffold table/prose bindings, or re-anchor edits |
 | `uv run python tools/manuscript/reconcile.py` | Auto-generate S12 artifact-prose `reconciliation.md` |
+| `uv run python tools/manuscript/author_block.py profile\|checklist\|sync` | Reusable author preset, combined S20-S21 checklist, and single-source sync |
+| `uv run python tools/manuscript/build_docx.py list-csl\|build\|audit` | Build DOCX uploads using bundled offline medical CSLs (`reference/csl/`) |
 | `uv run python tools/review_round.py start\|ingest\|close\|decide` | Version-bound read-only subagent review rounds (S11b/S18/S19/S24) |
 | `uv run python tools/rework.py batch\|check\|mark --auto-changed\|close` | In-place scoped revisions without rewinding completed stages |
 
