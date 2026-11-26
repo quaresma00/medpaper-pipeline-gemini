@@ -104,7 +104,38 @@ def audit_svg(path, metadata):
         p for p in panels
         if any(l.get("geom") not in non_axis_table_geoms and l.get("rows", 0) > 0 for l in sequence(p.get("layers")))
     ] or panels
-    labels_present = bool(axis_panels) and all(p.get("x_label") and p.get("y_label") for p in axis_panels)
+
+    def _same_axis_span(r1, r2, key: str) -> bool:
+        a, b = sequence(r1.get(key)), sequence(r2.get(key))
+        if len(a) != 2 or len(b) != 2:
+            return False
+        try:
+            a0, a1, b0, b1 = float(a[0]), float(a[1]), float(b[0]), float(b[1])
+        except (TypeError, ValueError):
+            return False
+        span = max(1e-6, abs(a1 - a0), abs(b1 - b0))
+        return abs(a0 - b0) <= 0.08 * span and abs(a1 - b1) <= 0.08 * span
+
+    def _panel_axis_labelled(p: dict, which: str) -> bool:
+        lbl_key = "x_label" if which == "x" else "y_label"
+        if p.get(lbl_key):
+            return True
+        p_ranges = sequence(p.get("ranges"))
+        if not p_ranges:
+            return False
+        # Resolve shared-axis multi-panel layouts (e.g. stacked shared-x or side-by-side shared-y)
+        for other in panels:
+            if other is p or not other.get(lbl_key):
+                continue
+            for r_self in p_ranges:
+                if any(_same_axis_span(r_self, r_oth, which) for r_oth in sequence(other.get("ranges"))):
+                    return True
+        return False
+
+    labels_present = bool(axis_panels) and all(
+        _panel_axis_labelled(p, "x") and _panel_axis_labelled(p, "y")
+        for p in axis_panels
+    )
     null = any(v in (0, 1) for l in layers if l.get("geom") == "GeomVline" for v in sequence(l.get("xintercept")))
     diagonal = any(1 in sequence(l.get("slope")) and 0 in sequence(l.get("intercept")) for l in layers if l.get("geom") == "GeomAbline")
     ranges = [r for p in panels for r in sequence(p.get("ranges"))]
@@ -124,8 +155,12 @@ def audit_svg(path, metadata):
             # Flag long vertical reference/axis lines piercing through multi-char header/label text boxes
             if len(b["text"]) >= 4 and (bx0 + 3.0) < vx < (bx1 - 3.0) and vy0 < (by0 + 1.0) and vy1 > (by1 - 1.0):
                 line_text_collisions.append({"text": b["text"][:50], "vline_x": round(vx, 1)})
-    equal = bool(ranges) and all(len(sequence(r.get("x"))) == 2 and len(sequence(r.get("y"))) == 2 and
-                all(abs(x-y) < 1e-8 for x, y in zip(sequence(r["x"]), sequence(r["y"]))) for r in ranges)
+    equal = bool(ranges) and any(
+        len(sequence(r.get("x"))) == 2
+        and len(sequence(r.get("y"))) == 2
+        and all(abs(x - y) < 1e-8 for x, y in zip(sequence(r["x"]), sequence(r["y"])))
+        for r in ranges
+    )
     stats = any(
         re.search(
             r"(?:\b(?:a?HR|sHR|csHR|a?OR|a?RR|a?IRR|AUC|AUROC|n|P|r)\s*(?:[=<>≤≥]|\d|\()|"

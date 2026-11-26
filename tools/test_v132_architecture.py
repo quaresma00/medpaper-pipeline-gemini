@@ -1884,83 +1884,126 @@ class V132ArchitectureTests(unittest.TestCase):
             chk_items = authorblock.missing_intake_checklist(proj2)
             self.assertTrue(any("Alice Chen" in item for item in chk_items), msg=chk_items)
 
-            # 6) Verify R clinical_exports.R + composite RCS/calibration plots + --bootstrap-facts + --scaffold-claims
+            # 6) Verify method-agnostic R/Python fact builders + native patchwork auto-unpacking + shared-axis/heterogeneous multi-panel r_audit + comparator_composite + --bootstrap-facts/--scaffold-claims
+            from analysis.results import context_template, fact_node
+            from figures import r_audit
+
+            base_py_ctx = context_template(population="Experimental or clinical cohort", timepoint="Endpoint", denominator="40 samples")
+            py_node = fact_node(
+                {"fold_change": 2.45, "p_adj": 0.0012},
+                ctx=base_py_ctx,
+                outcome="Gene expression fold change",
+                comparison="Treated vs Control",
+                model="Empirical Bayes moderated test",
+                unit="fold change",
+            )
+            self.assertEqual(py_node["context"]["outcome"], "Gene expression fold change")
+
+            # Verify comparator_composite requires comparator_basis in artifact_plan_sane
+            (proj / "01_protocol/artifact_plan.json").write_text(
+                json.dumps({
+                    "main_figures": [{
+                        "id": "Figure 1",
+                        "title": "Figure 1. Multi-panel comparator layout.",
+                        "content": "Panel A + Panel B.",
+                        "file": "05_figures/out/Figure1.png",
+                        "pdf": "05_figures/out/Figure1.pdf",
+                        "script": "05_figures/code/fig1.R",
+                        "renderer": "R",
+                        "width": "double",
+                        "archetype": "comparator_composite",
+                        "source_results": ["03_analysis/results/clinical_summary.json"],
+                    }],
+                    "main_tables": [],
+                }),
+                encoding="utf-8",
+            )
+            self.assertFalse(get("artifact_plan_sane")(Ctx(pipe, st, proj, pipe.stage("S07_artifacts"), {})).ok)
+            (proj / "01_protocol/artifact_plan.json").write_text(
+                json.dumps({
+                    "main_figures": [{
+                        "id": "Figure 1",
+                        "title": "Figure 1. Multi-panel comparator layout.",
+                        "content": "Panel A + Panel B.",
+                        "file": "05_figures/out/Figure1.png",
+                        "pdf": "05_figures/out/Figure1.pdf",
+                        "script": "05_figures/code/fig1.R",
+                        "renderer": "R",
+                        "width": "double",
+                        "archetype": "comparator_composite",
+                        "comparator_basis": "Modeled on @smith2025 Figure 2A-C heterogeneous multi-panel design",
+                        "source_results": ["03_analysis/results/clinical_summary.json"],
+                    }],
+                    "main_tables": [],
+                }),
+                encoding="utf-8",
+            )
+            self.assertTrue(get("artifact_plan_sane")(Ctx(pipe, st, proj, pipe.stage("S07_artifacts"), {})).ok)
+
             rscript = shutil.which("Rscript")
             if rscript:
                 r_test = Path(td) / "run_exports_and_plots.R"
                 out_json = (proj / "03_analysis/results/clinical_summary.json").as_posix()
-                cal_pdf = (Path(td) / "cal_comp.pdf").as_posix()
-                rcs_pdf = (Path(td) / "rcs_comp.pdf").as_posix()
+                svg_shared = (Path(td) / "shared_multi.svg").as_posix()
+                meta_shared = (Path(td) / "shared_multi.json").as_posix()
                 r_code = f"""
 source("{(ROOT / 'tools/figures/r_style.R').as_posix()}")
 source("{(ROOT / 'tools/figures/r_recipes.R').as_posix()}")
 source("{(ROOT / 'tools/analysis/clinical_exports.R').as_posix()}")
-medpaper_label <- function(x) x
-medpaper_colours <- function(n, palette="okabe_ito") rep("#0072B2", n)
+library(patchwork)
 
-set.seed(42)
-n_sim <- 40L
-age <- round(rnorm(n_sim, mean=62, sd=8), 1)
-grp <- factor(rep(c("Intervention", "Standard care"), each=n_sim/2L), levels=c("Intervention", "Standard care"))
-sex <- factor(sample(c("Female", "Male"), n_sim, replace=TRUE), levels=c("Female", "Male"))
+# Ensure mold functions are absent while generic fact packaging works for ANY study design
+stopifnot(!exists("medpaper_rcs_composite"), !exists("medpaper_calibration_composite"))
 
-cont_res <- medpaper_export_continuous(age, grp, var_label="Baseline age", population="Eligible adult cohort", unit="years")
-cat_res <- medpaper_export_categorical(sex, grp, var_label="Biological sex", population="Eligible adult cohort")
-
-trt_num <- as.integer(grp == "Intervention")
-evt_glm <- rbinom(n_sim, 1L, prob=ifelse(trt_num == 1L, 0.35, 0.25))
-df_glm <- data.frame(event=evt_glm, trt=trt_num, age=age)
-fit_glm <- glm(event ~ trt + age, data=df_glm, family=binomial())
-glm_res <- medpaper_export_glm_effect(
-  fit_glm, term="trt", outcome="30-day complication",
-  population="Eligible adult cohort", comparison="Intervention vs Standard care",
-  model_label="Multivariable logistic regression model", timepoint="30-day follow-up", n_events=sum(evt_glm)
+base_ctx <- medpaper_context(population="Eligible adult cohort", timepoint="Baseline", denominator="40 participants")
+age_node <- medpaper_fact(
+  list(n_total=40L, n_nonmissing=40L, mean=62.4, sd=8.12),
+  outcome="Baseline age", comparison="Overall cohort", model="Descriptive summary", unit="years", ctx=base_ctx
 )
-
-if (requireNamespace("survival", quietly=TRUE)) {{
-  t_surv <- round(rexp(n_sim, rate=ifelse(trt_num == 1L, 0.06, 0.09)) + 1.0, 2)
-  s_surv <- rbinom(n_sim, 1L, prob=0.7)
-  df_surv <- data.frame(time=t_surv, status=s_surv, trt=trt_num, age=age)
-  fit_cox <- survival::coxph(survival::Surv(time, status) ~ trt + age, data=df_surv)
-  cox_res <- medpaper_export_cox_hr(
-    fit_cox, term="trt", outcome="All-cause mortality",
-    population="Eligible adult cohort", comparison="Intervention vs Standard care",
-    model_label="Multivariable Cox regression model", timepoint="24-month follow-up"
-  )
-  stopifnot(!is.null(cox_res$values$hr), !is.null(cox_res$values$ph_p_global))
-}} else {{
-  cox_res <- list()
-}}
-
-payload <- list(age = cont_res$overall, sex = cat_res$overall, primary_or = glm_res, primary_cox = cox_res)
+sex_node <- medpaper_fact(
+  list(n_total=40L, n_nonmissing=40L, n_female=18L, pct_female=45.0),
+  outcome="Biological sex", comparison="Overall cohort", model="Descriptive proportions", unit="percentage",
+  percentage_basis="Available non-missing Biological sex observations (N = 40) at Baseline", ctx=base_ctx
+)
+payload <- list(age = age_node, sex = sex_node)
 writeLines(jsonlite::toJSON(payload, auto_unbox=TRUE, digits=6, pretty=TRUE), "{out_json}")
 
-# Verify composite calibration & composite RCS return list(plot, panels) while plain calls return ggplot
-cal_df <- data.frame(predicted=c(0.1, 0.5, 0.8), observed=c(0.12, 0.48, 0.79), lower=c(0.05, 0.38, 0.68), upper=c(0.20, 0.58, 0.89), group="Derivation")
-dist_cal <- data.frame(predicted=seq(0.05, 0.95, length.out=40))
-p_cal_plain <- medpaper_calibration(cal_df)
-stopifnot(inherits(p_cal_plain, "gg"))
-comp_cal <- medpaper_calibration_composite(cal_df, ci_band=TRUE, metric_label="Brier = 0.09", distribution_data=dist_cal)
-stopifnot(is.list(comp_cal), length(comp_cal$panels) == 2L)
-ggplot2::ggsave("{cal_pdf}", comp_cal$plot, width=5, height=5)
+# Build a custom comparator-style 3-panel native patchwork figure:
+# Left top + bottom share X axis [0, 10] (top omits redundant x_label); Right panel is 0-1 ROC (1:1 equal limits)
+df_a <- data.frame(x=c(1, 5, 9), y=c(2.1, 4.5, 3.8))
+p1 <- ggplot2::ggplot(df_a, ggplot2::aes(x=x, y=y)) + ggplot2::geom_line() +
+  ggplot2::coord_cartesian(xlim=c(0, 10)) + ggplot2::labs(x=NULL, y="Signal intensity") + medpaper_theme()
+p2 <- ggplot2::ggplot(df_a, ggplot2::aes(x=x, y=y)) + ggplot2::geom_point() +
+  ggplot2::coord_cartesian(xlim=c(0, 10)) + ggplot2::labs(x="Time (hours)", y="Sample count") + medpaper_theme()
+df_roc <- data.frame(fpr=c(0, 0.2, 1), tpr=c(0, 0.85, 1))
+p3 <- ggplot2::ggplot(df_roc, ggplot2::aes(x=fpr, y=tpr)) +
+  ggplot2::geom_abline(slope=1, intercept=0, linetype="dashed") + ggplot2::geom_path() +
+  ggplot2::coord_equal(xlim=c(0, 1), ylim=c(0, 1)) + ggplot2::labs(x="1 - Specificity", y="Sensitivity") + medpaper_theme()
 
-rcs_df <- data.frame(exposure=c(10, 20, 30, 40), estimate=c(0.85, 1.00, 1.35, 1.80), lower=c(0.65, 1.00, 1.10, 1.30), upper=c(1.10, 1.00, 1.66, 2.50), group="Overall")
-dist_rcs <- data.frame(exposure=seq(8, 42, length.out=50))
-comp_rcs <- medpaper_rcs_composite(rcs_df, "Biomarker (ng/mL)", "Adjusted hazard ratio", null=1, ref_exposure=20, p_label="P overall = 0.004", distribution_data=dist_rcs)
-stopifnot(is.list(comp_rcs), length(comp_rcs$panels) == 2L)
-ggplot2::ggsave("{rcs_pdf}", comp_rcs$plot, width=5, height=5)
+native_pw <- (p1 / p2) | p3
+extracted <- medpaper_extract_panels(native_pw)
+stopifnot(length(extracted) == 3L)
+
+svglite::svglite("{svg_shared}", width=7, height=4.5, bg="white")
+meta <- list(panels = Filter(Negate(is.null), lapply(extracted, medpaper_layers)))
+print(native_pw)
+grDevices::dev.off()
+jsonlite::write_json(meta, "{meta_shared}", auto_unbox=TRUE, null="null")
 """
                 r_test.write_text(r_code, encoding="utf-8")
                 r_proc = subprocess.run([rscript, str(r_test)], capture_output=True, text=True, check=False)
-                self.assertEqual(r_proc.returncode, 0, msg=f"R clinical_exports/composite plots failed:\n{r_proc.stderr}\n{r_proc.stdout}")
-                self.assertTrue(Path(cal_pdf).is_file())
-                self.assertTrue(Path(rcs_pdf).is_file())
+                self.assertEqual(r_proc.returncode, 0, msg=f"R universal packaging/patchwork failed:\n{r_proc.stderr}\n{r_proc.stdout}")
+
+                # Verify r_audit resolves shared X axis across stacked panels AND allows mixed ROC + non-ROC equal_axes_limits!
+                rep_svg = r_audit.audit_svg(Path(svg_shared), json.loads(Path(meta_shared).read_text(encoding="utf-8")))
+                self.assertTrue(rep_svg["elements"]["axis_labels"]["found"], msg=rep_svg["elements"])
+                self.assertTrue(rep_svg["elements"]["equal_axes_limits"]["found"], msg=rep_svg["elements"])
 
                 # Now run --bootstrap-facts on the R-exported JSON -> zero pending context!
                 rc_boot = sync_claims.main(["--project", str(proj), "--bootstrap-facts"])
                 self.assertEqual(rc_boot, 0)
                 boot_facts = json.loads((proj / "01_protocol/study_facts.json").read_text(encoding="utf-8"))["numeric_facts"]
-                self.assertGreaterEqual(len(boot_facts), 3)
+                self.assertEqual(len(boot_facts), 2)
                 for f_entry in boot_facts.values():
                     for cv in f_entry["context"].values():
                         self.assertNotEqual(cv, "PENDING_CLINICAL_CONTEXT")

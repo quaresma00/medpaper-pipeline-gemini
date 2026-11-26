@@ -28,6 +28,69 @@ def set_seed(seed: int) -> None:
         sys.modules["numpy"].random.seed(seed)
 
 
+def context_template(
+    *,
+    outcome: str | None = None,
+    population: str | None = None,
+    comparison: str | None = None,
+    model: str | None = None,
+    timepoint: str | None = None,
+    unit: str | None = None,
+    denominator: str | None = None,
+    percentage_basis: str | None = None,
+    interval_level: float | int | None = None,
+) -> dict:
+    """Reusable method-agnostic context base for study_facts-ready result nodes."""
+    raw = {
+        "outcome": outcome,
+        "population": population,
+        "comparison": comparison,
+        "model": model,
+        "timepoint": timepoint,
+        "unit": unit,
+        "denominator": denominator,
+        "percentage_basis": percentage_basis,
+        "interval_level": interval_level,
+    }
+    return {k: v for k, v in raw.items() if v is not None}
+
+
+def fact_node(
+    values: dict,
+    *,
+    ctx: dict | None = None,
+    data: object = None,
+    **overrides,
+) -> dict:
+    """Package arbitrary method-agnostic scalar statistics with complete 7-key provenance context."""
+    if not isinstance(values, dict) or not values:
+        raise ValueError("values must be a non-empty dict of finite numbers")
+    clean_vals: dict[str, int | float] = {}
+    for k, v in values.items():
+        if v is None:
+            continue
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise ValueError(f"fact_node value {k!r} must be a finite int/float")
+        json.dumps(v, allow_nan=False)
+        clean_vals[str(k)] = v
+    if not clean_vals:
+        raise ValueError("fact_node requires at least one finite numeric value")
+
+    merged = dict(ctx or {})
+    for k, v in overrides.items():
+        if v is not None:
+            merged[k] = v
+    for req in ("outcome", "population", "comparison", "model", "timepoint", "unit", "denominator"):
+        val = merged.get(req)
+        if not isinstance(val, str) or not val.strip():
+            raise ValueError(f"fact_node missing context field {req!r}")
+        merged[req] = val.strip()
+    node: dict[str, object] = {"context": merged, "values": clean_vals}
+    if data is not None:
+        node["data"] = data
+    return node
+
+
 def baseline_counts(values, groups=None, *, levels=None) -> dict:
     """All category levels, including both binary levels, with explicit denominators."""
     import pandas as pd

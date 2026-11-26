@@ -20,12 +20,20 @@ medpaper_theme <- function(base_size = 10, family = "Arial") {
 
 medpaper_palette <- c("#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9")
 
-# Optional journal-inspired colours; not a journal requirement or a quality certificate.
+# Optional journal-inspired or custom colours; never restricts comparator-matched palettes.
 medpaper_colours <- function(n, palette="okabe_ito") {
   if (length(n)!=1L || !is.finite(n) || n<1 || n!=as.integer(n)) stop("Positive integer colour count required")
+  if (is.character(palette) && length(palette) > 1L) {
+    if (length(palette) < n || anyNA(palette)) stop("Custom colour vector shorter than group count")
+    return(palette[seq_len(n)])
+  }
   if (palette=="okabe_ito") {
-    if(n>length(medpaper_palette)) stop("Choose an explicit palette for more groups; do not recycle colours")
+    if (n > length(medpaper_palette)) stop("Choose an explicit palette for more groups; do not recycle colours")
     return(medpaper_palette[seq_len(n)])
+  }
+  if (palette %in% c("viridis", "cividis", "plasma", "magma", "hcl_dark3")) {
+    hcl_name <- if (palette == "hcl_dark3") "Dark 3" else tools::toTitleCase(palette)
+    return(grDevices::hcl.colors(n, palette = hcl_name))
   }
   palettes <- c(nejm="pal_nejm", lancet="pal_lancet", jama="pal_jama", jco="pal_jco")
   if(!palette %in% names(palettes)) stop("Unknown selected palette")
@@ -35,19 +43,49 @@ medpaper_colours <- function(n, palette="okabe_ito") {
   colours
 }
 
-# Independent panel letters at the outer upper-left corner; titles remain separate.
-# Supply these same component plots to medpaper_save(..., panels=panels).
-medpaper_compose <- function(panels, ncol = 1L, labels = LETTERS[seq_along(panels)]) {
+# Recursively unpack leaf ggplot panels from any native patchwork tree (e.g. (p1 | p2) / p3)
+# so comparator-driven native patchwork layouts never require manual panel extraction.
+medpaper_extract_panels <- function(obj) {
+  if (inherits(obj, "patchwork")) {
+    sub_list <- if (is.list(obj$patches$plots)) obj$patches$plots else list()
+    current <- obj
+    current$patches <- NULL
+    class(current) <- setdiff(class(current), "patchwork")
+    out <- list()
+    for (item in sub_list) out <- c(out, medpaper_extract_panels(item))
+    if (inherits(current, "ggplot") && (length(current$layers) > 0L || length(current$data) > 0L || !length(out))) {
+      out <- c(out, list(current))
+    }
+    return(out)
+  }
+  if (inherits(obj, "ggplot")) return(list(obj))
+  list()
+}
+
+# Flexible multi-panel composition supporting arbitrary patchwork design matrices, widths, heights, and shared guides.
+medpaper_compose <- function(panels, ncol = NULL, nrow = NULL, design = NULL,
+                             widths = NULL, heights = NULL, guides = "keep",
+                             labels = LETTERS[seq_along(panels)]) {
   medpaper_require(c("ggplot2", "patchwork"))
-  if (!is.list(panels) || length(panels)<2L || length(labels)!=length(panels) ||
-      anyNA(labels) || anyDuplicated(labels) || any(!grepl("^[A-Z]$", labels)) ||
-      length(ncol)!=1L || !is.finite(ncol) || ncol<1L || ncol!=as.integer(ncol) || ncol>length(panels))
-    stop("Use actual component panels, unique uppercase labels and valid column count.")
-  (patchwork::wrap_plots(panels, ncol=as.integer(ncol)) +
-     patchwork::plot_annotation(tag_levels=list(labels))) &
-    ggplot2::theme(plot.tag.position=c(0,1),
-                   plot.tag=ggplot2::element_text(size=10,face="bold",hjust=0,vjust=1,colour="black"),
-                   plot.margin=ggplot2::margin(6,4,4,6,unit="mm"))
+  if (!is.list(panels) || length(panels) < 2L)
+    stop("Supply at least two component ggplot panels.")
+  if (!is.null(labels)) {
+    if (length(labels) != length(panels) || anyNA(labels) || anyDuplicated(labels) || any(!grepl("^[A-Z]$", labels)))
+      stop("Panel labels must be unique uppercase letters (or NULL when unlabelled).")
+  }
+  if (is.null(ncol) && is.null(nrow) && is.null(design)) ncol <- 1L
+  wrapped <- patchwork::wrap_plots(
+    panels, ncol = if (is.null(ncol)) NULL else as.integer(ncol),
+    nrow = if (is.null(nrow)) NULL else as.integer(nrow),
+    design = design, widths = widths, heights = heights, guides = guides
+  )
+  if (!is.null(labels)) {
+    wrapped <- wrapped + patchwork::plot_annotation(tag_levels = list(labels))
+  }
+  wrapped &
+    ggplot2::theme(plot.tag.position = c(0, 1),
+                   plot.tag = ggplot2::element_text(size = 10, face = "bold", hjust = 0, vjust = 1, colour = "black"),
+                   plot.margin = ggplot2::margin(6, 4, 4, 6, unit = "mm"))
 }
 
 # Display strings only: never rename data levels, populations or model objects.
@@ -207,8 +245,17 @@ medpaper_layers <- function(plot) {
 }
 
 medpaper_save <- function(plot, stem, width = "single", height_mm = 75, dpi = 600,
-                         panels = list(plot), tiff = FALSE) {
+                         panels = NULL, tiff = FALSE) {
   medpaper_require(c("ggplot2", "jsonlite", "ragg", "svglite", "systemfonts"))
+  if (is.list(plot) && !inherits(plot, c("ggplot", "grob", "gTree", "gtable")) && !is.null(plot$plot)) {
+    if (is.null(panels) && is.list(plot$panels)) panels <- plot$panels
+    plot <- plot$plot
+  }
+  if (is.null(panels)) {
+    panels <- if (inherits(plot, "patchwork")) medpaper_extract_panels(plot) else list(plot)
+  } else if (inherits(plot, "patchwork") && length(panels) == 1L && identical(panels[[1]], plot)) {
+    panels <- medpaper_extract_panels(plot)
+  }
   has_nonempty <- function(x) is.character(x) && length(x) > 0L && any(nzchar(trimws(x)))
   check_no_subtitle_or_caption <- function(item) {
     if (inherits(item, "ggplot")) {

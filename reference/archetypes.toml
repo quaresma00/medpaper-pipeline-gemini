@@ -257,3 +257,13 @@ use_for = "Methodologically justified assessment within an actual meta-analysis"
 requires = ["individual_points"]
 advisory = ["effect_scale_declared", "precision_axis_declared", "asymmetry_limits_explained"]
 notes = "Do not infer publication bias from appearance alone; use the approved meta-analysis object's implementation."
+
+[archetype.comparator_composite]
+label = "Comparator-guided multi-panel or domain-specific figure"
+domain = "Comparator-driven"
+use_for = "Heterogeneous multi-panel layouts or specialized domain plots modeled directly on S07 published SCIE comparators"
+requires = ["baseline_zero"]
+advisory = ["panel_labels_clear", "comparator_layout_justified"]
+notes = """Figure types and panel composition follow S07 published comparator articles and study data rather than rigid single-chart molds.
+Requires `comparator_basis` in artifact_plan.json citing the specific comparator paper(s) and figure(s) that informed this design.
+All physical publication gates (font floor, line width, zero text/line collision, zero clipping, clinical labels, and numeric provenance) remain strictly enforced."""

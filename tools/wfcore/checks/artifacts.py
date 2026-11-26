@@ -135,6 +135,8 @@ def artifact_plan_sane(ctx: Ctx) -> Result:
                 problems.append(f"{tag}: archetype '{arch}' is not in reference/archetypes.toml")
             elif arch == "other" and not e.get("archetype_rationale"):
                 problems.append(f"{tag}: archetype 'other' requires 'archetype_rationale'")
+            elif arch == "comparator_composite" and len(str(e.get("comparator_basis", "")).strip()) < 15:
+                problems.append(f"{tag}: archetype 'comparator_composite' requires 'comparator_basis' citing the S07 comparator figure(s)")
 
     # supplementary tables share one workbook, distinct sheets
     supp = plan.get("supp_tables", [])
